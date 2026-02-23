@@ -7,8 +7,8 @@ hidden = [".pythonlibs"]
 channel = "stable-24_05"
 
 [deployment]
-run = ["uvicorn", "main:app", "--host", "0.0.0.0"]
-deploymentTarget = "cloudrun"
+run = ["gunicorn", "--bind=0.0.0.0:5000", "--reuse-port", "-k", "uvicorn.workers.UvicornWorker", "main:app"]
+deploymentTarget = "autoscale"
 
 [[ports]]
 localPort = 5000
