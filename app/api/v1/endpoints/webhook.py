@@ -17,7 +17,7 @@ def log_event(event_type: str, data: dict):
         "event": event_type,
         **data,
     }
-    print(f"[WEBHOOK] {json.dumps(log_entry)}", flush=True)
+    print(f"[WEBHOOK] {json.dumps(log_entry, default=str)}", flush=True)
 
 
 @router.get("/webhook")
@@ -69,35 +69,88 @@ async def handle_webhook(request: Request):
 
     for entry in payload.entry:
         for change in entry.changes:
-            if change.field == "messages":
-                value = change.value
+            value = change.value
 
-                log_event("WEBHOOK_CHANGE", {
-                    "entry_id": entry.id,
-                    "field": change.field,
-                    "phone_number_id": value.metadata.get("phone_number_id", "unknown"),
-                    "contacts_count": len(value.contacts) if value.contacts else 0,
-                    "messages_count": len(value.messages) if value.messages else 0,
-                    "statuses_count": len(value.statuses) if value.statuses else 0,
-                })
+            log_event("WEBHOOK_CHANGE", {
+                "entry_id": entry.id,
+                "field": change.field,
+                "business_phone": value.metadata.display_phone_number,
+                "phone_number_id": value.metadata.phone_number_id,
+                "contacts_count": len(value.contacts) if value.contacts else 0,
+                "messages_count": len(value.messages) if value.messages else 0,
+                "statuses_count": len(value.statuses) if value.statuses else 0,
+            })
 
-                if value.messages:
-                    for message in value.messages:
-                        log_event("MESSAGE_RECEIVED", {
-                            "from": message.from_,
-                            "message_id": message.id,
-                            "type": message.type,
-                            "timestamp": message.timestamp,
-                            "text": message.text.body if message.text else None,
-                        })
+            if value.contacts:
+                for contact in value.contacts:
+                    log_event("CONTACT_INFO", {
+                        "wa_id": contact.wa_id,
+                        "profile_name": contact.profile.name,
+                    })
 
-                if value.statuses:
-                    for status in value.statuses:
-                        log_event("STATUS_UPDATE", {
-                            "message_id": status.id,
-                            "status": status.status,
-                            "recipient_id": status.recipient_id,
-                            "timestamp": status.timestamp,
-                        })
+            if value.messages:
+                for message in value.messages:
+                    msg_data = {
+                        "from": message.sender,
+                        "message_id": message.id,
+                        "type": message.type,
+                        "timestamp": message.timestamp,
+                    }
+
+                    if message.text:
+                        msg_data["text"] = message.text.body
+                    if message.image:
+                        msg_data["image_id"] = message.image.id
+                        msg_data["image_caption"] = message.image.caption
+                    if message.audio:
+                        msg_data["audio_id"] = message.audio.id
+                        msg_data["is_voice"] = message.audio.voice
+                    if message.video:
+                        msg_data["video_id"] = message.video.id
+                        msg_data["video_caption"] = message.video.caption
+                    if message.document:
+                        msg_data["document_id"] = message.document.id
+                        msg_data["filename"] = message.document.filename
+                    if message.location:
+                        msg_data["latitude"] = message.location.latitude
+                        msg_data["longitude"] = message.location.longitude
+                        msg_data["location_name"] = message.location.name
+                    if message.reaction:
+                        msg_data["reaction_emoji"] = message.reaction.emoji
+                        msg_data["reaction_to"] = message.reaction.message_id
+                    if message.interactive:
+                        msg_data["interactive_type"] = message.interactive.type
+                        if message.interactive.button_reply:
+                            msg_data["button_id"] = message.interactive.button_reply.id
+                            msg_data["button_title"] = message.interactive.button_reply.title
+                        if message.interactive.list_reply:
+                            msg_data["list_id"] = message.interactive.list_reply.id
+                            msg_data["list_title"] = message.interactive.list_reply.title
+                    if message.context:
+                        msg_data["reply_to_message"] = message.context.id
+                        msg_data["reply_to_sender"] = message.context.from_
+
+                    log_event("MESSAGE_RECEIVED", msg_data)
+
+            if value.statuses:
+                for status in value.statuses:
+                    status_data = {
+                        "message_id": status.id,
+                        "status": status.status,
+                        "recipient_id": status.recipient_id,
+                        "timestamp": status.timestamp,
+                    }
+                    if status.conversation:
+                        status_data["conversation_id"] = status.conversation.id
+                        status_data["conversation_origin"] = status.conversation.origin
+                    if status.pricing:
+                        status_data["billable"] = status.pricing.billable
+                        status_data["pricing_category"] = status.pricing.category
+
+                    log_event("STATUS_UPDATE", status_data)
+
+            if value.errors:
+                for error in value.errors:
+                    log_event("WEBHOOK_ERROR", {"error": error})
 
     return Response(status_code=200)
