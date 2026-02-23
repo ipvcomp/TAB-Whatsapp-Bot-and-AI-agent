@@ -1,3 +1,4 @@
+import sys
 import logging
 
 from fastapi import FastAPI
@@ -9,6 +10,7 @@ from app.api.v1.router import api_router
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,8 @@ def create_app() -> FastAPI:
             "version": settings.APP_VERSION,
             "status": "running",
         }
+
+    logger.info(f"Application started: {settings.APP_NAME} v{settings.APP_VERSION}")
 
     return application
 
