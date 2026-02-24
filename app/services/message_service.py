@@ -170,7 +170,7 @@ async def save_inbound_message(
         if is_new:
             logger.info(f"Saved new message: {message.id} from {contact_wa_id}")
         else:
-            logger.info(f"Duplicate message skipped: {message.id}")
+            logger.info(f"Webhook re-delivery skipped (same wamid already stored): {message.id}")
 
         return {"doc": doc, "is_new": is_new}
     except Exception as e:
