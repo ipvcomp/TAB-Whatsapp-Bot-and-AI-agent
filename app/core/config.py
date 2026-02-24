@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     WHATSAPP_API_TOKEN: str = os.getenv("WHATSAPP_API_TOKEN", "")
     WHATSAPP_PHONE_NUMBER_ID: str = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
 
+    MONGODB_URI: str = os.getenv("MONGODB_URI", "")
+    MONGODB_DB_NAME: str = os.getenv("MONGODB_DB_NAME", "tab_wappbot_ai_stg_db")
+
     META_API_VERSION: str = "v21.0"
     META_API_BASE_URL: str = "https://graph.facebook.com"
 

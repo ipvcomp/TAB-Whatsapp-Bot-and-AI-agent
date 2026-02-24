@@ -4,7 +4,10 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from contextlib import asynccontextmanager
+
 from app.core.config import get_settings
+from app.core.database import connect_to_mongodb, close_mongodb_connection
 from app.api.v1.router import api_router
 
 logging.basicConfig(
@@ -15,6 +18,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    await connect_to_mongodb()
+    logger.info("Application startup complete")
+    yield
+    await close_mongodb_connection()
+    logger.info("Application shutdown complete")
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
 
@@ -23,6 +35,7 @@ def create_app() -> FastAPI:
         version=settings.APP_VERSION,
         docs_url="/docs",
         redoc_url="/redoc",
+        lifespan=lifespan,
     )
 
     application.add_middleware(
@@ -42,8 +55,6 @@ def create_app() -> FastAPI:
             "version": settings.APP_VERSION,
             "status": "running",
         }
-
-    logger.info(f"Application started: {settings.APP_NAME} v{settings.APP_VERSION}")
 
     return application
 
