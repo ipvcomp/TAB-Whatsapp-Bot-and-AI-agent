@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query, HTTPException, Request, Response
 
 from app.core.config import get_settings
 from app.models.webhook import WebhookPayload
+from app.services import contact_service, message_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -58,7 +59,6 @@ async def handle_webhook(request: Request):
     log_event("INCOMING_WEBHOOK", {
         "client_ip": request.client.host if request.client else "unknown",
         "object_type": body.get("object", "unknown"),
-        "raw_payload": body,
     })
 
     try:
@@ -69,88 +69,86 @@ async def handle_webhook(request: Request):
 
     for entry in payload.entry:
         for change in entry.changes:
-            value = change.value
-
-            log_event("WEBHOOK_CHANGE", {
-                "entry_id": entry.id,
-                "field": change.field,
-                "business_phone": value.metadata.display_phone_number,
-                "phone_number_id": value.metadata.phone_number_id,
-                "contacts_count": len(value.contacts) if value.contacts else 0,
-                "messages_count": len(value.messages) if value.messages else 0,
-                "statuses_count": len(value.statuses) if value.statuses else 0,
-            })
-
-            if value.contacts:
-                for contact in value.contacts:
-                    log_event("CONTACT_INFO", {
-                        "wa_id": contact.wa_id,
-                        "profile_name": contact.profile.name,
-                    })
-
-            if value.messages:
-                for message in value.messages:
-                    msg_data = {
-                        "from": message.sender,
-                        "message_id": message.id,
-                        "type": message.type,
-                        "timestamp": message.timestamp,
-                    }
-
-                    if message.text:
-                        msg_data["text"] = message.text.body
-                    if message.image:
-                        msg_data["image_id"] = message.image.id
-                        msg_data["image_caption"] = message.image.caption
-                    if message.audio:
-                        msg_data["audio_id"] = message.audio.id
-                        msg_data["is_voice"] = message.audio.voice
-                    if message.video:
-                        msg_data["video_id"] = message.video.id
-                        msg_data["video_caption"] = message.video.caption
-                    if message.document:
-                        msg_data["document_id"] = message.document.id
-                        msg_data["filename"] = message.document.filename
-                    if message.location:
-                        msg_data["latitude"] = message.location.latitude
-                        msg_data["longitude"] = message.location.longitude
-                        msg_data["location_name"] = message.location.name
-                    if message.reaction:
-                        msg_data["reaction_emoji"] = message.reaction.emoji
-                        msg_data["reaction_to"] = message.reaction.message_id
-                    if message.interactive:
-                        msg_data["interactive_type"] = message.interactive.type
-                        if message.interactive.button_reply:
-                            msg_data["button_id"] = message.interactive.button_reply.id
-                            msg_data["button_title"] = message.interactive.button_reply.title
-                        if message.interactive.list_reply:
-                            msg_data["list_id"] = message.interactive.list_reply.id
-                            msg_data["list_title"] = message.interactive.list_reply.title
-                    if message.context:
-                        msg_data["reply_to_message"] = message.context.id
-                        msg_data["reply_to_sender"] = message.context.from_
-
-                    log_event("MESSAGE_RECEIVED", msg_data)
-
-            if value.statuses:
-                for status in value.statuses:
-                    status_data = {
-                        "message_id": status.id,
-                        "status": status.status,
-                        "recipient_id": status.recipient_id,
-                        "timestamp": status.timestamp,
-                    }
-                    if status.conversation:
-                        status_data["conversation_id"] = status.conversation.id
-                        status_data["conversation_origin"] = status.conversation.origin
-                    if status.pricing:
-                        status_data["billable"] = status.pricing.billable
-                        status_data["pricing_category"] = status.pricing.category
-
-                    log_event("STATUS_UPDATE", status_data)
-
-            if value.errors:
-                for error in value.errors:
-                    log_event("WEBHOOK_ERROR", {"error": error})
+            try:
+                await _process_change(entry.id, change)
+            except Exception as e:
+                log_event("PROCESSING_ERROR", {
+                    "entry_id": entry.id,
+                    "error": str(e),
+                })
 
     return Response(status_code=200)
+
+
+async def _process_change(entry_id: str, change):
+    value = change.value
+
+    log_event("WEBHOOK_CHANGE", {
+        "entry_id": entry_id,
+        "field": change.field,
+        "business_phone": value.metadata.display_phone_number,
+        "phone_number_id": value.metadata.phone_number_id,
+        "contacts_count": len(value.contacts) if value.contacts else 0,
+        "messages_count": len(value.messages) if value.messages else 0,
+        "statuses_count": len(value.statuses) if value.statuses else 0,
+    })
+
+    contact_map = {}
+    if value.contacts:
+        for contact in value.contacts:
+            contact_map[contact.wa_id] = contact.profile.name
+
+    if value.messages:
+        for message in value.messages:
+            sender_wa_id = message.sender
+            if not sender_wa_id:
+                log_event("MESSAGE_SKIPPED", {
+                    "message_id": message.id,
+                    "reason": "missing sender wa_id",
+                })
+                continue
+
+            profile_name = contact_map.get(sender_wa_id, "")
+
+            saved_msg = await message_service.save_inbound_message(
+                message=message,
+                metadata=value.metadata,
+                contact_wa_id=sender_wa_id,
+            )
+
+            is_new_message = saved_msg and saved_msg.get("is_new", False)
+
+            saved_contact = await contact_service.upsert_contact(
+                wa_id=sender_wa_id,
+                profile_name=profile_name,
+                phone_number_id=value.metadata.phone_number_id,
+                business_phone=value.metadata.display_phone_number,
+                increment_message_count=is_new_message,
+            )
+
+            log_event("CONTACT_SAVED", {
+                "wa_id": sender_wa_id,
+                "profile_name": saved_contact.get("profile_name", "Unknown") if saved_contact else profile_name or "Unknown",
+                "message_count": saved_contact.get("message_count", 0) if saved_contact else 0,
+            })
+
+            log_event("MESSAGE_SAVED", {
+                "message_id": message.id,
+                "from": sender_wa_id,
+                "type": message.type,
+                "text": message.text.body if message.text else None,
+                "is_new": is_new_message,
+            })
+
+    if value.statuses:
+        for status in value.statuses:
+            log_event("STATUS_UPDATE", {
+                "message_id": status.id,
+                "status": status.status,
+                "recipient_id": status.recipient_id,
+                "timestamp": status.timestamp,
+            })
+
+    if value.errors:
+        for error in value.errors:
+            log_event("WEBHOOK_ERROR", {"error": error})

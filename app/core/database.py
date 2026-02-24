@@ -35,6 +35,8 @@ async def connect_to_mongodb():
         mongodb.connected = True
         logger.info(f"Connected to MongoDB: {settings.MONGODB_DB_NAME}")
         print(f"[DATABASE] Connected to MongoDB: {settings.MONGODB_DB_NAME}", flush=True)
+
+        await _ensure_all_indexes()
     except Exception as e:
         mongodb.client.close()
         mongodb.client = None
@@ -57,3 +59,11 @@ def get_database() -> Optional[AsyncIOMotorDatabase]:
     if not mongodb.connected:
         return None
     return mongodb.db
+
+
+async def _ensure_all_indexes():
+    from app.services import contact_service, message_service
+    await contact_service.ensure_indexes()
+    await message_service.ensure_indexes()
+    logger.info("All database indexes ensured")
+    print("[DATABASE] All indexes ensured", flush=True)
