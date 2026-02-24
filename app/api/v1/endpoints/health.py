@@ -19,8 +19,10 @@ async def health_check():
         except Exception:
             db_status = "error"
 
+    overall = "healthy" if db_status == "connected" else "degraded"
+
     return {
-        "status": "healthy",
+        "status": overall,
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "database": db_status,

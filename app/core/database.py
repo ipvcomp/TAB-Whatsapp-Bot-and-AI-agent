@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 from app.core.config import get_settings
@@ -7,8 +8,9 @@ logger = logging.getLogger(__name__)
 
 
 class MongoDB:
-    client: AsyncIOMotorClient = None
-    db: AsyncIOMotorDatabase = None
+    client: Optional[AsyncIOMotorClient] = None
+    db: Optional[AsyncIOMotorDatabase] = None
+    connected: bool = False
 
 
 mongodb = MongoDB()
@@ -18,7 +20,7 @@ async def connect_to_mongodb():
     settings = get_settings()
     if not settings.MONGODB_URI:
         logger.error("MONGODB_URI is not configured")
-        return
+        raise RuntimeError("MONGODB_URI is not configured")
 
     mongodb.client = AsyncIOMotorClient(
         settings.MONGODB_URI,
@@ -26,23 +28,32 @@ async def connect_to_mongodb():
         minPoolSize=10,
         serverSelectionTimeoutMS=5000,
     )
-    mongodb.db = mongodb.client[settings.MONGODB_DB_NAME]
 
     try:
         await mongodb.client.admin.command("ping")
+        mongodb.db = mongodb.client[settings.MONGODB_DB_NAME]
+        mongodb.connected = True
         logger.info(f"Connected to MongoDB: {settings.MONGODB_DB_NAME}")
         print(f"[DATABASE] Connected to MongoDB: {settings.MONGODB_DB_NAME}", flush=True)
     except Exception as e:
+        mongodb.client.close()
+        mongodb.client = None
+        mongodb.db = None
+        mongodb.connected = False
         logger.error(f"Failed to connect to MongoDB: {e}")
         print(f"[DATABASE] Connection failed: {e}", flush=True)
+        raise RuntimeError(f"Failed to connect to MongoDB: {e}")
 
 
 async def close_mongodb_connection():
     if mongodb.client:
         mongodb.client.close()
+        mongodb.connected = False
         logger.info("MongoDB connection closed")
         print("[DATABASE] MongoDB connection closed", flush=True)
 
 
-def get_database() -> AsyncIOMotorDatabase:
+def get_database() -> Optional[AsyncIOMotorDatabase]:
+    if not mongodb.connected:
+        return None
     return mongodb.db
