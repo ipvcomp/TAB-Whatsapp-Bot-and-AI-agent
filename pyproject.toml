@@ -12,6 +12,8 @@ pydantic-settings = "^2.13.1"
 httpx = "^0.28.1"
 python-dotenv = "^1.2.1"
 gunicorn = "^25.1.0"
+motor = "^3.7.1"
+pymongo = {extras = ["srv"], version = "^4.16.0"}
 
 [tool.pyright]
 # https://github.com/microsoft/pyright/blob/main/docs/configuration.md
