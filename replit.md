@@ -18,7 +18,9 @@ app/
 │           └── health.py    # Health check endpoint (includes DB status)
 ├── models/
 │   └── webhook.py       # Pydantic models for webhook payloads
-├── services/            # Business logic (to be implemented)
+├── services/
+│   ├── contact_service.py  # Contact upsert, retrieval with dedup logic
+│   └── message_service.py  # Message persistence with content extraction
 └── utils/               # Shared utilities (to be implemented)
 main.py                  # Entry point (imports app from app.main)
 ```
@@ -53,6 +55,16 @@ uvicorn main:app --host 0.0.0.0 --port 5000 --reload
 - Database: tab_wappbot_ai_stg_db
 - Async driver via motor with connection pooling (max 50, min 10)
 - Connection managed via FastAPI lifespan events (connect on startup, close on shutdown)
+- Indexes ensured automatically on startup
+
+### Collections
+- **contacts** — Stores WhatsApp contacts (unique on `wa_id`)
+  - Fields: wa_id, profile_name, phone_number_id, business_phone, message_count, is_blocked, tags, metadata, created_at, updated_at, last_message_at
+  - Indexes: wa_id (unique), phone_number_id, last_message_at, created_at
+- **messages** — Stores all inbound messages (unique on `message_id`)
+  - Fields: message_id, contact_wa_id, phone_number_id, business_phone, direction, type, content, context, wa_timestamp, created_at, errors
+  - Indexes: message_id (unique), contact_wa_id, phone_number_id, direction, type, wa_timestamp, compound (contact_wa_id + wa_timestamp)
+  - Supports all message types: text, image, audio, video, document, location, reaction, sticker, interactive, button
 
 ## Meta Webhook Setup
 1. Go to Meta Developer Console > Your App > WhatsApp > Configuration
