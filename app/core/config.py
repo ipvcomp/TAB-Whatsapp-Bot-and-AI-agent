@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     MONGODB_URI: str = os.getenv("MONGODB_URI", "")
     MONGODB_DB_NAME: str = os.getenv("MONGODB_DB_NAME", "tab_wappbot_ai_stg_db")
 
-    META_API_VERSION: str = "v21.0"
+    META_API_VERSION: str = "v22.0"
     META_API_BASE_URL: str = "https://graph.facebook.com"
 
     class Config:

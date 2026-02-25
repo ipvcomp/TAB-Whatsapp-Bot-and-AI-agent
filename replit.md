@@ -19,8 +19,10 @@ app/
 ├── models/
 │   └── webhook.py       # Pydantic models for webhook payloads
 ├── services/
-│   ├── contact_service.py  # Contact upsert, retrieval with dedup logic
-│   └── message_service.py  # Message persistence with content extraction
+│   ├── contact_service.py    # Contact upsert, retrieval with dedup logic
+│   ├── message_service.py    # Message persistence with content extraction
+│   ├── whatsapp_service.py   # Meta Graph API client for sending messages
+│   └── auto_reply_service.py # Static auto-reply logic (temporary, to be replaced with LLM)
 └── utils/               # Shared utilities (to be implemented)
 main.py                  # Entry point (imports app from app.main)
 ```
@@ -29,12 +31,12 @@ main.py                  # Entry point (imports app from app.main)
 - `GET /` - App info
 - `GET /api/v1/health` - Health check (includes database connection status)
 - `GET /api/v1/webhook` - Meta webhook verification (hub.mode, hub.verify_token, hub.challenge)
-- `POST /api/v1/webhook` - Receives WhatsApp message/status webhook events
+- `POST /api/v1/webhook` - Receives WhatsApp message/status webhook events, triggers auto-reply
 
 ## Environment Variables / Secrets
 - `WHATSAPP_VERIFY_TOKEN` - Token for Meta webhook verification
-- `WHATSAPP_API_TOKEN` - Meta Graph API access token (to be configured)
-- `WHATSAPP_PHONE_NUMBER_ID` - WhatsApp Business phone number ID (to be configured)
+- `WHATSAPP_API_TOKEN` - Meta Graph API access token (secret)
+- `WHATSAPP_PHONE_NUMBER_ID` - WhatsApp Business phone number ID (secret)
 - `MONGODB_URI` - MongoDB connection string (secret)
 - `MONGODB_DB_NAME` - Database name (defaults to tab_wappbot_ai_stg_db)
 
@@ -48,7 +50,7 @@ uvicorn main:app --host 0.0.0.0 --port 5000 --reload
 - pydantic-settings for configuration
 - motor (async MongoDB driver) + pymongo
 - httpx for outbound HTTP calls
-- Meta WhatsApp Business Cloud API (Graph API v21.0)
+- Meta WhatsApp Business Cloud API (Graph API v22.0)
 
 ## Database
 - MongoDB Atlas (cluster0.efcvr.mongodb.net)
@@ -61,10 +63,23 @@ uvicorn main:app --host 0.0.0.0 --port 5000 --reload
 - **contacts** — Stores WhatsApp contacts (unique on `wa_id`)
   - Fields: wa_id, profile_name, phone_number_id, business_phone, message_count, is_blocked, tags, metadata, created_at, updated_at, last_message_at
   - Indexes: wa_id (unique), phone_number_id, last_message_at, created_at
-- **messages** — Stores all inbound messages (unique on `message_id`)
-  - Fields: message_id, contact_wa_id, phone_number_id, business_phone, direction, type, content, context, wa_timestamp, created_at, errors
+- **messages** — Stores all inbound AND outbound messages (unique on `message_id`)
+  - Fields: message_id, contact_wa_id, phone_number_id, business_phone, direction (inbound/outbound), type, content, context, wa_timestamp, created_at, errors
   - Indexes: message_id (unique), contact_wa_id, phone_number_id, direction, type, wa_timestamp, compound (contact_wa_id + wa_timestamp)
   - Supports all message types: text, image, audio, video, document, location, reaction, sticker, interactive, button
+
+## Auto-Reply System (Temporary)
+Static pattern-based auto-replies for incoming messages. Will be replaced with LLM integration later.
+- Greeting patterns (hi, hello, hey, salam) → Welcome message
+- Help/support → Support acknowledgment
+- Pricing → Pricing interest acknowledgment
+- Thanks → Thank you response
+- Goodbye → Farewell message
+- Order/delivery → Order inquiry prompt
+- Complaint/issue → Issue acknowledgment
+- Info/about → Information offer
+- Non-text media → Media received acknowledgment
+- Default → General acknowledgment with help prompt
 
 ## Meta Webhook Setup
 1. Go to Meta Developer Console > Your App > WhatsApp > Configuration

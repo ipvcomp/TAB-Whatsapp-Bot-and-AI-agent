@@ -7,6 +7,7 @@ from fastapi import APIRouter, Query, HTTPException, Request, Response
 from app.core.config import get_settings
 from app.models.webhook import WebhookPayload
 from app.services import contact_service, message_service
+from app.services.auto_reply_service import handle_auto_reply
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -139,6 +140,19 @@ async def _process_change(entry_id: str, change):
                 "text": message.text.body if message.text else None,
                 "is_new": is_new_message,
             })
+
+            if is_new_message:
+                reply_result = await handle_auto_reply(
+                    to_wa_id=sender_wa_id,
+                    incoming_text=message.text.body if message.text else None,
+                    message_type=message.type,
+                    phone_number_id=value.metadata.phone_number_id,
+                )
+
+                log_event("AUTO_REPLY", {
+                    "to": sender_wa_id,
+                    "sent": reply_result is not None,
+                })
 
     if value.statuses:
         for status in value.statuses:
