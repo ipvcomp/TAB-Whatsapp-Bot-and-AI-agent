@@ -67,7 +67,9 @@ async def send_text_message(
                 logger.info(f"Message sent to {to}: wamid={wamid}")
                 return response_data
             else:
-                logger.error(f"Failed to send message to {to}: {response.status_code} - {response_data}")
+                error_msg = response_data.get("error", {}).get("message", "Unknown error")
+                error_code = response_data.get("error", {}).get("code", "N/A")
+                logger.error(f"Failed to send message to {to}: HTTP {response.status_code} | Error #{error_code}: {error_msg}")
                 return None
     except httpx.TimeoutException:
         logger.error(f"Timeout sending message to {to}")
