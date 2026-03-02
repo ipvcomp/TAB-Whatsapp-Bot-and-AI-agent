@@ -62,9 +62,10 @@ def get_database() -> Optional[AsyncIOMotorDatabase]:
 
 
 async def _ensure_all_indexes():
-    from app.services import contact_service, message_service, session_service
+    from app.services import contact_service, message_service, session_service, llm_log_service
     await contact_service.ensure_indexes()
     await message_service.ensure_indexes()
     await session_service.ensure_indexes()
+    await llm_log_service.ensure_indexes()
     logger.info("All database indexes ensured")
     print("[DATABASE] All indexes ensured", flush=True)

@@ -63,6 +63,7 @@ async def handle_auto_reply(
     incoming_text: Optional[str],
     message_type: str,
     phone_number_id: Optional[str] = None,
+    in_reply_to: Optional[str] = None,
 ) -> Optional[dict]:
     if message_type != "text":
         reply_text = "Thanks for sending that! 📎 We've received your media. Our team will review it shortly."
@@ -73,6 +74,8 @@ async def handle_auto_reply(
         to=to_wa_id,
         body=reply_text,
         phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="auto_reply",
     )
 
     if result:

@@ -24,6 +24,7 @@ app/
 │   ├── whatsapp_service.py   # Meta Graph API client for sending messages
 │   ├── auto_reply_service.py # Static auto-reply logic (temporary, to be replaced with LLM)
 │   ├── llm_service.py        # LLM integration - builds payloads, calls LLM API
+│   ├── llm_log_service.py    # LLM raw response logging for traceability
 │   └── session_service.py    # User session persistence for LLM conversation state
 └── utils/               # Shared utilities (to be implemented)
 main.py                  # Entry point (imports app from app.main)
@@ -70,24 +71,40 @@ uvicorn main:app --host 0.0.0.0 --port 5000 --reload
   - Fields: wa_id, profile_name, phone_number_id, business_phone, message_count, is_blocked, tags, metadata, created_at, updated_at, last_message_at
   - Indexes: wa_id (unique), phone_number_id, last_message_at, created_at
 - **messages** — Stores all inbound AND outbound messages (unique on `message_id`)
-  - Fields: message_id, contact_wa_id, phone_number_id, business_phone, direction (inbound/outbound), type, content, context, wa_timestamp, created_at, errors
+  - Fields: message_id, contact_wa_id, phone_number_id, business_phone, direction (inbound/outbound), type, content, context, source, wa_timestamp, created_at, errors
+  - `context.in_reply_to` — links outbound message to the inbound message_id it replied to
+  - `source` — origin of outbound message: "llm", "auto_reply"
   - Indexes: message_id (unique), contact_wa_id, phone_number_id, direction, type, wa_timestamp, compound (contact_wa_id + wa_timestamp)
   - Supports all message types: text, image, audio, video, document, location, reaction, sticker, interactive, button
 - **sessions** — Stores LLM conversation state per user (unique on `user_id`)
   - Fields: user_id, phone_number, current_node, first_name, tags, active_trip_id, active_policy_id, active_policy_code, active_claim_id, temp_data, created_at, updated_at
   - Indexes: user_id (unique), updated_at
+- **llm_logs** — Stores raw LLM API request/response for traceability
+  - Fields: inbound_message_id, outbound_message_id, contact_wa_id, request_payload, raw_response, intent_code, intent_confidence, target_node, previous_node, success, error, created_at
+  - `inbound_message_id` — the user message that triggered the LLM call
+  - `outbound_message_id` — the Meta wamid of the reply sent back (null if send failed or no payload)
+  - `raw_response` — complete unmodified LLM API response for full traceability
+  - Indexes: inbound_message_id, outbound_message_id, contact_wa_id, created_at, compound (contact_wa_id + created_at)
 
 ## Message Flow
 1. User sends WhatsApp message → Meta webhook delivers to POST /api/v1/webhook
-2. App saves contact + inbound message to MongoDB
+2. App saves contact + inbound message to MongoDB (with message_id = Meta wamid)
 3. If LLM_API_URL is configured:
    - Retrieves user's session (or creates default with node N01)
    - Builds LLM payload from Meta webhook data + session
    - POSTs to LLM endpoint
    - Sends LLM's whatsapp_payload directly to Meta API
+   - Saves outbound message to MongoDB with `context.in_reply_to` = inbound wamid, `source` = "llm"
+   - Saves raw LLM response to `llm_logs` collection with both inbound + outbound message_id references
    - Saves updated_session for next request
-   - Falls back to static auto-reply if LLM is unreachable
-4. If LLM_API_URL not configured: uses static auto-reply patterns
+   - Falls back to static auto-reply if LLM is unreachable (also logged to llm_logs with success=false)
+4. If LLM_API_URL not configured: uses static auto-reply (outbound saved with `source` = "auto_reply")
+
+### Traceability Chain
+- Inbound message (wamid) → outbound message (wamid) via `context.in_reply_to`
+- Outbound message → LLM log via `llm_logs.outbound_message_id`
+- LLM log → inbound message via `llm_logs.inbound_message_id`
+- LLM log contains full `raw_response` for debugging and audit
 
 ## Auto-Reply System (Fallback)
 Static pattern-based auto-replies used when LLM is not configured or unreachable.

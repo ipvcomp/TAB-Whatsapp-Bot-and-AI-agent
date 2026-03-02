@@ -11,6 +11,7 @@ from app.services.auto_reply_service import handle_auto_reply
 from app.services.session_service import get_session, save_session, build_default_session
 from app.services.llm_service import build_llm_payload, call_llm
 from app.services.whatsapp_service import send_whatsapp_payload
+from app.services.llm_log_service import save_llm_log
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -159,6 +160,7 @@ async def _process_change(entry_id: str, change):
                         incoming_text=message.text.body if message.text else None,
                         message_type=message.type,
                         phone_number_id=value.metadata.phone_number_id,
+                        in_reply_to=message.id,
                     )
                     log_event("AUTO_REPLY", {
                         "to": sender_wa_id,
@@ -180,6 +182,8 @@ async def _process_change(entry_id: str, change):
 
 
 async def _handle_llm_reply(message, sender_wa_id, profile_name, phone_number_id):
+    inbound_message_id = message.id
+
     session = await get_session(sender_wa_id)
     if not session:
         session = build_default_session(
@@ -191,7 +195,7 @@ async def _handle_llm_reply(message, sender_wa_id, profile_name, phone_number_id
     llm_payload = build_llm_payload(message=message, session=session)
 
     log_event("LLM_REQUEST", {
-        "message_id": message.id,
+        "message_id": inbound_message_id,
         "from": sender_wa_id,
         "message_type": llm_payload.get("message_type"),
         "current_node": session.get("current_node"),
@@ -201,16 +205,27 @@ async def _handle_llm_reply(message, sender_wa_id, profile_name, phone_number_id
 
     if not llm_response:
         log_event("LLM_FAILED", {
-            "message_id": message.id,
+            "message_id": inbound_message_id,
             "from": sender_wa_id,
             "fallback": "auto_reply",
         })
+
+        await save_llm_log(
+            inbound_message_id=inbound_message_id,
+            contact_wa_id=sender_wa_id,
+            request_payload=llm_payload,
+            raw_response=None,
+            success=False,
+            error="LLM unreachable or returned error",
+        )
+
         from app.services.auto_reply_service import handle_auto_reply
         await handle_auto_reply(
             to_wa_id=sender_wa_id,
             incoming_text=message.text.body if message.text else None,
             message_type=message.type,
             phone_number_id=phone_number_id,
+            in_reply_to=inbound_message_id,
         )
         return
 
@@ -219,7 +234,7 @@ async def _handle_llm_reply(message, sender_wa_id, profile_name, phone_number_id
     metadata = llm_response.get("processing_metadata", {})
 
     log_event("LLM_RESPONSE", {
-        "message_id": message.id,
+        "message_id": inbound_message_id,
         "intent": metadata.get("intent_code"),
         "confidence": metadata.get("intent_confidence"),
         "target_node": metadata.get("target_node"),
@@ -233,27 +248,61 @@ async def _handle_llm_reply(message, sender_wa_id, profile_name, phone_number_id
             updated_session["phone_number"] = session.get("phone_number", sender_wa_id)
         await save_session(updated_session)
 
+    outbound_message_id = None
+
     if whatsapp_payload:
         if not whatsapp_payload.get("to") or not whatsapp_payload.get("type"):
             log_event("LLM_INVALID_PAYLOAD", {
-                "message_id": message.id,
+                "message_id": inbound_message_id,
                 "missing_to": not whatsapp_payload.get("to"),
                 "missing_type": not whatsapp_payload.get("type"),
             })
+
+            await save_llm_log(
+                inbound_message_id=inbound_message_id,
+                contact_wa_id=sender_wa_id,
+                request_payload=llm_payload,
+                raw_response=llm_response,
+                success=False,
+                error="Invalid whatsapp_payload: missing 'to' or 'type'",
+            )
             return
 
         send_result = await send_whatsapp_payload(
             whatsapp_payload=whatsapp_payload,
             phone_number_id=phone_number_id,
+            in_reply_to=inbound_message_id,
+            source="llm",
         )
+
+        if send_result:
+            outbound_message_id = send_result.get("_wamid")
 
         log_event("LLM_REPLY_SENT", {
             "to": sender_wa_id,
             "type": whatsapp_payload.get("type"),
             "sent": send_result is not None,
+            "outbound_message_id": outbound_message_id,
         })
     else:
         log_event("LLM_NO_PAYLOAD", {
-            "message_id": message.id,
+            "message_id": inbound_message_id,
             "from": sender_wa_id,
         })
+
+    send_succeeded = outbound_message_id is not None
+    log_error = None
+    if whatsapp_payload and not send_result:
+        log_error = "Meta API send failed"
+    elif not whatsapp_payload:
+        log_error = "LLM returned no whatsapp_payload"
+
+    await save_llm_log(
+        inbound_message_id=inbound_message_id,
+        contact_wa_id=sender_wa_id,
+        request_payload=llm_payload,
+        raw_response=llm_response,
+        outbound_message_id=outbound_message_id,
+        success=send_succeeded,
+        error=log_error,
+    )

@@ -16,6 +16,8 @@ async def send_text_message(
     to: str,
     body: str,
     phone_number_id: Optional[str] = None,
+    in_reply_to: Optional[str] = None,
+    source: str = "auto_reply",
 ) -> Optional[dict]:
     payload = {
         "messaging_product": "whatsapp",
@@ -27,12 +29,19 @@ async def send_text_message(
             "body": body,
         },
     }
-    return await send_whatsapp_payload(payload, phone_number_id=phone_number_id)
+    return await send_whatsapp_payload(
+        payload,
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source=source,
+    )
 
 
 async def send_whatsapp_payload(
     whatsapp_payload: dict,
     phone_number_id: Optional[str] = None,
+    in_reply_to: Optional[str] = None,
+    source: str = "llm",
 ) -> Optional[dict]:
     settings = get_settings()
 
@@ -84,10 +93,12 @@ async def send_whatsapp_payload(
                     phone_number_id=pid,
                     msg_type=msg_type,
                     content=content,
+                    in_reply_to=in_reply_to,
+                    source=source,
                 )
 
                 logger.info(f"Message sent to {to}: type={msg_type}, wamid={wamid}")
-                return response_data
+                return {**response_data, "_wamid": wamid}
             else:
                 error_msg = response_data.get("error", {}).get("message", "Unknown error")
                 error_code = response_data.get("error", {}).get("code", "N/A")
@@ -107,6 +118,8 @@ async def _save_outbound_message(
     phone_number_id: str,
     msg_type: str,
     content: dict,
+    in_reply_to: Optional[str] = None,
+    source: str = "auto_reply",
 ) -> None:
     db = get_database()
     if db is None:
@@ -128,7 +141,10 @@ async def _save_outbound_message(
         "direction": "outbound",
         "type": msg_type,
         "content": content,
-        "context": None,
+        "context": {
+            "in_reply_to": in_reply_to,
+        } if in_reply_to else None,
+        "source": source,
         "wa_timestamp": now,
         "created_at": now,
         "errors": None,
@@ -140,6 +156,6 @@ async def _save_outbound_message(
             {"$setOnInsert": doc},
             upsert=True,
         )
-        logger.info(f"Saved outbound message: {message_id} to {to_wa_id}")
+        logger.info(f"Saved outbound message: {message_id} to {to_wa_id} (reply_to={in_reply_to}, source={source})")
     except Exception as e:
         logger.error(f"Failed to save outbound message {message_id}: {e}")
