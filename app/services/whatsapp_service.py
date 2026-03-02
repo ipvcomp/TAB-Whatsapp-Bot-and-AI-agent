@@ -17,6 +17,23 @@ async def send_text_message(
     body: str,
     phone_number_id: Optional[str] = None,
 ) -> Optional[dict]:
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "text",
+        "text": {
+            "preview_url": False,
+            "body": body,
+        },
+    }
+    return await send_whatsapp_payload(payload, phone_number_id=phone_number_id)
+
+
+async def send_whatsapp_payload(
+    whatsapp_payload: dict,
+    phone_number_id: Optional[str] = None,
+) -> Optional[dict]:
     settings = get_settings()
 
     if not settings.WHATSAPP_API_TOKEN:
@@ -35,20 +52,15 @@ async def send_text_message(
         "Content-Type": "application/json",
     }
 
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": to,
-        "type": "text",
-        "text": {
-            "preview_url": False,
-            "body": body,
-        },
-    }
+    to = whatsapp_payload.get("to", "")
+    if to.startswith("+"):
+        whatsapp_payload["to"] = to.lstrip("+")
+
+    msg_type = whatsapp_payload.get("type", "unknown")
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(url, json=payload, headers=headers)
+            response = await client.post(url, json=whatsapp_payload, headers=headers)
             response_data = response.json()
 
             if response.status_code == 200:
@@ -56,15 +68,25 @@ async def send_text_message(
                 if "messages" in response_data and response_data["messages"]:
                     wamid = response_data["messages"][0].get("id")
 
+                content = {}
+                if msg_type == "text":
+                    content = {"text": whatsapp_payload.get("text", {}).get("body", "")}
+                elif msg_type == "interactive":
+                    content = {"interactive": whatsapp_payload.get("interactive", {})}
+                elif msg_type == "template":
+                    content = {"template": whatsapp_payload.get("template", {})}
+                else:
+                    content = {msg_type: whatsapp_payload.get(msg_type, {})}
+
                 await _save_outbound_message(
                     message_id=wamid,
-                    to_wa_id=to,
+                    to_wa_id=whatsapp_payload.get("to", ""),
                     phone_number_id=pid,
-                    msg_type="text",
-                    content={"text": body},
+                    msg_type=msg_type,
+                    content=content,
                 )
 
-                logger.info(f"Message sent to {to}: wamid={wamid}")
+                logger.info(f"Message sent to {to}: type={msg_type}, wamid={wamid}")
                 return response_data
             else:
                 error_msg = response_data.get("error", {}).get("message", "Unknown error")

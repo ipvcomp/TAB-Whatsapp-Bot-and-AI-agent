@@ -25,6 +25,8 @@ expertMode = true
 
 [userenv.shared]
 WHATSAPP_VERIFY_TOKEN = "wa_bot_verify_token_2026"
+LLM_API_URL = "https://nonabstracted-jacqualine-undichotomously.ngrok-free.dev"
+APP_ENV = "staging"
 
 [workflows]
 runButton = "Project"

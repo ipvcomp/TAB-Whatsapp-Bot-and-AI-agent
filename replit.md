@@ -22,7 +22,9 @@ app/
 │   ├── contact_service.py    # Contact upsert, retrieval with dedup logic
 │   ├── message_service.py    # Message persistence with content extraction
 │   ├── whatsapp_service.py   # Meta Graph API client for sending messages
-│   └── auto_reply_service.py # Static auto-reply logic (temporary, to be replaced with LLM)
+│   ├── auto_reply_service.py # Static auto-reply logic (temporary, to be replaced with LLM)
+│   ├── llm_service.py        # LLM integration - builds payloads, calls LLM API
+│   └── session_service.py    # User session persistence for LLM conversation state
 └── utils/               # Shared utilities (to be implemented)
 main.py                  # Entry point (imports app from app.main)
 ```
@@ -39,6 +41,10 @@ main.py                  # Entry point (imports app from app.main)
 - `WHATSAPP_PHONE_NUMBER_ID` - WhatsApp Business phone number ID (secret)
 - `MONGODB_URI` - MongoDB connection string (secret)
 - `MONGODB_DB_NAME` - Database name (defaults to tab_wappbot_ai_stg_db)
+- `APP_ENV` - Environment: "staging" or "production" (defaults to staging)
+- `LLM_API_URL` - LLM service base URL (e.g. ngrok URL for testing)
+- `LLM_API_TIMEOUT` - LLM request timeout in seconds (defaults to 30)
+- `APP_BASE_URL` - Base URL of this app (differs per environment)
 
 ## Running
 ```
@@ -67,9 +73,24 @@ uvicorn main:app --host 0.0.0.0 --port 5000 --reload
   - Fields: message_id, contact_wa_id, phone_number_id, business_phone, direction (inbound/outbound), type, content, context, wa_timestamp, created_at, errors
   - Indexes: message_id (unique), contact_wa_id, phone_number_id, direction, type, wa_timestamp, compound (contact_wa_id + wa_timestamp)
   - Supports all message types: text, image, audio, video, document, location, reaction, sticker, interactive, button
+- **sessions** — Stores LLM conversation state per user (unique on `user_id`)
+  - Fields: user_id, phone_number, current_node, first_name, tags, active_trip_id, active_policy_id, active_policy_code, active_claim_id, temp_data, created_at, updated_at
+  - Indexes: user_id (unique), updated_at
 
-## Auto-Reply System (Temporary)
-Static pattern-based auto-replies for incoming messages. Will be replaced with LLM integration later.
+## Message Flow
+1. User sends WhatsApp message → Meta webhook delivers to POST /api/v1/webhook
+2. App saves contact + inbound message to MongoDB
+3. If LLM_API_URL is configured:
+   - Retrieves user's session (or creates default with node N01)
+   - Builds LLM payload from Meta webhook data + session
+   - POSTs to LLM endpoint
+   - Sends LLM's whatsapp_payload directly to Meta API
+   - Saves updated_session for next request
+   - Falls back to static auto-reply if LLM is unreachable
+4. If LLM_API_URL not configured: uses static auto-reply patterns
+
+## Auto-Reply System (Fallback)
+Static pattern-based auto-replies used when LLM is not configured or unreachable.
 - Greeting patterns (hi, hello, hey, salam) → Welcome message
 - Help/support → Support acknowledgment
 - Pricing → Pricing interest acknowledgment
