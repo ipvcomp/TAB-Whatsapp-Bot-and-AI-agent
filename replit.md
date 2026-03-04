@@ -139,15 +139,18 @@ Triggered by keywords: policy, create policy, /policy, /createpolicy, "i want to
 3. **View Products** — User taps "Create New Policy" → prompt with "View Products" button
 4. **Product List** — Fetches products from external API → WhatsApp list message with all products
 5. **Product Selected** — User picks a product → confirmation message, selection saved to session
+6. **Personal Details** — Collects one-by-one via text: first_name → last_name → email (validated) → nin → account_number
+7. **Payment Method** — Fetches payout methods from API → shows interactive buttons (Bank Transfer / Wallet / Mobile Money)
 
-### Products API
-- URL: `https://dev-ilekun-ipv.ipurvey.com/api/v1/tab-pc/products/by-channel/APP?country=NG`
-- Returns insurance products with: productId, name, coverageTypes, price, currency, validityDays
+### External APIs
+- Products: `https://dev-ilekun-ipv.ipurvey.com/api/v1/tab-pc/products/by-channel/APP?country=NG`
+- Payment Methods: `https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/payout-method/types`
 
 ### User Selection Storage
-- Selected product saved in `session.temp_data.policy_flow.selected_product`
-- Fields: product_id, name, price, currency, validity_days, coverage_types
-- Persists across messages for use in future flow steps (personal details, payment, itinerary)
+- Selected product saved in `policies.selected_product` and `session.temp_data.policy_flow.selected_product`
+- Personal details saved in `policies.personal_details`: first_name, last_name, email, nin, account_number
+- Payment method saved in `policies.payment_method`: BANK_TRANSFER, WALLET, or MOBILE_MONEY
+- All data persists in the `policies` collection per user per policy attempt
 
 ### Message Routing Priority
 1. Policy flow (keyword match OR active flow in session)

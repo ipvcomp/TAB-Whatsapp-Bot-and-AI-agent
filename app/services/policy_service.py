@@ -128,6 +128,19 @@ async def set_product_selection(policy_id: str, product: dict) -> bool:
     })
 
 
+async def set_personal_details(policy_id: str, details: dict) -> bool:
+    return await update_policy(policy_id, {
+        "personal_details": details,
+    })
+
+
+async def set_payment_method(policy_id: str, method: str) -> bool:
+    return await update_policy(policy_id, {
+        "payment_method": method,
+        "status": STATUS_PENDING,
+    })
+
+
 async def cancel_policy(policy_id: str) -> bool:
     return await update_policy(policy_id, {
         "status": STATUS_CANCELLED,

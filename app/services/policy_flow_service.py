@@ -10,12 +10,14 @@ from app.services.session_service import get_session, save_session, build_defaul
 from app.services.whatsapp_service import send_whatsapp_payload, send_text_message
 from app.services.policy_service import (
     create_policy, get_active_draft, set_product_selection, cancel_policy,
+    set_personal_details, set_payment_method,
 )
 
 logger = logging.getLogger(__name__)
 
 PRODUCTS_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/v1/tab-pc/products/by-channel/APP"
 PRODUCTS_API_COUNTRY = "NG"
+PAYOUT_METHODS_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/payout-method/types"
 
 POLICY_KEYWORDS = [
     r"\b(policy|create\s*policy|new\s*policy|purchase\s*policy|buy\s*policy)\b",
@@ -30,11 +32,26 @@ FLOW_STATE_KEY = "policy_flow"
 FLOW_STEP_MENU = "policy_menu"
 FLOW_STEP_PRODUCT_LIST = "product_list"
 FLOW_STEP_PRODUCT_SELECTED = "product_selected"
+FLOW_STEP_PD_FIRST_NAME = "pd_first_name"
+FLOW_STEP_PD_LAST_NAME = "pd_last_name"
+FLOW_STEP_PD_EMAIL = "pd_email"
+FLOW_STEP_PD_NIN = "pd_nin"
+FLOW_STEP_PD_ACCOUNT_NUMBER = "pd_account_number"
+FLOW_STEP_PAYMENT_METHOD = "payment_method"
 
 BUTTON_CREATE_NEW = "policy_create_new"
 BUTTON_SUBMIT_ITINERARY = "policy_submit_itinerary"
 BUTTON_VIEW_PRODUCTS = "policy_view_products"
 PRODUCT_ID_PREFIX = "product_"
+PAYMENT_METHOD_PREFIX = "payout_"
+
+PERSONAL_DETAIL_STEPS = [
+    {"step": FLOW_STEP_PD_FIRST_NAME, "field": "first_name", "prompt": "Please enter your *first name*:"},
+    {"step": FLOW_STEP_PD_LAST_NAME, "field": "last_name", "prompt": "Please enter your *last name*:"},
+    {"step": FLOW_STEP_PD_EMAIL, "field": "email", "prompt": "Please enter your *email address*:"},
+    {"step": FLOW_STEP_PD_NIN, "field": "nin", "prompt": "Please enter your *NIN (National Identification Number)*:"},
+    {"step": FLOW_STEP_PD_ACCOUNT_NUMBER, "field": "account_number", "prompt": "Please enter your *account number*:"},
+]
 
 
 def _is_cancel_command(message: WhatsAppMessage) -> bool:
@@ -169,6 +186,24 @@ async def handle_policy_flow(
         )
     elif current_step == FLOW_STEP_PRODUCT_SELECTED:
         await _handle_product_selected_response(
+            reply_id=reply_id,
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
+    elif current_step in [s["step"] for s in PERSONAL_DETAIL_STEPS]:
+        await _handle_personal_detail_input(
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+            current_step=current_step,
+        )
+    elif current_step == FLOW_STEP_PAYMENT_METHOD:
+        await _handle_payment_method_selection(
             reply_id=reply_id,
             message=message,
             sender_wa_id=sender_wa_id,
@@ -442,7 +477,214 @@ async def _handle_product_selected_response(reply_id, message, sender_wa_id, pho
             f"Price: {selected_product.get('currency', '')} {selected_product.get('price', '')}\n"
             f"Validity: {selected_product.get('validityDays', '')} days\n"
             f"Coverage: {coverage}\n\n"
-            f"Your selection has been saved. The next steps (personal details, payment method, and itinerary) will be available soon.\n\n"
+            f"Now let's capture your personal details."
+        )
+
+        await send_text_message(
+            to=sender_wa_id,
+            body=confirm_text,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+        first_step = PERSONAL_DETAIL_STEPS[0]
+        await send_text_message(
+            to=sender_wa_id,
+            body=first_step["prompt"],
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+        session["active_policy_id"] = policy_id
+        await _update_flow_state(session, sender_wa_id, {
+            "active": True,
+            "step": first_step["step"],
+            "action": "create_new",
+            "selected_product": product_data,
+            "policy_id": policy_id,
+            "personal_details": {},
+        })
+    else:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please select a product from the list above.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+
+def _get_text_input(message: WhatsAppMessage) -> Optional[str]:
+    if message.type == "text" and message.text:
+        return message.text.body.strip()
+    return None
+
+
+def _validate_email(email: str) -> bool:
+    return bool(re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email))
+
+
+async def _handle_personal_detail_input(message, sender_wa_id, phone_number_id, in_reply_to, session, current_step):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+    personal_details = flow_state.get("personal_details", {})
+
+    text_input = _get_text_input(message)
+    if not text_input:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please send a text message with the requested information.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    current_idx = None
+    current_field = None
+    for idx, step_info in enumerate(PERSONAL_DETAIL_STEPS):
+        if step_info["step"] == current_step:
+            current_idx = idx
+            current_field = step_info["field"]
+            break
+
+    if current_idx is None:
+        return
+
+    if current_field == "email" and not _validate_email(text_input):
+        await send_text_message(
+            to=sender_wa_id,
+            body="That doesn't look like a valid email address. Please enter a valid email (e.g. name@example.com):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    personal_details[current_field] = text_input
+
+    next_idx = current_idx + 1
+    if next_idx < len(PERSONAL_DETAIL_STEPS):
+        next_step = PERSONAL_DETAIL_STEPS[next_idx]
+        await send_text_message(
+            to=sender_wa_id,
+            body=next_step["prompt"],
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": next_step["step"],
+            "personal_details": personal_details,
+        })
+    else:
+        if policy_id:
+            await set_personal_details(policy_id, personal_details)
+            logger.info(f"Personal details saved to policy {policy_id}")
+
+        summary = (
+            f"Personal details saved:\n\n"
+            f"Name: {personal_details.get('first_name', '')} {personal_details.get('last_name', '')}\n"
+            f"Email: {personal_details.get('email', '')}\n"
+            f"NIN: {personal_details.get('nin', '')}\n"
+            f"Account Number: {personal_details.get('account_number', '')}\n\n"
+            f"Now let's select your preferred payment method."
+        )
+        await send_text_message(
+            to=sender_wa_id,
+            body=summary,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+        await _send_payment_methods(sender_wa_id, phone_number_id, in_reply_to)
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_PAYMENT_METHOD,
+            "personal_details": personal_details,
+        })
+
+
+async def _fetch_payment_methods() -> Optional[list]:
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(PAYOUT_METHODS_API_URL)
+            if response.status_code == 200:
+                data = response.json()
+                if isinstance(data, list):
+                    return data
+            logger.error(f"Payment methods API error: HTTP {response.status_code}")
+            return None
+    except Exception as e:
+        logger.error(f"Failed to fetch payment methods: {e}")
+        return None
+
+
+PAYMENT_METHOD_LABELS = {
+    "BANK_TRANSFER": "Bank Transfer",
+    "WALLET": "Wallet",
+    "MOBILE_MONEY": "Mobile Money",
+}
+
+
+async def _send_payment_methods(to: str, phone_number_id: str, in_reply_to: str) -> None:
+    methods = await _fetch_payment_methods()
+    if not methods:
+        methods = ["BANK_TRANSFER", "WALLET", "MOBILE_MONEY"]
+
+    buttons = []
+    for method in methods[:3]:
+        buttons.append({
+            "type": "reply",
+            "reply": {
+                "id": f"{PAYMENT_METHOD_PREFIX}{method}",
+                "title": PAYMENT_METHOD_LABELS.get(method, method.replace("_", " ").title())[:20],
+            }
+        })
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {
+                "text": "Please select your preferred payment method:"
+            },
+            "action": {
+                "buttons": buttons
+            }
+        }
+    }
+
+    await send_whatsapp_payload(
+        payload,
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+
+async def _handle_payment_method_selection(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+
+    if reply_id and reply_id.startswith(PAYMENT_METHOD_PREFIX):
+        method = reply_id[len(PAYMENT_METHOD_PREFIX):]
+        label = PAYMENT_METHOD_LABELS.get(method, method.replace("_", " ").title())
+
+        if policy_id:
+            await set_payment_method(policy_id, method)
+            logger.info(f"Payment method '{method}' saved to policy {policy_id}")
+
+        confirm_text = (
+            f"Payment method selected: *{label}*\n\n"
+            f"Your selection has been saved. The remaining steps (bank details, itinerary, and policy submission) will be available soon.\n\n"
             f"Type 'policy' anytime to start a new policy."
         )
 
@@ -456,18 +698,17 @@ async def _handle_product_selected_response(reply_id, message, sender_wa_id, pho
 
         await _update_flow_state(session, sender_wa_id, {
             "active": False,
-            "step": FLOW_STEP_PRODUCT_SELECTED,
+            "step": FLOW_STEP_PAYMENT_METHOD,
             "action": "create_new",
-            "selected_product": product_data,
             "policy_id": policy_id,
+            "selected_product": flow_state.get("selected_product"),
+            "personal_details": flow_state.get("personal_details"),
+            "payment_method": method,
         })
-
-        session["active_policy_id"] = policy_id
-        await save_session(session)
     else:
         await send_text_message(
             to=sender_wa_id,
-            body="Please select a product from the list above.",
+            body="Please select one of the payment method options above.",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
