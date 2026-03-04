@@ -8,6 +8,9 @@ from app.core.config import get_settings
 from app.models.webhook import WhatsAppMessage
 from app.services.session_service import get_session, save_session, build_default_session
 from app.services.whatsapp_service import send_whatsapp_payload, send_text_message
+from app.services.policy_service import (
+    create_policy, get_active_draft, set_product_selection, cancel_policy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +92,11 @@ async def handle_policy_flow(
         )
 
     if _is_cancel_command(message):
+        flow_state = _get_flow_state(session)
+        active_policy_id = flow_state.get("policy_id")
+        if active_policy_id:
+            await cancel_policy(active_policy_id)
+        session["active_policy_id"] = None
         await send_text_message(
             to=sender_wa_id,
             body="Policy flow cancelled. Send any message to continue or type 'policy' to start again.",
@@ -100,10 +108,21 @@ async def handle_policy_flow(
         return
 
     if is_policy_trigger(message):
+        flow_state = _get_flow_state(session)
+        old_policy_id = flow_state.get("policy_id")
+        if old_policy_id:
+            await cancel_policy(old_policy_id)
+
+        phone_number = session.get("phone_number", sender_wa_id)
+        policy = await create_policy(user_id=sender_wa_id, phone_number=phone_number)
+        policy_id = policy.get("policy_id") if policy else None
+
+        session["active_policy_id"] = policy_id
         await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
         await _update_flow_state(session, sender_wa_id, {
             "active": True,
             "step": FLOW_STEP_MENU,
+            "policy_id": policy_id,
         })
         return
 
@@ -111,10 +130,20 @@ async def handle_policy_flow(
     current_step = flow_state.get("step")
 
     if not is_in_policy_flow(session):
+        existing_draft = await get_active_draft(sender_wa_id)
+        if existing_draft:
+            policy_id = existing_draft["policy_id"]
+        else:
+            phone_number = session.get("phone_number", sender_wa_id)
+            policy = await create_policy(user_id=sender_wa_id, phone_number=phone_number)
+            policy_id = policy.get("policy_id") if policy else None
+
+        session["active_policy_id"] = policy_id
         await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
         await _update_flow_state(session, sender_wa_id, {
             "active": True,
             "step": FLOW_STEP_MENU,
+            "policy_id": policy_id,
         })
         return
 
@@ -202,12 +231,16 @@ async def _send_policy_menu(to: str, phone_number_id: str, in_reply_to: str) -> 
 
 
 async def _handle_menu_selection(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+
     if reply_id == BUTTON_CREATE_NEW:
         await _send_view_products_prompt(sender_wa_id, phone_number_id, in_reply_to)
         await _update_flow_state(session, sender_wa_id, {
             "active": True,
             "step": FLOW_STEP_PRODUCT_LIST,
             "action": "create_new",
+            "policy_id": policy_id,
         })
     elif reply_id == BUTTON_SUBMIT_ITINERARY:
         await send_text_message(
@@ -261,6 +294,9 @@ async def _send_view_products_prompt(to: str, phone_number_id: str, in_reply_to:
 
 
 async def _handle_product_list_response(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+
     if reply_id == BUTTON_VIEW_PRODUCTS:
         products = await _fetch_products()
         if not products:
@@ -280,6 +316,7 @@ async def _handle_product_list_response(reply_id, message, sender_wa_id, phone_n
             "step": FLOW_STEP_PRODUCT_SELECTED,
             "action": "create_new",
             "available_products": products,
+            "policy_id": policy_id,
         })
     else:
         await send_text_message(
@@ -367,6 +404,7 @@ async def _handle_product_selected_response(reply_id, message, sender_wa_id, pho
         product_id = reply_id[len(PRODUCT_ID_PREFIX):]
         flow_state = _get_flow_state(session)
         products = flow_state.get("available_products", [])
+        policy_id = flow_state.get("policy_id")
 
         selected_product = None
         for p in products:
@@ -385,11 +423,24 @@ async def _handle_product_selected_response(reply_id, message, sender_wa_id, pho
             await _clear_flow_state(session, sender_wa_id)
             return
 
+        product_data = {
+            "product_id": str(selected_product.get("productId", "")),
+            "name": selected_product.get("name", ""),
+            "price": selected_product.get("price"),
+            "currency": selected_product.get("currency", ""),
+            "validity_days": selected_product.get("validityDays"),
+            "coverage_types": selected_product.get("coverageTypes", []),
+        }
+
+        if policy_id:
+            await set_product_selection(policy_id, product_data)
+            logger.info(f"Product saved to policy {policy_id} for user {sender_wa_id}")
+
         coverage = ", ".join(selected_product.get("coverageTypes", []))
         confirm_text = (
-            f"You've selected *{selected_product['name']}*\n\n"
-            f"Price: {selected_product['currency']} {selected_product['price']}\n"
-            f"Validity: {selected_product['validityDays']} days\n"
+            f"You've selected *{selected_product.get('name', '')}*\n\n"
+            f"Price: {selected_product.get('currency', '')} {selected_product.get('price', '')}\n"
+            f"Validity: {selected_product.get('validityDays', '')} days\n"
             f"Coverage: {coverage}\n\n"
             f"Your selection has been saved. The next steps (personal details, payment method, and itinerary) will be available soon.\n\n"
             f"Type 'policy' anytime to start a new policy."
@@ -407,18 +458,11 @@ async def _handle_product_selected_response(reply_id, message, sender_wa_id, pho
             "active": False,
             "step": FLOW_STEP_PRODUCT_SELECTED,
             "action": "create_new",
-            "selected_product": {
-                "product_id": selected_product["productId"],
-                "name": selected_product["name"],
-                "price": selected_product["price"],
-                "currency": selected_product["currency"],
-                "validity_days": selected_product["validityDays"],
-                "coverage_types": selected_product.get("coverageTypes", []),
-            },
+            "selected_product": product_data,
+            "policy_id": policy_id,
         })
 
-        session["active_policy_id"] = None
-        session["active_policy_code"] = None
+        session["active_policy_id"] = policy_id
         await save_session(session)
     else:
         await send_text_message(

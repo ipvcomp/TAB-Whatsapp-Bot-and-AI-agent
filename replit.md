@@ -26,7 +26,8 @@ app/
 │   ├── llm_service.py        # LLM integration - builds payloads, calls LLM API
 │   ├── llm_log_service.py    # LLM raw response logging for traceability
 │   ├── session_service.py    # User session persistence for LLM conversation state
-│   └── policy_flow_service.py # Static policy creation flow (no LLM)
+│   ├── policy_flow_service.py # Static policy creation flow (no LLM)
+│   └── policy_service.py     # Policy CRUD operations (policies collection)
 └── utils/               # Shared utilities (to be implemented)
 main.py                  # Entry point (imports app from app.main)
 ```
@@ -86,6 +87,12 @@ uvicorn main:app --host 0.0.0.0 --port 5000 --reload
   - `outbound_message_id` — the Meta wamid of the reply sent back (null if send failed or no payload)
   - `raw_response` — complete unmodified LLM API response for full traceability
   - Indexes: inbound_message_id, outbound_message_id, contact_wa_id, created_at, compound (contact_wa_id + created_at)
+- **policies** — Stores policy creation records per user (one record per policy attempt)
+  - Fields: user_id, phone_number, status, selected_product, personal_details, payment_method, bank_details, msisdn_info, channel_info, airport_info, itinerary, submitted_policy, created_at, updated_at
+  - `status` — lifecycle: "draft" → "product_selected" → "pending" → "submitted" → "completed" (or "cancelled")
+  - `selected_product` — stores product_id, name, price, currency, validity_days, coverage_types
+  - Future fields (personal_details, payment_method, etc.) are null until those flow steps are implemented
+  - Indexes: user_id, status, created_at, updated_at, compound (user_id + status), compound (user_id + created_at)
 
 ## Message Flow
 1. User sends WhatsApp message → Meta webhook delivers to POST /api/v1/webhook
