@@ -12,6 +12,7 @@ from app.services.session_service import get_session, save_session, build_defaul
 from app.services.llm_service import build_llm_payload, call_llm
 from app.services.whatsapp_service import send_whatsapp_payload
 from app.services.llm_log_service import save_llm_log
+from app.services.policy_flow_service import is_policy_trigger, is_in_policy_flow, handle_policy_flow
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -147,19 +148,36 @@ async def _process_change(entry_id: str, change):
             })
 
             if is_new_message:
-                if settings.LLM_API_URL:
+                resolved_profile = profile_name or (saved_contact.get("profile_name", "") if saved_contact else "")
+                msg_phone_number_id = value.metadata.phone_number_id
+
+                user_session = await get_session(sender_wa_id)
+                if is_policy_trigger(message) or is_in_policy_flow(user_session):
+                    log_event("POLICY_FLOW", {
+                        "message_id": message.id,
+                        "from": sender_wa_id,
+                        "trigger": "keyword" if is_policy_trigger(message) else "active_flow",
+                    })
+                    await handle_policy_flow(
+                        message=message,
+                        sender_wa_id=sender_wa_id,
+                        profile_name=resolved_profile,
+                        phone_number_id=msg_phone_number_id,
+                        in_reply_to=message.id,
+                    )
+                elif settings.LLM_API_URL:
                     await _handle_llm_reply(
                         message=message,
                         sender_wa_id=sender_wa_id,
-                        profile_name=profile_name or (saved_contact.get("profile_name", "") if saved_contact else ""),
-                        phone_number_id=value.metadata.phone_number_id,
+                        profile_name=resolved_profile,
+                        phone_number_id=msg_phone_number_id,
                     )
                 else:
                     reply_result = await handle_auto_reply(
                         to_wa_id=sender_wa_id,
                         incoming_text=message.text.body if message.text else None,
                         message_type=message.type,
-                        phone_number_id=value.metadata.phone_number_id,
+                        phone_number_id=msg_phone_number_id,
                         in_reply_to=message.id,
                     )
                     log_event("AUTO_REPLY", {

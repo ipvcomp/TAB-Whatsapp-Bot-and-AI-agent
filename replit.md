@@ -25,7 +25,8 @@ app/
 │   ├── auto_reply_service.py # Static auto-reply logic (temporary, to be replaced with LLM)
 │   ├── llm_service.py        # LLM integration - builds payloads, calls LLM API
 │   ├── llm_log_service.py    # LLM raw response logging for traceability
-│   └── session_service.py    # User session persistence for LLM conversation state
+│   ├── session_service.py    # User session persistence for LLM conversation state
+│   └── policy_flow_service.py # Static policy creation flow (no LLM)
 └── utils/               # Shared utilities (to be implemented)
 main.py                  # Entry point (imports app from app.main)
 ```
@@ -118,6 +119,33 @@ Static pattern-based auto-replies used when LLM is not configured or unreachable
 - Info/about → Information offer
 - Non-text media → Media received acknowledgment
 - Default → General acknowledgment with help prompt
+
+## Policy Flow (Static — No LLM)
+Triggered by keywords: policy, create policy, /policy, /createpolicy, "i want to create policy", etc.
+- Runs independently from LLM — takes priority in webhook routing
+- Uses session `temp_data.policy_flow` to track flow state per user
+- Flow state fields: active, step, action, selected_product, available_products
+
+### Flow Steps
+1. **Policy Menu** — User sends policy keyword → interactive buttons: "Create New Policy" / "Submit Itinerary"
+2. **Submit Itinerary** — Static placeholder message (feature coming soon), clears flow state
+3. **View Products** — User taps "Create New Policy" → prompt with "View Products" button
+4. **Product List** — Fetches products from external API → WhatsApp list message with all products
+5. **Product Selected** — User picks a product → confirmation message, selection saved to session
+
+### Products API
+- URL: `https://dev-ilekun-ipv.ipurvey.com/api/v1/tab-pc/products/by-channel/APP?country=NG`
+- Returns insurance products with: productId, name, coverageTypes, price, currency, validityDays
+
+### User Selection Storage
+- Selected product saved in `session.temp_data.policy_flow.selected_product`
+- Fields: product_id, name, price, currency, validity_days, coverage_types
+- Persists across messages for use in future flow steps (personal details, payment, itinerary)
+
+### Message Routing Priority
+1. Policy flow (keyword match OR active flow in session)
+2. LLM integration (if LLM_API_URL configured)
+3. Static auto-reply fallback
 
 ## Meta Webhook Setup
 1. Go to Meta Developer Console > Your App > WhatsApp > Configuration
