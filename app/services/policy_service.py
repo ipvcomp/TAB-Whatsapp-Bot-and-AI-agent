@@ -168,6 +168,12 @@ async def set_channel_info(policy_id: str, channel_info: dict) -> bool:
     })
 
 
+async def set_airport_info(policy_id: str, airport_info: dict) -> bool:
+    return await update_policy(policy_id, {
+        "airport_info": airport_info,
+    })
+
+
 async def cancel_policy(policy_id: str) -> bool:
     return await update_policy(policy_id, {
         "status": STATUS_CANCELLED,

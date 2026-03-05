@@ -146,12 +146,14 @@ Triggered by keywords: policy, create policy, /policy, /createpolicy, "i want to
 9. **Bank Selection** — Fetches banks from API by country code → sorted alphabetically → WhatsApp list with pagination (8 per page, Next/Previous)
 10. **MSISDN Setup** — Auto-sets user's WhatsApp number + country code as MSISDN. For Wallet users: asks if wallet number is different; if yes, collects alternate number
 11. **Channel/Source/Consent** — Auto-set (no user input): channel_payout_method = "Bank", source = "passenger", consent = true
-12. **Summary** — Displays combined summary of all collected policy details
+12. **Airport Selection** — User enters city/state name → searched via airports API (handles case variants) → if single result, auto-confirmed; if multiple, shown as WhatsApp list menu → saved to policy
+13. **Summary** — Displays combined summary of all collected policy details
 
 ### External APIs
 - Products: `https://dev-ilekun-ipv.ipurvey.com/api/v1/tab-pc/products/getByCountry/{COUNTRY_CODE}`
 - Payment Methods: `https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/payout-method/types`
 - Banks: `https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/payout-method/banks?countryCode={COUNTRY_CODE}`
+- Airports: `https://dev-ilekun-ipv.ipurvey.com/api/v2/airports/search?search={CITY_OR_STATE}`
 
 ### User Selection Storage
 - Country saved in `policies.country_code` (ISO 3166-1 alpha-2) and `policies.country_name`
@@ -161,6 +163,7 @@ Triggered by keywords: policy, create policy, /policy, /createpolicy, "i want to
 - Bank details saved in `policies.bank_details`: bank_id, bank_code, bank_name
 - MSISDN info saved in `policies.msisdn_info`: phone_number, country_code, wallet_number (for Wallet users)
 - Channel info saved in `policies.channel_info`: channel_payout_method, source, consent (auto-set)
+- Airport info saved in `policies.airport_info`: name, iata_code, country
 - All data persists in the `policies` collection per user per policy attempt
 
 ### Message Routing Priority

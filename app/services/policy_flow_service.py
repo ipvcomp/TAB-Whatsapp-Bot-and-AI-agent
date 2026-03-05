@@ -11,7 +11,7 @@ from app.services.whatsapp_service import send_whatsapp_payload, send_text_messa
 from app.services.policy_service import (
     create_policy, get_active_draft, set_product_selection, cancel_policy,
     set_personal_details, set_payment_method, set_country,
-    set_bank_details, set_msisdn_info, set_channel_info,
+    set_bank_details, set_msisdn_info, set_channel_info, set_airport_info,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,8 @@ FLOW_STEP_PAYMENT_METHOD = "payment_method"
 FLOW_STEP_BANK_SELECTION = "bank_selection"
 FLOW_STEP_MSISDN_WALLET = "msisdn_wallet"
 FLOW_STEP_MSISDN_WALLET_INPUT = "msisdn_wallet_input"
+FLOW_STEP_AIRPORT_INPUT = "airport_input"
+FLOW_STEP_AIRPORT_SELECT = "airport_select"
 
 BUTTON_CREATE_NEW = "policy_create_new"
 BUTTON_SUBMIT_ITINERARY = "policy_submit_itinerary"
@@ -59,7 +61,9 @@ NAV_NEXT = "policy_nav_next"
 NAV_PREV = "policy_nav_prev"
 
 BANKS_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/payout-method/banks"
+AIRPORTS_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/v2/airports/search"
 BANKS_PER_PAGE = 8
+AIRPORT_ID_PREFIX = "airport_"
 
 PERSONAL_DETAIL_STEPS = [
     {"step": FLOW_STEP_PD_FIRST_NAME, "field": "first_name", "prompt": "Please enter your *first name*:"},
@@ -350,6 +354,23 @@ async def handle_policy_flow(
         )
     elif current_step == FLOW_STEP_MSISDN_WALLET_INPUT:
         await _handle_msisdn_wallet_input(
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
+    elif current_step == FLOW_STEP_AIRPORT_INPUT:
+        await _handle_airport_input(
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
+    elif current_step == FLOW_STEP_AIRPORT_SELECT:
+        await _handle_airport_selection(
+            reply_id=reply_id,
             message=message,
             sender_wa_id=sender_wa_id,
             phone_number_id=phone_number_id,
@@ -1229,7 +1250,7 @@ async def _handle_bank_selection(reply_id, message, sender_wa_id, phone_number_i
                 await set_msisdn_info(policy_id, msisdn_info)
                 logger.info(f"MSISDN info saved to policy {policy_id}")
 
-            await _finalize_channel_and_summary(
+            await _finalize_channel_and_airport_prompt(
                 sender_wa_id, phone_number_id, in_reply_to,
                 session, flow_state, policy_id,
                 bank_details, msisdn_info,
@@ -1271,7 +1292,7 @@ async def _handle_msisdn_wallet_choice(reply_id, message, sender_wa_id, phone_nu
             await set_msisdn_info(policy_id, msisdn_info)
             logger.info(f"MSISDN info (same wallet) saved to policy {policy_id}")
 
-        await _finalize_channel_and_summary(
+        await _finalize_channel_and_airport_prompt(
             sender_wa_id, phone_number_id, in_reply_to,
             session, flow_state, policy_id,
             bank_details, msisdn_info,
@@ -1320,14 +1341,14 @@ async def _handle_msisdn_wallet_input(message, sender_wa_id, phone_number_id, in
         await set_msisdn_info(policy_id, msisdn_info)
         logger.info(f"MSISDN info (wallet: {cleaned}) saved to policy {policy_id}")
 
-    await _finalize_channel_and_summary(
+    await _finalize_channel_and_airport_prompt(
         sender_wa_id, phone_number_id, in_reply_to,
         session, flow_state, policy_id,
         bank_details, msisdn_info,
     )
 
 
-async def _finalize_channel_and_summary(
+async def _finalize_channel_and_airport_prompt(
     sender_wa_id, phone_number_id, in_reply_to,
     session, flow_state, policy_id,
     bank_details, msisdn_info,
@@ -1342,11 +1363,224 @@ async def _finalize_channel_and_summary(
         await set_channel_info(policy_id, channel_info)
         logger.info(f"Channel info auto-set for policy {policy_id}")
 
+    await send_text_message(
+        to=sender_wa_id,
+        body="Now let's set your departure airport.\n\nPlease enter your *city or state name* (e.g. Ilorin, Kano, Port Harcourt):",
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+    await _update_flow_state(session, sender_wa_id, {
+        **flow_state,
+        "step": FLOW_STEP_AIRPORT_INPUT,
+        "bank_details": bank_details,
+        "msisdn_info": msisdn_info,
+        "channel_info": channel_info,
+    })
+
+
+async def _fetch_airports(search_term: str) -> Optional[list]:
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(
+                AIRPORTS_API_URL,
+                params={"search": search_term},
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if isinstance(data, list):
+                    return data
+            logger.error(f"Airports API error: HTTP {response.status_code} for '{search_term}'")
+            return None
+    except Exception as e:
+        logger.error(f"Failed to fetch airports for '{search_term}': {e}")
+        return None
+
+
+async def _handle_airport_input(message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+
+    text_input = _get_text_input(message)
+    if not text_input:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please type a *city or state name* to search for an airport (e.g. Ilorin, Kano):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    search_term = text_input.strip().title()
+
+    airports = await _fetch_airports(search_term)
+
+    if airports is None:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Sorry, we couldn't search for airports at the moment. Please try again:",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    if len(airports) == 0:
+        search_lower = text_input.strip().lower()
+        airports = await _fetch_airports(search_lower)
+        if not airports:
+            search_upper = text_input.strip().upper()
+            airports = await _fetch_airports(search_upper)
+
+    if not airports:
+        await send_text_message(
+            to=sender_wa_id,
+            body=f"No airports found for *\"{text_input}\"*.\n\nPlease try a different city or state name:",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    if len(airports) == 1:
+        airport = airports[0]
+        airport_info = {
+            "name": airport.get("name", ""),
+            "iata_code": airport.get("iata_code", ""),
+            "country": airport.get("country", ""),
+        }
+
+        if policy_id:
+            await set_airport_info(policy_id, airport_info)
+            logger.info(f"Airport '{airport_info['name']}' ({airport_info['iata_code']}) saved to policy {policy_id}")
+
+        await _show_final_summary(
+            sender_wa_id, phone_number_id, in_reply_to,
+            session, flow_state, policy_id, airport_info,
+        )
+    else:
+        rows = []
+        for idx, airport in enumerate(airports[:10]):
+            iata = airport.get("iata_code", "")
+            name = airport.get("name", "Unknown")
+            country = airport.get("country", "")
+            rows.append({
+                "id": f"{AIRPORT_ID_PREFIX}{idx}",
+                "title": str(name)[:24],
+                "description": f"{iata} - {country}"[:72],
+            })
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": sender_wa_id,
+            "type": "interactive",
+            "interactive": {
+                "type": "list",
+                "header": {
+                    "type": "text",
+                    "text": "Select Airport"
+                },
+                "body": {
+                    "text": f"Multiple airports found for *\"{text_input}\"*. Please select one:"
+                },
+                "action": {
+                    "button": "View Airports",
+                    "sections": [
+                        {
+                            "title": "Airports",
+                            "rows": rows,
+                        }
+                    ]
+                }
+            }
+        }
+
+        await send_whatsapp_payload(
+            payload,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_AIRPORT_SELECT,
+            "available_airports": airports[:10],
+        })
+
+
+async def _handle_airport_selection(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+    airports = flow_state.get("available_airports", [])
+
+    if reply_id and reply_id.startswith(AIRPORT_ID_PREFIX):
+        idx_str = reply_id[len(AIRPORT_ID_PREFIX):]
+        try:
+            idx = int(idx_str)
+            airport = airports[idx]
+        except (ValueError, IndexError):
+            await send_text_message(
+                to=sender_wa_id,
+                body="Sorry, we couldn't find that airport. Please try again by entering a city or state name:",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_AIRPORT_INPUT,
+            })
+            return
+
+        airport_info = {
+            "name": airport.get("name", ""),
+            "iata_code": airport.get("iata_code", ""),
+            "country": airport.get("country", ""),
+        }
+
+        if policy_id:
+            await set_airport_info(policy_id, airport_info)
+            logger.info(f"Airport '{airport_info['name']}' ({airport_info['iata_code']}) saved to policy {policy_id}")
+
+        await _show_final_summary(
+            sender_wa_id, phone_number_id, in_reply_to,
+            session, flow_state, policy_id, airport_info,
+        )
+    else:
+        text_input = _get_text_input(message)
+        if text_input:
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_AIRPORT_INPUT,
+            })
+            await _handle_airport_input(
+                message, sender_wa_id, phone_number_id, in_reply_to, session,
+            )
+        else:
+            await send_text_message(
+                to=sender_wa_id,
+                body="Please select an airport from the list, or type a different city/state name to search again.",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+
+
+async def _show_final_summary(
+    sender_wa_id, phone_number_id, in_reply_to,
+    session, flow_state, policy_id, airport_info,
+):
     personal_details = flow_state.get("personal_details", {})
     selected_product = flow_state.get("selected_product", {})
     payment_method = flow_state.get("payment_method", "")
     country_name = flow_state.get("country_name", "")
     country_code = flow_state.get("country_code", "")
+    bank_details = flow_state.get("bank_details", {})
+    msisdn_info = flow_state.get("msisdn_info", {})
     payment_label = PAYMENT_METHOD_LABELS.get(payment_method, payment_method)
 
     wallet_line = ""
@@ -1367,6 +1601,8 @@ async def _finalize_channel_and_summary(
         f"Method: {payment_label}\n"
         f"Bank: {bank_details.get('bank_name', '')}\n"
         f"MSISDN: {msisdn_info.get('phone_number', '')} ({country_code}){wallet_line}\n\n"
+        f"*Airport:*\n"
+        f"{airport_info.get('name', '')} ({airport_info.get('iata_code', '')})\n\n"
         f"*Settings:*\n"
         f"Channel Payout: Bank\n"
         f"Source: Passenger\n"
@@ -1393,7 +1629,8 @@ async def _finalize_channel_and_summary(
         "payment_method": payment_method,
         "bank_details": bank_details,
         "msisdn_info": msisdn_info,
-        "channel_info": channel_info,
+        "channel_info": flow_state.get("channel_info", {}),
+        "airport_info": airport_info,
         "country_code": country_code,
         "country_name": country_name,
     })
