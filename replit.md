@@ -88,10 +88,11 @@ uvicorn main:app --host 0.0.0.0 --port 5000 --reload
   - `raw_response` — complete unmodified LLM API response for full traceability
   - Indexes: inbound_message_id, outbound_message_id, contact_wa_id, created_at, compound (contact_wa_id + created_at)
 - **policies** — Stores policy creation records per user (one record per policy attempt)
-  - Fields: user_id, phone_number, status, selected_product, personal_details, payment_method, bank_details, msisdn_info, channel_info, airport_info, itinerary, submitted_policy, created_at, updated_at
+  - Fields: user_id, phone_number, country_code, country_name, status, selected_product, personal_details, payment_method, bank_details, msisdn_info, channel_info, airport_info, itinerary, submitted_policy, created_at, updated_at
   - `status` — lifecycle: "draft" → "product_selected" → "pending" → "submitted" → "completed" (or "cancelled")
-  - `selected_product` — stores product_id, name, price, currency, validity_days, coverage_types
-  - Future fields (personal_details, payment_method, etc.) are null until those flow steps are implemented
+  - `country_code` — ISO 3166-1 alpha-2 code (e.g. "NG", "KE", "GH"), resolved from user's country name input
+  - `selected_product` — stores product_id, name, description, price, currency, validity_days, coverage_types, product_type, provider_name
+  - Future fields (bank_details, msisdn_info, etc.) are null until those flow steps are implemented
   - Indexes: user_id, status, created_at, updated_at, compound (user_id + status), compound (user_id + created_at)
 
 ## Message Flow
@@ -136,17 +137,19 @@ Triggered by keywords: policy, create policy, /policy, /createpolicy, "i want to
 ### Flow Steps
 1. **Policy Menu** — User sends policy keyword → interactive buttons: "Create New Policy" / "Submit Itinerary"
 2. **Submit Itinerary** — Static placeholder message (feature coming soon), clears flow state
-3. **View Products** — User taps "Create New Policy" → prompt with "View Products" button
-4. **Product List** — Fetches products from external API → WhatsApp list message with all products
-5. **Product Selected** — User picks a product → confirmation message, selection saved to session
-6. **Personal Details** — Collects one-by-one via text: first_name → last_name → email (validated) → nin → account_number
-7. **Payment Method** — Fetches payout methods from API → shows interactive buttons (Bank Transfer / Wallet / Mobile Money)
+3. **Country Input** — User taps "Create New Policy" → asked to type country name → validated and resolved to ISO code → saved to policy
+4. **View Products** — Country confirmed → prompt with "View Products" button
+5. **Product List** — Fetches products from API by country code → WhatsApp list with pagination (8 per page, Next/Previous at positions 9-10)
+6. **Product Selected** — User picks a product → confirmation with name, description, price, validity, coverage, provider
+7. **Personal Details** — Collects one-by-one via text: first_name → last_name → email (validated) → nin → account_number
+8. **Payment Method** — Fetches payout methods from API → shows interactive buttons (Bank Transfer / Wallet / Mobile Money)
 
 ### External APIs
-- Products: `https://dev-ilekun-ipv.ipurvey.com/api/v1/tab-pc/products/by-channel/APP?country=NG`
+- Products: `https://dev-ilekun-ipv.ipurvey.com/api/v1/tab-pc/products/getByCountry/{COUNTRY_CODE}`
 - Payment Methods: `https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/payout-method/types`
 
 ### User Selection Storage
+- Country saved in `policies.country_code` (ISO 3166-1 alpha-2) and `policies.country_name`
 - Selected product saved in `policies.selected_product` and `session.temp_data.policy_flow.selected_product`
 - Personal details saved in `policies.personal_details`: first_name, last_name, email, nin, account_number
 - Payment method saved in `policies.payment_method`: BANK_TRANSFER, WALLET, or MOBILE_MONEY

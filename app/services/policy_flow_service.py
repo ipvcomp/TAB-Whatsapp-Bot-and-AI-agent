@@ -10,14 +10,15 @@ from app.services.session_service import get_session, save_session, build_defaul
 from app.services.whatsapp_service import send_whatsapp_payload, send_text_message
 from app.services.policy_service import (
     create_policy, get_active_draft, set_product_selection, cancel_policy,
-    set_personal_details, set_payment_method,
+    set_personal_details, set_payment_method, set_country,
 )
 
 logger = logging.getLogger(__name__)
 
-PRODUCTS_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/v1/tab-pc/products/by-channel/APP"
-PRODUCTS_API_COUNTRY = "NG"
+PRODUCTS_API_BASE_URL = "https://dev-ilekun-ipv.ipurvey.com/api/v1/tab-pc/products/getByCountry"
 PAYOUT_METHODS_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/payout-method/types"
+
+PRODUCTS_PER_PAGE = 8
 
 POLICY_KEYWORDS = [
     r"\b(policy|create\s*policy|new\s*policy|purchase\s*policy|buy\s*policy)\b",
@@ -30,6 +31,7 @@ POLICY_KEYWORDS = [
 
 FLOW_STATE_KEY = "policy_flow"
 FLOW_STEP_MENU = "policy_menu"
+FLOW_STEP_COUNTRY = "country_input"
 FLOW_STEP_PRODUCT_LIST = "product_list"
 FLOW_STEP_PRODUCT_SELECTED = "product_selected"
 FLOW_STEP_PD_FIRST_NAME = "pd_first_name"
@@ -44,6 +46,8 @@ BUTTON_SUBMIT_ITINERARY = "policy_submit_itinerary"
 BUTTON_VIEW_PRODUCTS = "policy_view_products"
 PRODUCT_ID_PREFIX = "product_"
 PAYMENT_METHOD_PREFIX = "payout_"
+NAV_NEXT = "policy_nav_next"
+NAV_PREV = "policy_nav_prev"
 
 PERSONAL_DETAIL_STEPS = [
     {"step": FLOW_STEP_PD_FIRST_NAME, "field": "first_name", "prompt": "Please enter your *first name*:"},
@@ -52,6 +56,101 @@ PERSONAL_DETAIL_STEPS = [
     {"step": FLOW_STEP_PD_NIN, "field": "nin", "prompt": "Please enter your *NIN (National Identification Number)*:"},
     {"step": FLOW_STEP_PD_ACCOUNT_NUMBER, "field": "account_number", "prompt": "Please enter your *account number*:"},
 ]
+
+COUNTRY_MAP = {
+    "nigeria": "NG", "ng": "NG",
+    "kenya": "KE", "ke": "KE",
+    "ghana": "GH", "gh": "GH",
+    "south africa": "ZA", "za": "ZA",
+    "tanzania": "TZ", "tz": "TZ",
+    "uganda": "UG", "ug": "UG",
+    "rwanda": "RW", "rw": "RW",
+    "ethiopia": "ET", "et": "ET",
+    "cameroon": "CM", "cm": "CM",
+    "senegal": "SN", "sn": "SN",
+    "ivory coast": "CI", "cote d'ivoire": "CI", "ci": "CI",
+    "egypt": "EG", "eg": "EG",
+    "morocco": "MA", "ma": "MA",
+    "algeria": "DZ", "dz": "DZ",
+    "tunisia": "TN", "tn": "TN",
+    "zambia": "ZM", "zm": "ZM",
+    "zimbabwe": "ZW", "zw": "ZW",
+    "mozambique": "MZ", "mz": "MZ",
+    "angola": "AO", "ao": "AO",
+    "mali": "ML", "ml": "ML",
+    "niger": "NE", "ne": "NE",
+    "burkina faso": "BF", "bf": "BF",
+    "benin": "BJ", "bj": "BJ",
+    "togo": "TG", "tg": "TG",
+    "liberia": "LR", "lr": "LR",
+    "sierra leone": "SL", "sl": "SL",
+    "gambia": "GM", "gm": "GM",
+    "guinea": "GN", "gn": "GN",
+    "congo": "CD", "cd": "CD",
+    "united states": "US", "usa": "US", "us": "US",
+    "united kingdom": "GB", "uk": "GB", "gb": "GB",
+    "canada": "CA", "ca": "CA",
+    "india": "IN", "in": "IN",
+    "pakistan": "PK", "pk": "PK",
+    "bangladesh": "BD", "bd": "BD",
+    "sri lanka": "LK", "lk": "LK",
+    "uae": "AE", "united arab emirates": "AE", "ae": "AE",
+    "saudi arabia": "SA", "sa": "SA",
+    "qatar": "QA", "qa": "QA",
+    "kuwait": "KW", "kw": "KW",
+    "bahrain": "BH", "bh": "BH",
+    "oman": "OM", "om": "OM",
+    "australia": "AU", "au": "AU",
+    "new zealand": "NZ", "nz": "NZ",
+    "germany": "DE", "de": "DE",
+    "france": "FR", "fr": "FR",
+    "italy": "IT", "it": "IT",
+    "spain": "ES", "es": "ES",
+    "portugal": "PT", "pt": "PT",
+    "netherlands": "NL", "nl": "NL",
+    "belgium": "BE", "be": "BE",
+    "switzerland": "CH", "ch": "CH",
+    "sweden": "SE", "se": "SE",
+    "norway": "NO", "no": "NO",
+    "denmark": "DK", "dk": "DK",
+    "finland": "FI", "fi": "FI",
+    "ireland": "IE", "ie": "IE",
+    "poland": "PL", "pl": "PL",
+    "brazil": "BR", "br": "BR",
+    "mexico": "MX", "mx": "MX",
+    "argentina": "AR", "ar": "AR",
+    "chile": "CL", "cl": "CL",
+    "colombia": "CO", "co": "CO",
+    "peru": "PE", "pe": "PE",
+    "china": "CN", "cn": "CN",
+    "japan": "JP", "jp": "JP",
+    "south korea": "KR", "kr": "KR",
+    "singapore": "SG", "sg": "SG",
+    "malaysia": "MY", "my": "MY",
+    "indonesia": "ID", "id": "ID",
+    "thailand": "TH", "th": "TH",
+    "philippines": "PH", "ph": "PH",
+    "vietnam": "VN", "vn": "VN",
+    "turkey": "TR", "tr": "TR",
+    "russia": "RU", "ru": "RU",
+    "israel": "IL", "il": "IL",
+    "jordan": "JO", "jo": "JO",
+    "lebanon": "LB", "lb": "LB",
+    "iraq": "IQ", "iq": "IQ",
+    "iran": "IR", "ir": "IR",
+}
+
+
+def _resolve_country_code(text: str) -> Optional[str]:
+    cleaned = text.lower().strip()
+    if cleaned in COUNTRY_MAP:
+        return COUNTRY_MAP[cleaned]
+    if len(cleaned) == 2 and cleaned.upper() in {v for v in COUNTRY_MAP.values()}:
+        return cleaned.upper()
+    for name, code in COUNTRY_MAP.items():
+        if name in cleaned or cleaned in name:
+            return code
+    return None
 
 
 def _is_cancel_command(message: WhatsAppMessage) -> bool:
@@ -175,6 +274,14 @@ async def handle_policy_flow(
             in_reply_to=in_reply_to,
             session=session,
         )
+    elif current_step == FLOW_STEP_COUNTRY:
+        await _handle_country_input(
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
     elif current_step == FLOW_STEP_PRODUCT_LIST:
         await _handle_product_list_response(
             reply_id=reply_id,
@@ -270,10 +377,16 @@ async def _handle_menu_selection(reply_id, message, sender_wa_id, phone_number_i
     policy_id = flow_state.get("policy_id")
 
     if reply_id == BUTTON_CREATE_NEW:
-        await _send_view_products_prompt(sender_wa_id, phone_number_id, in_reply_to)
+        await send_text_message(
+            to=sender_wa_id,
+            body="Great! Let's create a new policy for you.\n\nPlease enter your *country name* (e.g. Nigeria, Kenya, Ghana):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
         await _update_flow_state(session, sender_wa_id, {
             "active": True,
-            "step": FLOW_STEP_PRODUCT_LIST,
+            "step": FLOW_STEP_COUNTRY,
             "action": "create_new",
             "policy_id": policy_id,
         })
@@ -296,7 +409,55 @@ async def _handle_menu_selection(reply_id, message, sender_wa_id, phone_number_i
         )
 
 
-async def _send_view_products_prompt(to: str, phone_number_id: str, in_reply_to: str) -> None:
+async def _handle_country_input(message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+
+    if message.type != "text" or not message.text:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please type your *country name* (e.g. Nigeria, Kenya, Ghana):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    user_input = message.text.body.strip()
+    country_code = _resolve_country_code(user_input)
+
+    if not country_code:
+        await send_text_message(
+            to=sender_wa_id,
+            body=f"Sorry, we couldn't recognize *\"{user_input}\"* as a valid country.\n\nPlease enter a valid country name (e.g. Nigeria, Kenya, Ghana) or its 2-letter code (e.g. NG, KE, GH):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    country_name = user_input.title()
+    for name, code in COUNTRY_MAP.items():
+        if code == country_code and len(name) > 2:
+            country_name = name.title()
+            break
+
+    if policy_id:
+        await set_country(policy_id, country_code, country_name)
+        logger.info(f"Country {country_code} ({country_name}) saved to policy {policy_id}")
+
+    await _send_view_products_prompt(sender_wa_id, phone_number_id, in_reply_to, country_name)
+    await _update_flow_state(session, sender_wa_id, {
+        "active": True,
+        "step": FLOW_STEP_PRODUCT_LIST,
+        "action": "create_new",
+        "policy_id": policy_id,
+        "country_code": country_code,
+        "country_name": country_name,
+    })
+
+
+async def _send_view_products_prompt(to: str, phone_number_id: str, in_reply_to: str, country_name: str) -> None:
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
@@ -305,7 +466,7 @@ async def _send_view_products_prompt(to: str, phone_number_id: str, in_reply_to:
         "interactive": {
             "type": "button",
             "body": {
-                "text": "Great! Let's create a new policy for you. First, you'll need to select a product.\n\nTap the button below to view available products."
+                "text": f"Country set to *{country_name}*.\n\nNow let's find the right product for you. Tap the button below to view available products."
             },
             "action": {
                 "buttons": [
@@ -331,9 +492,10 @@ async def _send_view_products_prompt(to: str, phone_number_id: str, in_reply_to:
 async def _handle_product_list_response(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
     flow_state = _get_flow_state(session)
     policy_id = flow_state.get("policy_id")
+    country_code = flow_state.get("country_code", "NG")
 
     if reply_id == BUTTON_VIEW_PRODUCTS:
-        products = await _fetch_products()
+        products = await _fetch_products(country_code)
         if not products:
             await send_text_message(
                 to=sender_wa_id,
@@ -345,12 +507,16 @@ async def _handle_product_list_response(reply_id, message, sender_wa_id, phone_n
             await _clear_flow_state(session, sender_wa_id)
             return
 
-        await _send_products_list(sender_wa_id, phone_number_id, in_reply_to, products)
+        page = 0
+        await _send_products_page(sender_wa_id, phone_number_id, in_reply_to, products, page, country_code)
         await _update_flow_state(session, sender_wa_id, {
             "active": True,
             "step": FLOW_STEP_PRODUCT_SELECTED,
             "action": "create_new",
             "available_products": products,
+            "product_page": page,
+            "country_code": country_code,
+            "country_name": flow_state.get("country_name"),
             "policy_id": policy_id,
         })
     else:
@@ -363,39 +529,99 @@ async def _handle_product_list_response(reply_id, message, sender_wa_id, phone_n
         )
 
 
-async def _fetch_products() -> Optional[list]:
+async def _fetch_products(country_code: str) -> Optional[list]:
+    url = f"{PRODUCTS_API_BASE_URL}/{country_code}"
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(
-                PRODUCTS_API_URL,
-                params={"country": PRODUCTS_API_COUNTRY},
-            )
+            response = await client.get(url)
             if response.status_code == 200:
                 data = response.json()
                 if data.get("status") == "success":
-                    return data.get("data", [])
-            logger.error(f"Products API error: HTTP {response.status_code}")
+                    products = data.get("data", [])
+                    active = [p for p in products if p.get("status") == "ACTIVE"]
+                    return active
+            logger.error(f"Products API error: HTTP {response.status_code} for {country_code}")
             return None
     except Exception as e:
-        logger.error(f"Failed to fetch products: {e}")
+        logger.error(f"Failed to fetch products for {country_code}: {e}")
         return None
 
 
-async def _send_products_list(to: str, phone_number_id: str, in_reply_to: str, products: list) -> None:
-    rows = []
-    for product in products[:10]:
-        coverage = ", ".join(product.get("coverageTypes", []))
-        price_str = f"{product.get('currency', '')} {product.get('price', '')}"
-        validity_str = f"{product.get('validityDays', '')} days"
-        description = f"{price_str} | {validity_str}"
-        if coverage:
-            description = f"{description}\n{coverage}"
+def _get_product_pricing(product: dict, country_code: str = None) -> dict:
+    pricing = product.get("pricing", [])
+    if not pricing:
+        return {}
+    if country_code:
+        for p in pricing:
+            if p.get("country") == country_code:
+                return p
+    return pricing[0]
 
+
+def _get_product_price_display(product: dict, country_code: str = None) -> str:
+    entry = _get_product_pricing(product, country_code)
+    if not entry:
+        return "Price on request"
+    price = entry.get("price")
+    currency = entry.get("currency", "")
+    if price is not None:
+        return f"{currency} {price:,.2f}"
+    return "Price on request"
+
+
+def _get_product_row_description(product: dict, country_code: str = None) -> str:
+    price_str = _get_product_price_display(product, country_code)
+    validity = product.get("validityDays", "")
+    validity_str = f"{validity} day{'s' if validity != 1 else ''}" if validity else ""
+    coverage = ", ".join(product.get("coverageTypes", []))
+
+    parts = []
+    if price_str:
+        parts.append(price_str)
+    if validity_str:
+        parts.append(validity_str)
+    desc = " | ".join(parts)
+    if coverage:
+        desc = f"{desc}\n{coverage}"
+    return desc[:72]
+
+
+async def _send_products_page(to: str, phone_number_id: str, in_reply_to: str, products: list, page: int, country_code: str = None) -> None:
+    total = len(products)
+    total_pages = (total + PRODUCTS_PER_PAGE - 1) // PRODUCTS_PER_PAGE
+    start = page * PRODUCTS_PER_PAGE
+    end = min(start + PRODUCTS_PER_PAGE, total)
+    page_products = products[start:end]
+
+    rows = []
+    for product in page_products:
+        description = _get_product_row_description(product, country_code)
         rows.append({
-            "id": f"{PRODUCT_ID_PREFIX}{product.get('productId', '')}",
+            "id": f"{PRODUCT_ID_PREFIX}{product.get('id', '')}",
             "title": str(product.get("name", "Unknown"))[:24],
-            "description": description[:72],
+            "description": description,
         })
+
+    if total_pages > 1:
+        if page < total_pages - 1:
+            rows.append({
+                "id": NAV_NEXT,
+                "title": "Next \u25b6",
+                "description": f"View more products (page {page + 2} of {total_pages})",
+            })
+        if page > 0:
+            rows.append({
+                "id": NAV_PREV,
+                "title": "\u25c0 Previous",
+                "description": f"Go back (page {page} of {total_pages})",
+            })
+
+    page_info = f" (Page {page + 1}/{total_pages})" if total_pages > 1 else ""
+    body_text = (
+        f"Here are our available insurance products{page_info}.\n"
+        f"Showing {start + 1}-{end} of {total} products.\n\n"
+        f"Select a product to proceed with your policy."
+    )
 
     payload = {
         "messaging_product": "whatsapp",
@@ -406,10 +632,10 @@ async def _send_products_list(to: str, phone_number_id: str, in_reply_to: str, p
             "type": "list",
             "header": {
                 "type": "text",
-                "text": "Available Products"
+                "text": f"Products{page_info}"
             },
             "body": {
-                "text": "Here are our available insurance products. Please select one to proceed with your new policy."
+                "text": body_text
             },
             "footer": {
                 "text": "Tap to select a product"
@@ -435,15 +661,33 @@ async def _send_products_list(to: str, phone_number_id: str, in_reply_to: str, p
 
 
 async def _handle_product_selected_response(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    products = flow_state.get("available_products", [])
+    policy_id = flow_state.get("policy_id")
+    current_page = flow_state.get("product_page", 0)
+    country_code = flow_state.get("country_code")
+
+    if reply_id == NAV_NEXT:
+        total_pages = (len(products) + PRODUCTS_PER_PAGE - 1) // PRODUCTS_PER_PAGE
+        new_page = min(current_page + 1, total_pages - 1)
+        await _send_products_page(sender_wa_id, phone_number_id, in_reply_to, products, new_page, country_code)
+        flow_state["product_page"] = new_page
+        await _update_flow_state(session, sender_wa_id, flow_state)
+        return
+
+    if reply_id == NAV_PREV:
+        new_page = max(current_page - 1, 0)
+        await _send_products_page(sender_wa_id, phone_number_id, in_reply_to, products, new_page, country_code)
+        flow_state["product_page"] = new_page
+        await _update_flow_state(session, sender_wa_id, flow_state)
+        return
+
     if reply_id and reply_id.startswith(PRODUCT_ID_PREFIX):
         product_id = reply_id[len(PRODUCT_ID_PREFIX):]
-        flow_state = _get_flow_state(session)
-        products = flow_state.get("available_products", [])
-        policy_id = flow_state.get("policy_id")
 
         selected_product = None
         for p in products:
-            if str(p.get("productId", "")) == product_id:
+            if str(p.get("id", "")) == product_id:
                 selected_product = p
                 break
 
@@ -458,13 +702,19 @@ async def _handle_product_selected_response(reply_id, message, sender_wa_id, pho
             await _clear_flow_state(session, sender_wa_id)
             return
 
+        price_display = _get_product_price_display(selected_product, country_code)
+        price_entry = _get_product_pricing(selected_product, country_code)
+
         product_data = {
-            "product_id": str(selected_product.get("productId", "")),
+            "product_id": str(selected_product.get("id", "")),
             "name": selected_product.get("name", ""),
-            "price": selected_product.get("price"),
-            "currency": selected_product.get("currency", ""),
+            "description": selected_product.get("description", ""),
+            "price": price_entry.get("price"),
+            "currency": price_entry.get("currency", ""),
             "validity_days": selected_product.get("validityDays"),
             "coverage_types": selected_product.get("coverageTypes", []),
+            "product_type": selected_product.get("productType", ""),
+            "provider_name": selected_product.get("providerName", ""),
         }
 
         if policy_id:
@@ -472,11 +722,14 @@ async def _handle_product_selected_response(reply_id, message, sender_wa_id, pho
             logger.info(f"Product saved to policy {policy_id} for user {sender_wa_id}")
 
         coverage = ", ".join(selected_product.get("coverageTypes", []))
+        validity = selected_product.get("validityDays", "")
         confirm_text = (
             f"You've selected *{selected_product.get('name', '')}*\n\n"
-            f"Price: {selected_product.get('currency', '')} {selected_product.get('price', '')}\n"
-            f"Validity: {selected_product.get('validityDays', '')} days\n"
-            f"Coverage: {coverage}\n\n"
+            f"_{selected_product.get('description', '')}_\n\n"
+            f"Price: {price_display}\n"
+            f"Validity: {validity} day{'s' if validity != 1 else ''}\n"
+            f"Coverage: {coverage}\n"
+            f"Provider: {selected_product.get('providerName', '')}\n\n"
             f"Now let's capture your personal details."
         )
 
@@ -504,6 +757,8 @@ async def _handle_product_selected_response(reply_id, message, sender_wa_id, pho
             "action": "create_new",
             "selected_product": product_data,
             "policy_id": policy_id,
+            "country_code": flow_state.get("country_code"),
+            "country_name": flow_state.get("country_name"),
             "personal_details": {},
         })
     else:

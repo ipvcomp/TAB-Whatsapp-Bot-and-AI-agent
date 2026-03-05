@@ -43,6 +43,8 @@ async def create_policy(user_id: str, phone_number: str) -> Optional[dict]:
         "user_id": user_id,
         "phone_number": phone_number,
         "status": STATUS_DRAFT,
+        "country_code": None,
+        "country_name": None,
         "selected_product": None,
         "personal_details": None,
         "payment_method": None,
@@ -119,6 +121,13 @@ async def update_policy(policy_id: str, updates: dict) -> bool:
     except Exception as e:
         logger.error(f"Failed to update policy {policy_id}: {e}")
         return False
+
+
+async def set_country(policy_id: str, country_code: str, country_name: str) -> bool:
+    return await update_policy(policy_id, {
+        "country_code": country_code,
+        "country_name": country_name,
+    })
 
 
 async def set_product_selection(policy_id: str, product: dict) -> bool:
