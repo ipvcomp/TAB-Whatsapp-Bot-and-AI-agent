@@ -1,0 +1,211 @@
+{
+    "success": true,
+    "message": "OK",
+    "data": {
+        "status": "success",
+        "message": "Banks fetched successfully",
+        "data": [
+            {
+                "id": 825,
+                "code": "000019",
+                "name": "Enterprise Bank"
+            },
+            {
+                "id": 964,
+                "code": "000025",
+                "name": "Titan Trust Bank"
+            },
+            {
+                "id": 395,
+                "code": "000026",
+                "name": "Taj Bank Limited"
+            },
+            {
+                "id": 301,
+                "code": "000027",
+                "name": "Globus Bank"
+            },
+            {
+                "id": 1978,
+                "code": "000028",
+                "name": "Central Bank Of Nigeria"
+            },
+            {
+                "id": 1977,
+                "code": "000029",
+                "name": "Lotus Bank"
+            },
+            {
+                "id": 988,
+                "code": "000030",
+                "name": "Parallex Bank"
+            },
+            {
+                "id": 1318,
+                "code": "000031",
+                "name": "PremiumTrust Bank"
+            },
+            {
+                "id": 1355,
+                "code": "000033",
+                "name": "ENaira"
+            },
+            {
+                "id": 2050,
+                "code": "000034",
+                "name": "SIGNATURE BANK"
+            },
+            {
+                "id": 2010,
+                "code": "000036",
+                "name": "Optimus Bank"
+            },
+            {
+                "id": 2298,
+                "code": "000037",
+                "name": "ALTERNATIVE BANK LIMITED"
+            },
+            {
+                "id": 3040,
+                "code": "000041",
+                "name": "Alpha Morgan Bank"
+            },
+            {
+                "id": 3036,
+                "code": "000042",
+                "name": "Tatum Bank"
+            },
+            {
+                "id": 3010,
+                "code": "010025",
+                "name": "KongaPay"
+            },
+            {
+                "id": 5,
+                "code": "011",
+                "name": "First Bank PLC"
+            },
+            {
+                "id": 2,
+                "code": "023",
+                "name": "Citi Bank"
+            },
+            {
+                "id": 14,
+                "code": "032",
+                "name": "Union Bank PLC"
+            },
+            {
+                "id": 13,
+                "code": "033",
+                "name": "United Bank for Africa"
+            },
+            {
+                "id": 15,
+                "code": "035",
+                "name": "Wema Bank PLC"
+            },
+            {
+                "id": 1,
+                "code": "044",
+                "name": "Access Bank"
+            },
+            {
+                "id": 4,
+                "code": "050",
+                "name": "EcoBank PLC"
+            },
+            {
+                "id": 1976,
+                "code": "050001",
+                "name": "County Finance Ltd"
+            },
+            {
+                "id": 1975,
+                "code": "050002",
+                "name": "Fewchore Finance Company Limited"
+            },
+            {
+                "id": 1974,
+                "code": "050003",
+                "name": "Sagegrey Finance Limited"
+            },
+            {
+                "id": 1973,
+                "code": "050004",
+                "name": "Newedge Finance Ltd"
+            },
+            {
+                "id": 1972,
+                "code": "050005",
+                "name": "Aaa Finance"
+            },
+            {
+                "id": 1971,
+                "code": "050006",
+                "name": "Branch International Finance Company Limited"
+            },
+            {
+                "id": 2042,
+                "code": "050007",
+                "name": "Tekla Finance Ltd"
+            },
+            {
+                "id": 2072,
+                "code": "050008",
+                "name": "SIMPLE FINANCE LIMITED"
+            },
+            {
+                "id": 2035,
+                "code": "050009",
+                "name": "FAST CREDIT"
+            },
+            {
+                "id": 2048,
+                "code": "050010",
+                "name": "FUNDQUEST FINANCIAL SERVICES LTD"
+            },
+            {
+                "id": 2056,
+                "code": "050012",
+                "name": "Enco Finance"
+            },
+            {
+                "id": 2060,
+                "code": "050013",
+                "name": "Dignity Finance"
+            },
+            {
+                "id": 2067,
+                "code": "050014",
+                "name": "TRINITY FINANCIAL SERVICES LIMITED"
+            },
+            {
+                "id": 2891,
+                "code": "050019",
+                "name": "ZEDVANCE FINANCE LIMITED"
+            },
+            {
+                "id": 2299,
+                "code": "050020",
+                "name": "VALE FINANCE LIMITED"
+            },
+            {
+                "id": 3008,
+                "code": "050021",
+                "name": "Poder finance"
+            },
+            {
+                "id": 3038,
+                "code": "050022",
+                "name": "FirstMarina Trust Finance"
+            },
+            {
+                "id": 3019,
+                "code": "050024",
+                "name": "Sciart Finance"
+            },
+            {
+                "id": 2989,
+                "code": "050030",
+                "name": "Northquest Finance

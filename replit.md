@@ -143,16 +143,24 @@ Triggered by keywords: policy, create policy, /policy, /createpolicy, "i want to
 6. **Product Selected** — User picks a product → confirmation with name, description, price, validity, coverage, provider
 7. **Personal Details** — Collects one-by-one via text: first_name → last_name → email (validated) → nin → account_number
 8. **Payment Method** — Fetches payout methods from API → shows interactive buttons (Bank Transfer / Wallet / Mobile Money)
+9. **Bank Selection** — Fetches banks from API by country code → sorted alphabetically → WhatsApp list with pagination (8 per page, Next/Previous)
+10. **MSISDN Setup** — Auto-sets user's WhatsApp number + country code as MSISDN. For Wallet users: asks if wallet number is different; if yes, collects alternate number
+11. **Channel/Source/Consent** — Auto-set (no user input): channel_payout_method = "Bank", source = "passenger", consent = true
+12. **Summary** — Displays combined summary of all collected policy details
 
 ### External APIs
 - Products: `https://dev-ilekun-ipv.ipurvey.com/api/v1/tab-pc/products/getByCountry/{COUNTRY_CODE}`
 - Payment Methods: `https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/payout-method/types`
+- Banks: `https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/payout-method/banks?countryCode={COUNTRY_CODE}`
 
 ### User Selection Storage
 - Country saved in `policies.country_code` (ISO 3166-1 alpha-2) and `policies.country_name`
 - Selected product saved in `policies.selected_product` and `session.temp_data.policy_flow.selected_product`
 - Personal details saved in `policies.personal_details`: first_name, last_name, email, nin, account_number
 - Payment method saved in `policies.payment_method`: BANK_TRANSFER, WALLET, or MOBILE_MONEY
+- Bank details saved in `policies.bank_details`: bank_id, bank_code, bank_name
+- MSISDN info saved in `policies.msisdn_info`: phone_number, country_code, wallet_number (for Wallet users)
+- Channel info saved in `policies.channel_info`: channel_payout_method, source, consent (auto-set)
 - All data persists in the `policies` collection per user per policy attempt
 
 ### Message Routing Priority

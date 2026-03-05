@@ -11,6 +11,7 @@ from app.services.whatsapp_service import send_whatsapp_payload, send_text_messa
 from app.services.policy_service import (
     create_policy, get_active_draft, set_product_selection, cancel_policy,
     set_personal_details, set_payment_method, set_country,
+    set_bank_details, set_msisdn_info, set_channel_info,
 )
 
 logger = logging.getLogger(__name__)
@@ -40,14 +41,25 @@ FLOW_STEP_PD_EMAIL = "pd_email"
 FLOW_STEP_PD_NIN = "pd_nin"
 FLOW_STEP_PD_ACCOUNT_NUMBER = "pd_account_number"
 FLOW_STEP_PAYMENT_METHOD = "payment_method"
+FLOW_STEP_BANK_SELECTION = "bank_selection"
+FLOW_STEP_MSISDN_WALLET = "msisdn_wallet"
+FLOW_STEP_MSISDN_WALLET_INPUT = "msisdn_wallet_input"
 
 BUTTON_CREATE_NEW = "policy_create_new"
 BUTTON_SUBMIT_ITINERARY = "policy_submit_itinerary"
 BUTTON_VIEW_PRODUCTS = "policy_view_products"
 PRODUCT_ID_PREFIX = "product_"
 PAYMENT_METHOD_PREFIX = "payout_"
+BANK_ID_PREFIX = "bank_"
+BANK_NAV_NEXT = "bank_nav_next"
+BANK_NAV_PREV = "bank_nav_prev"
+BUTTON_WALLET_SAME = "wallet_same_number"
+BUTTON_WALLET_DIFF = "wallet_diff_number"
 NAV_NEXT = "policy_nav_next"
 NAV_PREV = "policy_nav_prev"
+
+BANKS_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/payout-method/banks"
+BANKS_PER_PAGE = 8
 
 PERSONAL_DETAIL_STEPS = [
     {"step": FLOW_STEP_PD_FIRST_NAME, "field": "first_name", "prompt": "Please enter your *first name*:"},
@@ -312,6 +324,32 @@ async def handle_policy_flow(
     elif current_step == FLOW_STEP_PAYMENT_METHOD:
         await _handle_payment_method_selection(
             reply_id=reply_id,
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
+    elif current_step == FLOW_STEP_BANK_SELECTION:
+        await _handle_bank_selection(
+            reply_id=reply_id,
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
+    elif current_step == FLOW_STEP_MSISDN_WALLET:
+        await _handle_msisdn_wallet_choice(
+            reply_id=reply_id,
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
+    elif current_step == FLOW_STEP_MSISDN_WALLET_INPUT:
+        await _handle_msisdn_wallet_input(
             message=message,
             sender_wa_id=sender_wa_id,
             phone_number_id=phone_number_id,
@@ -937,28 +975,36 @@ async def _handle_payment_method_selection(reply_id, message, sender_wa_id, phon
             await set_payment_method(policy_id, method)
             logger.info(f"Payment method '{method}' saved to policy {policy_id}")
 
-        confirm_text = (
-            f"Payment method selected: *{label}*\n\n"
-            f"Your selection has been saved. The remaining steps (bank details, itinerary, and policy submission) will be available soon.\n\n"
-            f"Type 'policy' anytime to start a new policy."
-        )
-
         await send_text_message(
             to=sender_wa_id,
-            body=confirm_text,
+            body=f"Payment method selected: *{label}*\n\nNow let's select your bank.",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
         )
 
+        country_code = flow_state.get("country_code", "NG")
+        banks = await _fetch_banks(country_code)
+        if not banks:
+            await send_text_message(
+                to=sender_wa_id,
+                body="Sorry, we couldn't fetch the available banks at the moment. Please try again later by typing 'policy'.",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            await _clear_flow_state(session, sender_wa_id)
+            return
+
+        banks.sort(key=lambda b: b.get("name", "").lower())
+        page = 0
+        await _send_banks_page(sender_wa_id, phone_number_id, in_reply_to, banks, page)
         await _update_flow_state(session, sender_wa_id, {
-            "active": False,
-            "step": FLOW_STEP_PAYMENT_METHOD,
-            "action": "create_new",
-            "policy_id": policy_id,
-            "selected_product": flow_state.get("selected_product"),
-            "personal_details": flow_state.get("personal_details"),
+            **flow_state,
+            "step": FLOW_STEP_BANK_SELECTION,
             "payment_method": method,
+            "available_banks": banks,
+            "bank_page": page,
         })
     else:
         await send_text_message(
@@ -968,6 +1014,389 @@ async def _handle_payment_method_selection(reply_id, message, sender_wa_id, phon
             in_reply_to=in_reply_to,
             source="policy_flow",
         )
+
+
+async def _fetch_banks(country_code: str) -> Optional[list]:
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(
+                BANKS_API_URL,
+                params={"countryCode": country_code},
+            )
+            if response.status_code == 200:
+                data = response.json()
+                bank_data = data.get("data", data)
+                if isinstance(bank_data, dict):
+                    bank_data = bank_data.get("data", [])
+                if isinstance(bank_data, list):
+                    return bank_data
+            logger.error(f"Banks API error: HTTP {response.status_code} for {country_code}")
+            return None
+    except Exception as e:
+        logger.error(f"Failed to fetch banks for {country_code}: {e}")
+        return None
+
+
+async def _send_banks_page(to: str, phone_number_id: str, in_reply_to: str, banks: list, page: int) -> None:
+    total = len(banks)
+    total_pages = (total + BANKS_PER_PAGE - 1) // BANKS_PER_PAGE
+    start = page * BANKS_PER_PAGE
+    end = min(start + BANKS_PER_PAGE, total)
+    page_banks = banks[start:end]
+
+    rows = []
+    for bank in page_banks:
+        rows.append({
+            "id": f"{BANK_ID_PREFIX}{bank.get('id', '')}",
+            "title": str(bank.get("name", "Unknown"))[:24],
+            "description": f"Code: {bank.get('code', '')}"[:72],
+        })
+
+    if total_pages > 1:
+        if page < total_pages - 1:
+            rows.append({
+                "id": BANK_NAV_NEXT,
+                "title": "Next \u25b6",
+                "description": f"View more banks (page {page + 2} of {total_pages})",
+            })
+        if page > 0:
+            rows.append({
+                "id": BANK_NAV_PREV,
+                "title": "\u25c0 Previous",
+                "description": f"Go back (page {page} of {total_pages})",
+            })
+
+    page_info = f" (Page {page + 1}/{total_pages})" if total_pages > 1 else ""
+    body_text = (
+        f"Please select your bank{page_info}.\n"
+        f"Showing {start + 1}-{end} of {total} banks."
+    )
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "header": {
+                "type": "text",
+                "text": f"Select Bank{page_info}"
+            },
+            "body": {
+                "text": body_text
+            },
+            "footer": {
+                "text": "Banks sorted alphabetically"
+            },
+            "action": {
+                "button": "View Banks",
+                "sections": [
+                    {
+                        "title": "Banks",
+                        "rows": rows,
+                    }
+                ]
+            }
+        }
+    }
+
+    await send_whatsapp_payload(
+        payload,
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+
+async def _handle_bank_selection(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    banks = flow_state.get("available_banks", [])
+    policy_id = flow_state.get("policy_id")
+    current_page = flow_state.get("bank_page", 0)
+
+    if reply_id == BANK_NAV_NEXT:
+        total_pages = (len(banks) + BANKS_PER_PAGE - 1) // BANKS_PER_PAGE
+        new_page = min(current_page + 1, total_pages - 1)
+        await _send_banks_page(sender_wa_id, phone_number_id, in_reply_to, banks, new_page)
+        flow_state["bank_page"] = new_page
+        await _update_flow_state(session, sender_wa_id, flow_state)
+        return
+
+    if reply_id == BANK_NAV_PREV:
+        new_page = max(current_page - 1, 0)
+        await _send_banks_page(sender_wa_id, phone_number_id, in_reply_to, banks, new_page)
+        flow_state["bank_page"] = new_page
+        await _update_flow_state(session, sender_wa_id, flow_state)
+        return
+
+    if reply_id and reply_id.startswith(BANK_ID_PREFIX):
+        bank_id_str = reply_id[len(BANK_ID_PREFIX):]
+
+        selected_bank = None
+        for b in banks:
+            if str(b.get("id", "")) == bank_id_str:
+                selected_bank = b
+                break
+
+        if not selected_bank:
+            await send_text_message(
+                to=sender_wa_id,
+                body="Sorry, we couldn't find that bank. Please try again by typing 'policy'.",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            await _clear_flow_state(session, sender_wa_id)
+            return
+
+        bank_details = {
+            "bank_id": selected_bank.get("id"),
+            "bank_code": selected_bank.get("code", ""),
+            "bank_name": selected_bank.get("name", ""),
+        }
+
+        if policy_id:
+            await set_bank_details(policy_id, bank_details)
+            logger.info(f"Bank '{bank_details['bank_name']}' saved to policy {policy_id}")
+
+        payment_method = flow_state.get("payment_method", "")
+        country_code = flow_state.get("country_code", "")
+
+        msisdn_info = {
+            "phone_number": sender_wa_id,
+            "country_code": country_code,
+        }
+
+        if payment_method == "WALLET":
+            await send_text_message(
+                to=sender_wa_id,
+                body=(
+                    f"Bank selected: *{bank_details['bank_name']}*\n\n"
+                    f"Your MSISDN is set to your WhatsApp number: *{sender_wa_id}* (Country: {country_code})\n\n"
+                    f"Since you selected *Wallet* as your payment method, do you have a different phone number for your wallet?"
+                ),
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+
+            wallet_payload = {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": sender_wa_id,
+                "type": "interactive",
+                "interactive": {
+                    "type": "button",
+                    "body": {
+                        "text": "Is your wallet number different from your WhatsApp number?"
+                    },
+                    "action": {
+                        "buttons": [
+                            {
+                                "type": "reply",
+                                "reply": {
+                                    "id": BUTTON_WALLET_DIFF,
+                                    "title": "Yes, different"
+                                }
+                            },
+                            {
+                                "type": "reply",
+                                "reply": {
+                                    "id": BUTTON_WALLET_SAME,
+                                    "title": "No, same number"
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+            await send_whatsapp_payload(
+                wallet_payload,
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_MSISDN_WALLET,
+                "bank_details": bank_details,
+                "msisdn_info": msisdn_info,
+            })
+        else:
+            if policy_id:
+                await set_msisdn_info(policy_id, msisdn_info)
+                logger.info(f"MSISDN info saved to policy {policy_id}")
+
+            await _finalize_channel_and_summary(
+                sender_wa_id, phone_number_id, in_reply_to,
+                session, flow_state, policy_id,
+                bank_details, msisdn_info,
+            )
+    else:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please select a bank from the list. Tap the 'View Banks' button to see the options.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _send_banks_page(sender_wa_id, phone_number_id, in_reply_to, banks, current_page)
+
+
+async def _handle_msisdn_wallet_choice(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+    msisdn_info = flow_state.get("msisdn_info", {})
+    bank_details = flow_state.get("bank_details", {})
+
+    if reply_id == BUTTON_WALLET_DIFF:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter your *wallet phone number* (include country code, e.g. 2348012345678):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_MSISDN_WALLET_INPUT,
+        })
+
+    elif reply_id == BUTTON_WALLET_SAME:
+        msisdn_info["wallet_number"] = sender_wa_id
+
+        if policy_id:
+            await set_msisdn_info(policy_id, msisdn_info)
+            logger.info(f"MSISDN info (same wallet) saved to policy {policy_id}")
+
+        await _finalize_channel_and_summary(
+            sender_wa_id, phone_number_id, in_reply_to,
+            session, flow_state, policy_id,
+            bank_details, msisdn_info,
+        )
+    else:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please select one of the options above.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+
+async def _handle_msisdn_wallet_input(message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+    msisdn_info = flow_state.get("msisdn_info", {})
+    bank_details = flow_state.get("bank_details", {})
+
+    text_input = _get_text_input(message)
+    if not text_input:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter your wallet phone number as text (e.g. 2348012345678):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    cleaned = re.sub(r"[^0-9+]", "", text_input)
+    if len(cleaned) < 7 or len(cleaned) > 20:
+        await send_text_message(
+            to=sender_wa_id,
+            body="That doesn't look like a valid phone number. Please enter a valid wallet number (e.g. 2348012345678):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    msisdn_info["wallet_number"] = cleaned
+
+    if policy_id:
+        await set_msisdn_info(policy_id, msisdn_info)
+        logger.info(f"MSISDN info (wallet: {cleaned}) saved to policy {policy_id}")
+
+    await _finalize_channel_and_summary(
+        sender_wa_id, phone_number_id, in_reply_to,
+        session, flow_state, policy_id,
+        bank_details, msisdn_info,
+    )
+
+
+async def _finalize_channel_and_summary(
+    sender_wa_id, phone_number_id, in_reply_to,
+    session, flow_state, policy_id,
+    bank_details, msisdn_info,
+):
+    channel_info = {
+        "channel_payout_method": "Bank",
+        "source": "passenger",
+        "consent": True,
+    }
+
+    if policy_id:
+        await set_channel_info(policy_id, channel_info)
+        logger.info(f"Channel info auto-set for policy {policy_id}")
+
+    personal_details = flow_state.get("personal_details", {})
+    selected_product = flow_state.get("selected_product", {})
+    payment_method = flow_state.get("payment_method", "")
+    country_name = flow_state.get("country_name", "")
+    country_code = flow_state.get("country_code", "")
+    payment_label = PAYMENT_METHOD_LABELS.get(payment_method, payment_method)
+
+    wallet_line = ""
+    if payment_method == "WALLET" and msisdn_info.get("wallet_number"):
+        wallet_line = f"\nWallet Number: {msisdn_info['wallet_number']}"
+
+    summary = (
+        f"Here's a summary of your policy details:\n\n"
+        f"*Country:* {country_name} ({country_code})\n"
+        f"*Product:* {selected_product.get('name', '')}\n"
+        f"*Price:* {selected_product.get('currency', '')} {selected_product.get('price', '')}\n\n"
+        f"*Personal Details:*\n"
+        f"Name: {personal_details.get('first_name', '')} {personal_details.get('last_name', '')}\n"
+        f"Email: {personal_details.get('email', '')}\n"
+        f"NIN: {personal_details.get('nin', '')}\n"
+        f"Account Number: {personal_details.get('account_number', '')}\n\n"
+        f"*Payment:*\n"
+        f"Method: {payment_label}\n"
+        f"Bank: {bank_details.get('bank_name', '')}\n"
+        f"MSISDN: {msisdn_info.get('phone_number', '')} ({country_code}){wallet_line}\n\n"
+        f"*Settings:*\n"
+        f"Channel Payout: Bank\n"
+        f"Source: Passenger\n"
+        f"Consent: Yes\n\n"
+        f"All details have been saved. The remaining steps (itinerary and policy submission) will be available soon.\n\n"
+        f"Type 'policy' anytime to start a new policy."
+    )
+
+    await send_text_message(
+        to=sender_wa_id,
+        body=summary,
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+    await _update_flow_state(session, sender_wa_id, {
+        "active": False,
+        "step": "completed_details",
+        "action": "create_new",
+        "policy_id": policy_id,
+        "selected_product": selected_product,
+        "personal_details": personal_details,
+        "payment_method": payment_method,
+        "bank_details": bank_details,
+        "msisdn_info": msisdn_info,
+        "channel_info": channel_info,
+        "country_code": country_code,
+        "country_name": country_name,
+    })
 
 
 async def _update_flow_state(session: dict, user_id: str, flow_state: dict) -> None:

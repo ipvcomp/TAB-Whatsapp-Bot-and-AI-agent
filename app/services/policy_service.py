@@ -150,6 +150,24 @@ async def set_payment_method(policy_id: str, method: str) -> bool:
     })
 
 
+async def set_bank_details(policy_id: str, bank_details: dict) -> bool:
+    return await update_policy(policy_id, {
+        "bank_details": bank_details,
+    })
+
+
+async def set_msisdn_info(policy_id: str, msisdn_info: dict) -> bool:
+    return await update_policy(policy_id, {
+        "msisdn_info": msisdn_info,
+    })
+
+
+async def set_channel_info(policy_id: str, channel_info: dict) -> bool:
+    return await update_policy(policy_id, {
+        "channel_info": channel_info,
+    })
+
+
 async def cancel_policy(policy_id: str) -> bool:
     return await update_policy(policy_id, {
         "status": STATUS_CANCELLED,
