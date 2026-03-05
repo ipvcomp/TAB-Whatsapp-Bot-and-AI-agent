@@ -591,18 +591,24 @@ async def _handle_product_list_response(reply_id, message, sender_wa_id, phone_n
 async def _fetch_products(country_code: str) -> Optional[list]:
     url = f"{PRODUCTS_API_BASE_URL}/{country_code}"
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, verify=True) as client:
+            logger.info(f"Fetching products for country_code={country_code} from {url}")
             response = await client.get(url)
+            logger.info(f"Products API response: HTTP {response.status_code}, size={len(response.content)} bytes")
             if response.status_code == 200:
                 data = response.json()
                 if data.get("status") == "success":
                     products = data.get("data", [])
                     active = [p for p in products if p.get("status") == "ACTIVE"]
+                    logger.info(f"Fetched {len(active)} active products for {country_code}")
                     return active
-            logger.error(f"Products API error: HTTP {response.status_code} for {country_code}")
+            logger.error(f"Products API error: HTTP {response.status_code} for {country_code}, body={response.text[:500]}")
             return None
+    except httpx.TimeoutException as e:
+        logger.error(f"Products API timeout for {country_code}: {type(e).__name__}: {e}")
+        return None
     except Exception as e:
-        logger.error(f"Failed to fetch products for {country_code}: {e}")
+        logger.error(f"Failed to fetch products for {country_code}: {type(e).__name__}: {e}")
         return None
 
 
@@ -925,16 +931,22 @@ async def _handle_personal_detail_input(message, sender_wa_id, phone_number_id, 
 
 async def _fetch_payment_methods() -> Optional[list]:
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, verify=True) as client:
+            logger.info(f"Fetching payment methods from {PAYOUT_METHODS_API_URL}")
             response = await client.get(PAYOUT_METHODS_API_URL)
+            logger.info(f"Payment methods API response: HTTP {response.status_code}, size={len(response.content)} bytes")
             if response.status_code == 200:
                 data = response.json()
                 if isinstance(data, list):
+                    logger.info(f"Fetched {len(data)} payment methods")
                     return data
-            logger.error(f"Payment methods API error: HTTP {response.status_code}")
+            logger.error(f"Payment methods API error: HTTP {response.status_code}, body={response.text[:500]}")
             return None
+    except httpx.TimeoutException as e:
+        logger.error(f"Payment methods API timeout: {type(e).__name__}: {e}")
+        return None
     except Exception as e:
-        logger.error(f"Failed to fetch payment methods: {e}")
+        logger.error(f"Failed to fetch payment methods: {type(e).__name__}: {e}")
         return None
 
 
@@ -1039,22 +1051,31 @@ async def _handle_payment_method_selection(reply_id, message, sender_wa_id, phon
 
 async def _fetch_banks(country_code: str) -> Optional[list]:
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, verify=True) as client:
+            logger.info(f"Fetching banks for country_code={country_code} from {BANKS_API_URL}")
             response = await client.get(
                 BANKS_API_URL,
                 params={"countryCode": country_code},
             )
+            logger.info(f"Banks API response: HTTP {response.status_code}, size={len(response.content)} bytes")
             if response.status_code == 200:
                 data = response.json()
                 bank_data = data.get("data", data)
                 if isinstance(bank_data, dict):
                     bank_data = bank_data.get("data", [])
                 if isinstance(bank_data, list):
+                    logger.info(f"Fetched {len(bank_data)} banks for {country_code}")
                     return bank_data
-            logger.error(f"Banks API error: HTTP {response.status_code} for {country_code}")
+            logger.error(f"Banks API error: HTTP {response.status_code} for {country_code}, body={response.text[:500]}")
             return None
+    except httpx.TimeoutException as e:
+        logger.error(f"Banks API timeout for {country_code}: {type(e).__name__}: {e}")
+        return None
+    except httpx.ConnectError as e:
+        logger.error(f"Banks API connection error for {country_code}: {type(e).__name__}: {e}")
+        return None
     except Exception as e:
-        logger.error(f"Failed to fetch banks for {country_code}: {e}")
+        logger.error(f"Failed to fetch banks for {country_code}: {type(e).__name__}: {e}")
         return None
 
 
@@ -1382,19 +1403,25 @@ async def _finalize_channel_and_airport_prompt(
 
 async def _fetch_airports(search_term: str) -> Optional[list]:
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, verify=True) as client:
+            logger.info(f"Searching airports for '{search_term}' from {AIRPORTS_API_URL}")
             response = await client.get(
                 AIRPORTS_API_URL,
                 params={"search": search_term},
             )
+            logger.info(f"Airports API response: HTTP {response.status_code}, size={len(response.content)} bytes")
             if response.status_code == 200:
                 data = response.json()
                 if isinstance(data, list):
+                    logger.info(f"Found {len(data)} airports for '{search_term}'")
                     return data
-            logger.error(f"Airports API error: HTTP {response.status_code} for '{search_term}'")
+            logger.error(f"Airports API error: HTTP {response.status_code} for '{search_term}', body={response.text[:500]}")
             return None
+    except httpx.TimeoutException as e:
+        logger.error(f"Airports API timeout for '{search_term}': {type(e).__name__}: {e}")
+        return None
     except Exception as e:
-        logger.error(f"Failed to fetch airports for '{search_term}': {e}")
+        logger.error(f"Failed to fetch airports for '{search_term}': {type(e).__name__}: {e}")
         return None
 
 
