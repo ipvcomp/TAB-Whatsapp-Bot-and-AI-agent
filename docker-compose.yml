@@ -9,7 +9,7 @@ services:
     ports:
       - "5000:5000"
     env_file:
-      - .env
+      - .env.docker
     environment:
       - APP_ENV=staging
       - PYTHONUNBUFFERED=1
