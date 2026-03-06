@@ -190,11 +190,12 @@ Triggered by keywords: policy, create policy, /policy, /createpolicy, "i want to
 
 ## Meta Webhook Setup
 1. Go to Meta Developer Console > Your App > WhatsApp > Configuration
-2. Set Callback URL to: `https://tab-whatsapp-bot-and-ai-agent.replit.app/api/v1/webhook`
+2. Set Callback URL to: `https://staging-tab-whatsappbot.ipurvey.com/api/v1/webhook`
 3. Set Verify Token to match `WHATSAPP_VERIFY_TOKEN` env var
 4. Subscribe to: messages, message_echoes, account_alerts, phone_number_quality_update, message_template_status_update, security
 
 ## Deployment
-- Published URL: https://tab-whatsapp-bot-and-ai-agent.replit.app
-- Deployment target: autoscale
-- Production server: gunicorn with uvicorn workers
+- Staging URL: https://staging-tab-whatsappbot.ipurvey.com
+- Replit Published URL: https://tab-whatsapp-bot-and-ai-agent.replit.app
+- Deployment target: autoscale (Replit) / Docker (self-hosted)
+- Production server: gunicorn with 4 uvicorn workers
