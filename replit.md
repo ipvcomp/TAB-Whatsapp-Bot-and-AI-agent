@@ -54,6 +54,23 @@ main.py                  # Entry point (imports app from app.main)
 uvicorn main:app --host 0.0.0.0 --port 5000 --reload
 ```
 
+## Docker
+```bash
+# Build
+docker build -t whatsapp-bot .
+
+# Run (create .env file with secrets first)
+docker run -p 5000:5000 --env-file .env whatsapp-bot
+
+# Or use docker-compose
+docker-compose up -d
+```
+- Multi-stage build with python:3.11-slim (small image)
+- Non-root user for security
+- Pinned dependency versions in requirements.txt
+- Health check on /api/v1/health
+- Gunicorn with 4 uvicorn workers in production
+
 ## Tech Stack
 - Python 3.11, FastAPI, Uvicorn, Gunicorn (production)
 - pydantic-settings for configuration
