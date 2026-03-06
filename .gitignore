@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pythonlibs/
+venv/
+.venv/
+*.log
+.cache/
+.config/
+.upm/
+.local/
+attached_assets/
