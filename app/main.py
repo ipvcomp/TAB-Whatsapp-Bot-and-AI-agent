@@ -38,9 +38,17 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    allowed_origins = ["*"]
+    if settings.APP_BASE_URL:
+        allowed_origins = [
+            settings.APP_BASE_URL,
+            "https://graph.facebook.com",
+            "*",
+        ]
+
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=allowed_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -54,6 +62,12 @@ def create_app() -> FastAPI:
             "app": settings.APP_NAME,
             "version": settings.APP_VERSION,
             "status": "running",
+            "environment": settings.ENV,
+            "endpoints": {
+                "health": "/api/v1/health",
+                "webhook": "/api/v1/webhook",
+                "docs": "/docs",
+            },
         }
 
     return application
