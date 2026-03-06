@@ -1,0 +1,68 @@
+[2026-03-06 16:40:19 +0000] [8] [ERROR] Application startup failed. Exiting.
+[2026-03-06 16:40:19 +0000] [8] [INFO] Worker exiting (pid: 8)
+[2026-03-06 16:40:19 +0000] [10] [INFO] Started server process [10]
+[2026-03-06 16:40:19 +0000] [10] [INFO] Waiting for application startup.
+2026-03-06 16:40:19,918 - app.core.database - ERROR - MONGODB_URI is not configured
+[2026-03-06 16:40:19 +0000] [10] [ERROR] Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 693, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+  File "/usr/local/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/main.py", line 23, in lifespan
+    await connect_to_mongodb()
+  File "/app/app/core/database.py", line 23, in connect_to_mongodb
+    raise RuntimeError("MONGODB_URI is not configured")
+RuntimeError: MONGODB_URI is not configured
+
+[2026-03-06 16:40:19 +0000] [10] [ERROR] Application startup failed. Exiting.
+[2026-03-06 16:40:19 +0000] [10] [INFO] Worker exiting (pid: 10)
+[2026-03-06 16:40:20 +0000] [9] [INFO] Started server process [9]
+[2026-03-06 16:40:20 +0000] [9] [INFO] Waiting for application startup.
+2026-03-06 16:40:20,161 - app.core.database - ERROR - MONGODB_URI is not configured
+[2026-03-06 16:40:20 +0000] [9] [ERROR] Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 693, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+  File "/usr/local/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/main.py", line 23, in lifespan
+    await connect_to_mongodb()
+  File "/app/app/core/database.py", line 23, in connect_to_mongodb
+    raise RuntimeError("MONGODB_URI is not configured")
+RuntimeError: MONGODB_URI is not configured
+
+[2026-03-06 16:40:20 +0000] [9] [ERROR] Application startup failed. Exiting.
+[2026-03-06 16:40:20 +0000] [9] [INFO] Worker exiting (pid: 9)
+[2026-03-06 16:40:20 +0000] [1] [ERROR] Worker (pid:10) exited with code 3.
+[2026-03-06 16:40:20 +0000] [1] [ERROR] Worker (pid:8) exited with code 3.
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/gunicorn/arbiter.py", line 242, in run
+    handler()
+  File "/usr/local/lib/python3.11/site-packages/gunicorn/arbiter.py", line 267, in handle_chld
+    self.reap_workers()
+  File "/usr/local/lib/python3.11/site-packages/gunicorn/arbiter.py", line 637, in reap_workers
+    raise HaltServer(reason, self.WORKER_BOOT_ERROR)
+gunicorn.errors.HaltServer: <HaltServer 'Worker failed to boot.' 3>
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/local/bin/gunicorn", line 8, in <module>
+    sys.exit(run())
+             ^^^^^
+  File "/usr/local/lib/python3.11/site-packages/gunicorn/app/wsgiapp.py", line 66, in run
+    WSGIApplication("%(prog)s [OPTIONS] [APP_MODULE]", prog=prog).run()
+  File "/usr/local/lib/python3.11/site-packages/gunicorn/app/base.py", line 235, in run
+    super().run()
+  File "/usr/local/lib/python3.11/site-packages/gunicorn/app/base.py", line 71, in run
+    Arbiter(self).run()
+  File "/usr/local/lib/python3.11/site-packages/gunicorn/arbiter.py", line 250, in run
+    self.halt(reason=inst.reason, exit_status=inst.exit_status)
+  File "/usr/local/lib/python3.11/site-packages/gunicorn/arbiter.py", line 374, in halt
+    self.stop()
+  File "/usr/local/lib/python3.11/site-packages/gunicorn/arbiter.py", line 454, in stop
+    self.reap_workers()
+  File "/usr/local/lib/python3.11/site-packages/gunicorn/arbiter.py", line 637, in reap_workers
+    raise HaltServer(reason, self.WORKER_BOOT_ERROR)
+gunicorn.errors.HaltServer: <HaltServer 'Worker failed to boot.' 3>
