@@ -9,9 +9,8 @@ services:
     ports:
       - "5000:5000"
     env_file:
-      - .env.docker
+      - docker/${APP_ENV:-staging}.env
     environment:
-      - APP_ENV=staging
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
     healthcheck:
