@@ -12,3 +12,10 @@ venv/
 .upm/
 .local/
 attached_assets/
+.replit
+.dockerignore
+replit.nix
+replit_agent/
+poetry.lock
+pyproject.toml
+replit.md
