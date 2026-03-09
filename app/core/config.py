@@ -3,26 +3,41 @@ from pydantic_settings import BaseSettings
 from functools import lru_cache
 
 
+def _get_env_file():
+    debug = os.getenv("DEBUG", "DEV").upper()
+    if debug == "FALSE":
+        return "env-prod"
+    return "env-stage"
+
+
 class Settings(BaseSettings):
     APP_NAME: str = "WhatsApp Bot SaaS"
     APP_VERSION: str = "0.1.0"
-    ENV: str = os.getenv("APP_ENV", "staging")
-    DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
+    DEBUG: str = os.getenv("DEBUG", "DEV")
 
-    WHATSAPP_VERIFY_TOKEN: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
-    WHATSAPP_API_TOKEN: str = os.getenv("WHATSAPP_API_TOKEN", "")
-    WHATSAPP_PHONE_NUMBER_ID: str = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
+    WHATSAPP_VERIFY_TOKEN: str = ""
+    WHATSAPP_API_TOKEN: str = ""
+    WHATSAPP_PHONE_NUMBER_ID: str = ""
+    WHATSAPP_API_URL: str = ""
+    WHATSAPP_API_BASE_URL: str = "https://graph.facebook.com/v22.0"
 
-    MONGODB_URI: str = os.getenv("MONGODB_URI", "")
-    MONGODB_DB_NAME: str = os.getenv("MONGODB_DB_NAME", "tab_wappbot_ai_stg_db")
+    MONGODB_URI: str = ""
+    MONGODB_DB_NAME: str = "tab_wappbot_ai_stg_db"
 
     META_API_VERSION: str = "v22.0"
     META_API_BASE_URL: str = "https://graph.facebook.com"
 
-    LLM_API_URL: str = os.getenv("LLM_API_URL", "")
-    LLM_API_TIMEOUT: int = int(os.getenv("LLM_API_TIMEOUT", "30"))
+    LLM_API_URL: str = ""
+    LLM_API_TIMEOUT: int = 30
 
-    APP_BASE_URL: str = os.getenv("APP_BASE_URL", "")
+    APP_BASE_URL: str = ""
+
+    @property
+    def ENV(self) -> str:
+        debug = self.DEBUG.upper()
+        if debug == "FALSE":
+            return "production"
+        return "staging"
 
     @property
     def is_production(self) -> bool:
@@ -33,9 +48,8 @@ class Settings(BaseSettings):
         return self.ENV == "staging"
 
     class Config:
-        env_file = ".env"
+        env_file = _get_env_file()
         case_sensitive = True
-
 
 @lru_cache()
 def get_settings() -> Settings:
