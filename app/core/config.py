@@ -13,6 +13,7 @@ def _get_env_file():
 class Settings(BaseSettings):
     APP_NAME: str = "WhatsApp Bot SaaS"
     APP_VERSION: str = "0.1.0"
+    APP_ENV: str = "staging"
     DEBUG: str = os.getenv("DEBUG", "DEV")
 
     WHATSAPP_VERIFY_TOKEN: str = ""
@@ -34,10 +35,7 @@ class Settings(BaseSettings):
 
     @property
     def ENV(self) -> str:
-        debug = self.DEBUG.upper()
-        if debug == "FALSE":
-            return "production"
-        return "staging"
+        return self.APP_ENV
 
     @property
     def is_production(self) -> bool:
