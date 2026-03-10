@@ -10,3 +10,4 @@ LLM_API_URL = "https://staging-tab-whatsappllm.ipurvey.com"
 LLM_API_TIMEOUT = "30"
 APP_BASE_URL = "https://staging-tab-whatsappbot.ipurvey.com"
 DEBUG = "FALSE"
+
