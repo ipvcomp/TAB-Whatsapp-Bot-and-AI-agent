@@ -30,6 +30,7 @@ def build_default_session(
         "user_id": user_id,
         "phone_number": f"+{phone_number}" if not phone_number.startswith("+") else phone_number,
         "current_node": DEFAULT_SESSION_NODE,
+        "last_node": None,
         "first_name": first_name,
         "tags": [],
         "active_trip_id": None,
@@ -37,6 +38,7 @@ def build_default_session(
         "active_policy_code": None,
         "active_claim_id": None,
         "temp_data": {},
+        "last_intent": None,
     }
 
 
