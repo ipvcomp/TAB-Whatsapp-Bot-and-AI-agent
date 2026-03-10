@@ -8,6 +8,7 @@ from app.core.config import get_settings
 from app.models.webhook import WhatsAppMessage
 from app.services.session_service import get_session, save_session, build_default_session
 from app.services.whatsapp_service import send_whatsapp_payload, send_text_message
+from app.services.llm_service import call_extract
 from app.services.policy_service import (
     create_policy, get_active_draft, set_product_selection, cancel_policy,
     set_personal_details, set_payment_method, set_country,
@@ -66,11 +67,11 @@ BANKS_PER_PAGE = 8
 AIRPORT_ID_PREFIX = "airport_"
 
 PERSONAL_DETAIL_STEPS = [
-    {"step": FLOW_STEP_PD_FIRST_NAME, "field": "first_name", "prompt": "Please enter your *first name*:"},
-    {"step": FLOW_STEP_PD_LAST_NAME, "field": "last_name", "prompt": "Please enter your *last name*:"},
-    {"step": FLOW_STEP_PD_EMAIL, "field": "email", "prompt": "Please enter your *email address*:"},
-    {"step": FLOW_STEP_PD_NIN, "field": "nin", "prompt": "Please enter your *NIN (National Identification Number)*:"},
-    {"step": FLOW_STEP_PD_ACCOUNT_NUMBER, "field": "account_number", "prompt": "Please enter your *account number*:"},
+    {"step": FLOW_STEP_PD_FIRST_NAME, "field": "first_name", "prompt": "Please enter your *first name*:", "expected_format": "text"},
+    {"step": FLOW_STEP_PD_LAST_NAME, "field": "last_name", "prompt": "Please enter your *last name*:", "expected_format": "text"},
+    {"step": FLOW_STEP_PD_EMAIL, "field": "email", "prompt": "Please enter your *email address*:", "expected_format": "email"},
+    {"step": FLOW_STEP_PD_NIN, "field": "nin", "prompt": "Please enter your *NIN (National Identification Number)*:", "expected_format": "text"},
+    {"step": FLOW_STEP_PD_ACCOUNT_NUMBER, "field": "account_number", "prompt": "Please enter your *account number*:", "expected_format": "text"},
 ]
 
 COUNTRY_MAP = {
@@ -483,7 +484,38 @@ async def _handle_country_input(message, sender_wa_id, phone_number_id, in_reply
         return
 
     user_input = message.text.body.strip()
-    country_code = _resolve_country_code(user_input)
+
+    extract_result = await _extract_value(
+        sender_wa_id=sender_wa_id,
+        field_name="country",
+        question_asked="Please enter your country name (e.g. Nigeria, Kenya, Ghana):",
+        user_response=user_input,
+        expected_format="text",
+    )
+
+    if extract_result.get("needs_clarification"):
+        await send_text_message(
+            to=sender_wa_id,
+            body=extract_result["clarification_prompt"],
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    if not extract_result.get("is_valid"):
+        error_msg = extract_result.get("validation_message", "Please enter a valid country name.")
+        await send_text_message(
+            to=sender_wa_id,
+            body=error_msg,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    cleaned_input = extract_result.get("value", user_input)
+    country_code = _resolve_country_code(cleaned_input)
 
     if not country_code:
         await send_text_message(
@@ -842,6 +874,57 @@ def _get_text_input(message: WhatsAppMessage) -> Optional[str]:
     return None
 
 
+async def _extract_value(
+    sender_wa_id: str,
+    field_name: str,
+    question_asked: str,
+    user_response: str,
+    expected_format: str = "text",
+) -> dict:
+    result = await call_extract(
+        user_id=sender_wa_id,
+        field_name=field_name,
+        question_asked=question_asked,
+        user_response=user_response,
+        expected_format=expected_format,
+    )
+
+    if not result:
+        logger.warning(f"LLM extract unavailable for field={field_name}, using raw input")
+        return {
+            "value": user_response,
+            "is_valid": True,
+            "needs_clarification": False,
+            "fallback": True,
+        }
+
+    if result.get("needs_clarification"):
+        return {
+            "value": None,
+            "is_valid": False,
+            "needs_clarification": True,
+            "clarification_prompt": result.get("clarification_prompt", "Could you please clarify your input?"),
+            "fallback": False,
+        }
+
+    if result.get("is_valid"):
+        return {
+            "value": result.get("extracted_value", user_response),
+            "is_valid": True,
+            "needs_clarification": False,
+            "fallback": False,
+        }
+
+    validation_msg = result.get("validation_message", "")
+    return {
+        "value": None,
+        "is_valid": False,
+        "needs_clarification": False,
+        "validation_message": validation_msg or "The input doesn't seem valid. Please try again.",
+        "fallback": False,
+    }
+
+
 def _validate_email(email: str) -> bool:
     return bool(re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email))
 
@@ -864,16 +947,49 @@ async def _handle_personal_detail_input(message, sender_wa_id, phone_number_id, 
 
     current_idx = None
     current_field = None
+    current_step_info = None
     for idx, step_info in enumerate(PERSONAL_DETAIL_STEPS):
         if step_info["step"] == current_step:
             current_idx = idx
             current_field = step_info["field"]
+            current_step_info = step_info
             break
 
     if current_idx is None:
         return
 
-    if current_field == "email" and not _validate_email(text_input):
+    extract_result = await _extract_value(
+        sender_wa_id=sender_wa_id,
+        field_name=current_field,
+        question_asked=current_step_info["prompt"],
+        user_response=text_input,
+        expected_format=current_step_info.get("expected_format", "text"),
+    )
+
+    if extract_result.get("needs_clarification"):
+        await send_text_message(
+            to=sender_wa_id,
+            body=extract_result["clarification_prompt"],
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    if not extract_result.get("is_valid"):
+        error_msg = extract_result.get("validation_message", f"Please enter a valid {current_field.replace('_', ' ')}.")
+        await send_text_message(
+            to=sender_wa_id,
+            body=error_msg,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    extracted_value = extract_result.get("value", text_input)
+
+    if current_field == "email" and not extract_result.get("fallback") and not _validate_email(extracted_value):
         await send_text_message(
             to=sender_wa_id,
             body="That doesn't look like a valid email address. Please enter a valid email (e.g. name@example.com):",
@@ -883,7 +999,17 @@ async def _handle_personal_detail_input(message, sender_wa_id, phone_number_id, 
         )
         return
 
-    personal_details[current_field] = text_input
+    if current_field == "email" and extract_result.get("fallback") and not _validate_email(text_input):
+        await send_text_message(
+            to=sender_wa_id,
+            body="That doesn't look like a valid email address. Please enter a valid email (e.g. name@example.com):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    personal_details[current_field] = extracted_value
 
     next_idx = current_idx + 1
     if next_idx < len(PERSONAL_DETAIL_STEPS):
@@ -1345,7 +1471,30 @@ async def _handle_msisdn_wallet_input(message, sender_wa_id, phone_number_id, in
         )
         return
 
-    cleaned = re.sub(r"[^0-9+]", "", text_input)
+    extract_result = await _extract_value(
+        sender_wa_id=sender_wa_id,
+        field_name="phone_number",
+        question_asked="Please enter your wallet phone number (include country code, e.g. 2348012345678):",
+        user_response=text_input,
+        expected_format="phone",
+    )
+
+    if extract_result.get("needs_clarification"):
+        await send_text_message(
+            to=sender_wa_id,
+            body=extract_result["clarification_prompt"],
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    if extract_result.get("is_valid"):
+        cleaned = extract_result.get("value", text_input)
+    else:
+        cleaned = re.sub(r"[^0-9+]", "", text_input)
+
+    cleaned = re.sub(r"[^0-9+]", "", cleaned)
     if len(cleaned) < 7 or len(cleaned) > 20:
         await send_text_message(
             to=sender_wa_id,
@@ -1440,7 +1589,26 @@ async def _handle_airport_input(message, sender_wa_id, phone_number_id, in_reply
         )
         return
 
-    search_term = text_input.strip().title()
+    extract_result = await _extract_value(
+        sender_wa_id=sender_wa_id,
+        field_name="city",
+        question_asked="Please enter your city or state name (e.g. Ilorin, Kano, Port Harcourt):",
+        user_response=text_input,
+        expected_format="text",
+    )
+
+    if extract_result.get("needs_clarification"):
+        await send_text_message(
+            to=sender_wa_id,
+            body=extract_result["clarification_prompt"],
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    cleaned_input = extract_result.get("value", text_input) if extract_result.get("is_valid") else text_input
+    search_term = cleaned_input.strip().title()
 
     airports = await _fetch_airports(search_term)
 

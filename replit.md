@@ -23,7 +23,7 @@ app/
 │   ├── message_service.py    # Message persistence with content extraction
 │   ├── whatsapp_service.py   # Meta Graph API client for sending messages
 │   ├── auto_reply_service.py # Static auto-reply logic (temporary, to be replaced with LLM)
-│   ├── llm_service.py        # LLM integration - builds payloads, calls LLM API
+│   ├── llm_service.py        # LLM integration - call_generic (Q&A) + call_extract (input parsing)
 │   ├── llm_log_service.py    # LLM raw response logging for traceability
 │   ├── session_service.py    # User session persistence for LLM conversation state
 │   ├── policy_flow_service.py # Static policy creation flow (no LLM)
@@ -115,16 +115,30 @@ docker-compose up -d
 ## Message Flow
 1. User sends WhatsApp message → Meta webhook delivers to POST /api/v1/webhook
 2. App saves contact + inbound message to MongoDB (with message_id = Meta wamid)
-3. If LLM_API_URL is configured:
+3. If LLM_API_URL is configured and not in policy flow:
    - Retrieves user's session (or creates default with node N01)
-   - Builds LLM payload from Meta webhook data + session
-   - POSTs to LLM endpoint
-   - Sends LLM's whatsapp_payload directly to Meta API
+   - POSTs to LLM generic endpoint (`/api/v1/generic`) with user_id, phone_number, message, user_name, current_node
+   - Wraps LLM's `response` text in a WhatsApp text message and sends to Meta API
+   - Updates session with `suggested_node` and `detected_intent` if returned
    - Saves outbound message to MongoDB with `context.in_reply_to` = inbound wamid, `source` = "llm"
-   - Saves raw LLM response to `llm_logs` collection with both inbound + outbound message_id references
-   - Saves updated_session for next request
-   - Falls back to static auto-reply if LLM is unreachable (also logged to llm_logs with success=false)
-4. If LLM_API_URL not configured: uses static auto-reply (outbound saved with `source` = "auto_reply")
+   - Saves raw LLM response to `llm_logs` collection
+   - Falls back to static auto-reply if LLM is unreachable (logged to llm_logs with success=false)
+4. If in policy flow:
+   - All free-form text inputs (country, names, email, NIN, account number, airport, wallet number) go through LLM extract endpoint (`/api/v1/extract`)
+   - Extract returns cleaned `extracted_value` + validation + clarification prompts
+   - Graceful fallback: if extract API is down, raw user input is used
+5. If LLM_API_URL not configured: uses static auto-reply (outbound saved with `source` = "auto_reply")
+
+### LLM API Endpoints
+- **Base URL**: `https://staging-tab-whatsappllm.ipurvey.com`
+- **`POST /api/v1/generic`** — Free-form Q&A (user asks questions outside static flows)
+  - Request: `{user_id, phone_number, message, user_name, current_node}`
+  - Response: `{success, response, suggested_node, detected_intent, confidence, tokens_used, processing_time_ms, error}`
+- **`POST /api/v1/extract`** — Extract/validate user input from static flow text fields
+  - Request: `{user_id, field_name, question_asked, user_response, expected_format}`
+  - Response: `{success, extracted_value, is_valid, validation_message, needs_clarification, clarification_prompt, original_response, field_name, error}`
+  - Used for: country, first_name, last_name, email, nin, account_number, city (airport), phone_number (wallet)
+  - Graceful fallback: if extract API is unreachable, raw user input is used
 
 ### Traceability Chain
 - Inbound message (wamid) → outbound message (wamid) via `context.in_reply_to`
