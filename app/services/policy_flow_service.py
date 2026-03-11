@@ -60,6 +60,8 @@ BUTTON_WALLET_SAME = "wallet_same_number"
 BUTTON_WALLET_DIFF = "wallet_diff_number"
 NAV_NEXT = "policy_nav_next"
 NAV_PREV = "policy_nav_prev"
+BUTTON_RETRY = "policy_retry"
+BUTTON_START_OVER = "policy_start_over"
 
 BANKS_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/payout-method/banks"
 AIRPORTS_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/v2/airports/search"
@@ -282,6 +284,188 @@ async def handle_policy_flow(
 
     reply_id = _get_interactive_reply_id(message)
 
+    if reply_id == BUTTON_START_OVER:
+        flow_state_data = _get_flow_state(session)
+        old_policy_id = flow_state_data.get("policy_id")
+        if old_policy_id:
+            await cancel_policy(old_policy_id)
+        await _clear_flow_state(session, sender_wa_id)
+        phone_number = session.get("phone_number", sender_wa_id)
+        policy = await create_policy(user_id=sender_wa_id, phone_number=phone_number)
+        new_policy_id = policy.get("policy_id") if policy else None
+        session["active_policy_id"] = new_policy_id
+        await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
+        await _update_flow_state(session, sender_wa_id, {
+            "active": True,
+            "step": FLOW_STEP_MENU,
+            "policy_id": new_policy_id,
+        })
+        return
+
+    if reply_id == BUTTON_RETRY:
+        retry_step = flow_state.get("retry_step", current_step)
+        retry_data = flow_state.get("retry_data", {})
+
+        if retry_step == FLOW_STEP_PRODUCT_LIST:
+            country_code = flow_state.get("country_code", "NG")
+            products = await _fetch_products(country_code)
+            if not products:
+                await _send_retry_options(
+                    to=sender_wa_id,
+                    phone_number_id=phone_number_id,
+                    in_reply_to=in_reply_to,
+                    error_message=f"Still unable to fetch products for *{flow_state.get('country_name', country_code)}*. The service may be temporarily unavailable.",
+                    retry_label="Retry Products",
+                )
+                return
+            page = 0
+            await _send_products_page(sender_wa_id, phone_number_id, in_reply_to, products, page, country_code)
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_PRODUCT_SELECTED,
+                "available_products": products,
+                "product_page": page,
+                "retry_step": None,
+                "retry_data": None,
+            })
+            return
+
+        if retry_step == FLOW_STEP_BANK_SELECTION:
+            country_code = flow_state.get("country_code", "NG")
+            banks = await _fetch_banks(country_code)
+            if not banks:
+                await _send_retry_options(
+                    to=sender_wa_id,
+                    phone_number_id=phone_number_id,
+                    in_reply_to=in_reply_to,
+                    error_message=f"Still unable to fetch banks for *{flow_state.get('country_name', country_code)}*. The service may be temporarily unavailable.",
+                    retry_label="Retry Banks",
+                )
+                return
+            banks.sort(key=lambda b: b.get("name", "").lower())
+            page = 0
+            await _send_banks_page(sender_wa_id, phone_number_id, in_reply_to, banks, page)
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_BANK_SELECTION,
+                "available_banks": banks,
+                "bank_page": page,
+                "retry_step": None,
+                "retry_data": None,
+            })
+            return
+
+        if retry_step == FLOW_STEP_PAYMENT_METHOD:
+            await _send_payment_methods(sender_wa_id, phone_number_id, in_reply_to)
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_PAYMENT_METHOD,
+                "retry_step": None,
+                "retry_data": None,
+            })
+            return
+
+        if retry_step == FLOW_STEP_AIRPORT_INPUT:
+            saved_search = retry_data.get("search_term") if retry_data else None
+            if saved_search:
+                airports = await _fetch_airports(saved_search)
+                if airports is None:
+                    await _send_retry_options(
+                        to=sender_wa_id,
+                        phone_number_id=phone_number_id,
+                        in_reply_to=in_reply_to,
+                        error_message=f"Still unable to search airports for *\"{saved_search}\"*. The airport service may be temporarily unavailable.",
+                        retry_label="Retry Search",
+                    )
+                    return
+                if not airports:
+                    await send_text_message(
+                        to=sender_wa_id,
+                        body=f"No airports found for *\"{saved_search}\"*.\n\nPlease try a different city or state name:",
+                        phone_number_id=phone_number_id,
+                        in_reply_to=in_reply_to,
+                        source="policy_flow",
+                    )
+                    await _update_flow_state(session, sender_wa_id, {
+                        **flow_state,
+                        "step": FLOW_STEP_AIRPORT_INPUT,
+                        "retry_step": None,
+                        "retry_data": None,
+                    })
+                    return
+                policy_id = flow_state.get("policy_id")
+                if len(airports) == 1:
+                    airport = airports[0]
+                    airport_info = {
+                        "name": airport.get("name", ""),
+                        "iata_code": airport.get("iata_code", ""),
+                        "country": airport.get("country", ""),
+                    }
+                    if policy_id:
+                        await set_airport_info(policy_id, airport_info)
+                    await _show_final_summary(
+                        sender_wa_id, phone_number_id, in_reply_to,
+                        session, flow_state, policy_id, airport_info,
+                    )
+                else:
+                    rows = []
+                    for idx, airport in enumerate(airports[:10]):
+                        iata = airport.get("iata_code", "")
+                        name = airport.get("name", "Unknown")
+                        country = airport.get("country", "")
+                        rows.append({
+                            "id": f"{AIRPORT_ID_PREFIX}{idx}",
+                            "title": str(name)[:24],
+                            "description": f"{iata} - {country}"[:72],
+                        })
+                    payload = {
+                        "messaging_product": "whatsapp",
+                        "recipient_type": "individual",
+                        "to": sender_wa_id,
+                        "type": "interactive",
+                        "interactive": {
+                            "type": "list",
+                            "header": {"type": "text", "text": "Select Airport"},
+                            "body": {"text": f"Multiple airports found for *\"{saved_search}\"*. Please select one:"},
+                            "action": {
+                                "button": "View Airports",
+                                "sections": [{"title": "Airports", "rows": rows}]
+                            }
+                        }
+                    }
+                    await send_whatsapp_payload(payload, phone_number_id=phone_number_id, in_reply_to=in_reply_to, source="policy_flow")
+                    await _update_flow_state(session, sender_wa_id, {
+                        **flow_state,
+                        "step": FLOW_STEP_AIRPORT_SELECT,
+                        "available_airports": airports[:10],
+                        "retry_step": None,
+                        "retry_data": None,
+                    })
+                return
+
+            await send_text_message(
+                to=sender_wa_id,
+                body="Please enter your *city or state name* to search for an airport (e.g. Ilorin, Kano, Port Harcourt):",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_AIRPORT_INPUT,
+                "retry_step": None,
+                "retry_data": None,
+            })
+            return
+
+        await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
+        await _update_flow_state(session, sender_wa_id, {
+            "active": True,
+            "step": FLOW_STEP_MENU,
+            "policy_id": flow_state.get("policy_id"),
+        })
+        return
+
     if current_step == FLOW_STEP_MENU:
         await _handle_menu_selection(
             reply_id=reply_id,
@@ -418,6 +602,51 @@ async def _send_policy_menu(to: str, phone_number_id: str, in_reply_to: str) -> 
                         "reply": {
                             "id": BUTTON_SUBMIT_ITINERARY,
                             "title": "Submit Itinerary"
+                        }
+                    }
+                ]
+            }
+        }
+    }
+    await send_whatsapp_payload(
+        payload,
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+
+async def _send_retry_options(
+    to: str,
+    phone_number_id: str,
+    in_reply_to: str,
+    error_message: str,
+    retry_label: str = "Try Again",
+) -> None:
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {
+                "text": error_message
+            },
+            "action": {
+                "buttons": [
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": BUTTON_RETRY,
+                            "title": retry_label[:20]
+                        }
+                    },
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": BUTTON_START_OVER,
+                            "title": "Start New Policy"
                         }
                     }
                 ]
@@ -588,14 +817,18 @@ async def _handle_product_list_response(reply_id, message, sender_wa_id, phone_n
     if reply_id == BUTTON_VIEW_PRODUCTS:
         products = await _fetch_products(country_code)
         if not products:
-            await send_text_message(
+            country_name = flow_state.get("country_name", country_code)
+            await _send_retry_options(
                 to=sender_wa_id,
-                body="Sorry, we couldn't fetch the available products at the moment. Please try again later by typing 'policy'.",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
-                source="policy_flow",
+                error_message=f"We couldn't find any available products for *{country_name}*. This could be a temporary issue or there may be no products for this country yet.",
+                retry_label="Retry Products",
             )
-            await _clear_flow_state(session, sender_wa_id)
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "retry_step": FLOW_STEP_PRODUCT_LIST,
+            })
             return
 
         page = 0
@@ -789,14 +1022,17 @@ async def _handle_product_selected_response(reply_id, message, sender_wa_id, pho
                 break
 
         if not selected_product:
-            await send_text_message(
+            await _send_retry_options(
                 to=sender_wa_id,
-                body="Sorry, we couldn't find that product. Please try again by typing 'policy'.",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
-                source="policy_flow",
+                error_message="We couldn't find that product. It may no longer be available.",
+                retry_label="View Products",
             )
-            await _clear_flow_state(session, sender_wa_id)
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "retry_step": FLOW_STEP_PRODUCT_LIST,
+            })
             return
 
         price_display = _get_product_price_display(selected_product, country_code)
@@ -1145,14 +1381,20 @@ async def _handle_payment_method_selection(reply_id, message, sender_wa_id, phon
         country_code = flow_state.get("country_code", "NG")
         banks = await _fetch_banks(country_code)
         if not banks:
-            await send_text_message(
+            country_name = flow_state.get("country_name", country_code)
+            await _send_retry_options(
                 to=sender_wa_id,
-                body="Sorry, we couldn't fetch the available banks at the moment. Please try again later by typing 'policy'.",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
-                source="policy_flow",
+                error_message=f"We couldn't fetch available banks for *{country_name}*. This could be a temporary issue with the banking service.",
+                retry_label="Retry Banks",
             )
-            await _clear_flow_state(session, sender_wa_id)
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_PAYMENT_METHOD,
+                "payment_method": method,
+                "retry_step": FLOW_STEP_BANK_SELECTION,
+            })
             return
 
         banks.sort(key=lambda b: b.get("name", "").lower())
@@ -1308,14 +1550,17 @@ async def _handle_bank_selection(reply_id, message, sender_wa_id, phone_number_i
                 break
 
         if not selected_bank:
-            await send_text_message(
+            await _send_retry_options(
                 to=sender_wa_id,
-                body="Sorry, we couldn't find that bank. Please try again by typing 'policy'.",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
-                source="policy_flow",
+                error_message="We couldn't find that bank. It may no longer be available.",
+                retry_label="View Banks",
             )
-            await _clear_flow_state(session, sender_wa_id)
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "retry_step": FLOW_STEP_BANK_SELECTION,
+            })
             return
 
         bank_details = {
@@ -1613,13 +1858,18 @@ async def _handle_airport_input(message, sender_wa_id, phone_number_id, in_reply
     airports = await _fetch_airports(search_term)
 
     if airports is None:
-        await send_text_message(
+        await _send_retry_options(
             to=sender_wa_id,
-            body="Sorry, we couldn't search for airports at the moment. Please try again:",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
-            source="policy_flow",
+            error_message=f"We couldn't search for airports for *\"{cleaned_input}\"* at the moment. The airport service may be temporarily unavailable.",
+            retry_label="Retry Search",
         )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "retry_step": FLOW_STEP_AIRPORT_INPUT,
+            "retry_data": {"search_term": search_term},
+        })
         return
 
     if len(airports) == 0:
