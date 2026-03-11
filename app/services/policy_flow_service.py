@@ -594,14 +594,14 @@ async def _send_policy_menu(to: str, phone_number_id: str, in_reply_to: str) -> 
                         "type": "reply",
                         "reply": {
                             "id": BUTTON_CREATE_NEW,
-                            "title": "Create New Policy"
+                            "title": "Purchase Policy"
                         }
                     },
                     {
                         "type": "reply",
                         "reply": {
                             "id": BUTTON_SUBMIT_ITINERARY,
-                            "title": "Submit Itinerary"
+                            "title": "Submit Boarding Pass"
                         }
                     }
                 ]
@@ -691,7 +691,7 @@ async def _handle_menu_selection(reply_id, message, sender_wa_id, phone_number_i
     else:
         await send_text_message(
             to=sender_wa_id,
-            body="Please select one of the options from the menu above. Tap on 'Create New Policy' or 'Submit Itinerary'.",
+            body="Please select one of the options from the menu above. Tap on 'Purchase Policy' or 'Submit Boarding Pass'.",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",

@@ -92,22 +92,15 @@ async def send_welcome_message(
                     {
                         "type": "reply",
                         "reply": {
-                            "id": "welcome_create_policy",
-                            "title": "Create Policy"
+                            "id": "welcome_purchase_policy",
+                            "title": "Purchase Policy"
                         }
                     },
                     {
                         "type": "reply",
                         "reply": {
-                            "id": "welcome_check_status",
-                            "title": "Check Claim Status"
-                        }
-                    },
-                    {
-                        "type": "reply",
-                        "reply": {
-                            "id": "welcome_get_support",
-                            "title": "Get Support"
+                            "id": "welcome_submit_boarding",
+                            "title": "Submit Boarding Pass"
                         }
                     }
                 ]

@@ -14,7 +14,7 @@ from app.services.whatsapp_service import send_text_message
 from app.services.llm_log_service import save_llm_log
 from app.services.policy_flow_service import is_policy_trigger, is_in_policy_flow, handle_policy_flow
 
-WELCOME_BUTTON_IDS = {"welcome_create_policy", "welcome_check_status", "welcome_get_support"}
+WELCOME_BUTTON_IDS = {"welcome_purchase_policy", "welcome_submit_boarding"}
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -382,8 +382,8 @@ async def _handle_welcome_button(
 ):
     in_reply_to = message.id
 
-    if reply_id == "welcome_create_policy":
-        log_event("WELCOME_BUTTON", {"action": "create_policy", "from": sender_wa_id})
+    if reply_id == "welcome_purchase_policy":
+        log_event("WELCOME_BUTTON", {"action": "purchase_policy", "from": sender_wa_id})
         await handle_policy_flow(
             message=message,
             sender_wa_id=sender_wa_id,
@@ -391,28 +391,13 @@ async def _handle_welcome_button(
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
         )
-    elif reply_id == "welcome_check_status":
-        log_event("WELCOME_BUTTON", {"action": "check_status", "from": sender_wa_id})
+    elif reply_id == "welcome_submit_boarding":
+        log_event("WELCOME_BUTTON", {"action": "submit_boarding", "from": sender_wa_id})
         await send_text_message(
             to=sender_wa_id,
             body=(
-                "To check your claim status, please provide your *policy number* or *claim reference number*.\n\n"
-                "If you don't have one yet, type *policy* to create a new travel policy."
-            ),
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="auto_reply",
-        )
-    elif reply_id == "welcome_get_support":
-        log_event("WELCOME_BUTTON", {"action": "get_support", "from": sender_wa_id})
-        await send_text_message(
-            to=sender_wa_id,
-            body=(
-                "Our support team is ready to assist you! \U0001F64F\n\n"
-                "Please describe your issue or question, and we'll get back to you as soon as possible.\n\n"
-                "You can also:\n"
-                "\u2022 Type *policy* to create a new travel policy\n"
-                "\u2022 Type *hi* to return to the main menu"
+                "The *Submit Boarding Pass* feature is coming soon! \U0001F6EB\n\n"
+                "In the meantime, you can type *policy* to purchase a new travel policy."
             ),
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
