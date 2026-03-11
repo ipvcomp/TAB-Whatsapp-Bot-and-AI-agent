@@ -1162,7 +1162,7 @@ async def _handle_msisdn_confirm(message, sender_wa_id, phone_number_id, in_repl
         body=(
             f"Great! \U0001F44D Your WhatsApp number *[{phone_display}]* has been confirmed.\n"
             f"Country detected: *{country_name}*\n\n"
-            f"Now let's find the right product for you."
+            f"Tap the button below to browse the available products."
         ),
         phone_number_id=phone_number_id,
         in_reply_to=in_reply_to,
@@ -1295,7 +1295,7 @@ async def _send_view_products_prompt(to: str, phone_number_id: str, in_reply_to:
         "interactive": {
             "type": "button",
             "body": {
-                "text": f"Country set to *{country_name}*.\n\nNow let's find the right product for you. Tap the button below to view available products."
+                "text": f"Country set to *{country_name}*.\n\nTap the button below to browse the available products."
             },
             "action": {
                 "buttons": [
@@ -1409,20 +1409,18 @@ def _get_product_price_display(product: dict, country_code: str = None) -> str:
 
 
 def _get_product_row_description(product: dict, country_code: str = None) -> str:
-    price_str = _get_product_price_display(product, country_code)
-    validity = product.get("validityDays", "")
-    validity_str = f"{validity} day{'s' if validity != 1 else ''}" if validity else ""
     coverage = ", ".join(product.get("coverageTypes", []))
+    price_str = _get_product_price_display(product, country_code)
+    provider = product.get("providerName", "")
 
     parts = []
-    if price_str:
-        parts.append(price_str)
-    if validity_str:
-        parts.append(validity_str)
-    desc = " | ".join(parts)
     if coverage:
-        desc = f"{desc}\n{coverage}"
-    return desc[:72]
+        parts.append(f"Coverage: {coverage}")
+    if price_str:
+        parts.append(f"Price: {price_str}")
+    if provider:
+        parts.append(f"Provider: {provider}")
+    return "\n".join(parts)[:72]
 
 
 async def _send_products_page(to: str, phone_number_id: str, in_reply_to: str, products: list, page: int, country_code: str = None) -> None:
@@ -1457,9 +1455,10 @@ async def _send_products_page(to: str, phone_number_id: str, in_reply_to: str, p
 
     page_info = f" (Page {page + 1}/{total_pages})" if total_pages > 1 else ""
     body_text = (
-        f"Here are our available insurance products{page_info}.\n"
+        f"Here are the available insurance products{page_info}.\n"
         f"Showing {start + 1}-{end} of {total} products.\n\n"
-        f"Select a product to proceed with your policy."
+        f"Select a product to proceed with your policy.\n"
+        f"Tap to select a product."
     )
 
     payload = {
@@ -1568,9 +1567,10 @@ async def _handle_product_selected_response(reply_id, message, sender_wa_id, pho
         confirm_text = (
             f"You've selected *{selected_product.get('name', '')}*\n\n"
             f"_{selected_product.get('description', '')}_\n\n"
+            f"Product Name: {selected_product.get('name', '')}\n"
+            f"Coverage: {coverage}\n"
             f"Price: {price_display}\n"
             f"Validity: {validity} day{'s' if validity != 1 else ''}\n"
-            f"Coverage: {coverage}\n"
             f"Provider: {selected_product.get('providerName', '')}\n\n"
             f"Now let's capture your personal details."
         )
