@@ -3022,7 +3022,36 @@ async def _handle_itinerary_text_input(message, sender_wa_id, phone_number_id, i
     validation = current_info.get("validation")
     value = text_input.strip()
 
-    if validation == "date":
+    if validation is None:
+        extract_result = await _extract_value(
+            sender_wa_id=sender_wa_id,
+            field_name=current_info["field"].split(".")[-1],
+            question_asked=current_info["prompt"],
+            user_response=text_input,
+            expected_format="text",
+        )
+        if extract_result.get("needs_clarification"):
+            await send_text_message(
+                to=sender_wa_id,
+                body=extract_result["clarification_prompt"],
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            return
+        if not extract_result.get("is_valid") and not extract_result.get("fallback"):
+            error_msg = extract_result.get("validation_message", f"Please enter a valid {current_info['field'].split('.')[-1].replace('_', ' ')}.")
+            await send_text_message(
+                to=sender_wa_id,
+                body=error_msg,
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            return
+        value = extract_result.get("value") or text_input.strip()
+
+    elif validation == "date":
         validated = _validate_date(value)
         if not validated:
             await send_text_message(
@@ -3105,7 +3134,26 @@ async def _handle_arr_airport_input(message, sender_wa_id, phone_number_id, in_r
         )
         return
 
-    search_term = text_input.strip().title()
+    extract_result = await _extract_value(
+        sender_wa_id=sender_wa_id,
+        field_name="arrival_city",
+        question_asked="Please enter your city or state name to search for an arrival airport (e.g. London, Dubai, Accra):",
+        user_response=text_input,
+        expected_format="text",
+    )
+
+    if extract_result.get("needs_clarification"):
+        await send_text_message(
+            to=sender_wa_id,
+            body=extract_result["clarification_prompt"],
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    cleaned_input = extract_result.get("value", text_input) if extract_result.get("is_valid") else text_input
+    search_term = cleaned_input.strip().title()
     airports = await _fetch_airports(search_term)
 
     if airports is None:
@@ -3113,7 +3161,7 @@ async def _handle_arr_airport_input(message, sender_wa_id, phone_number_id, in_r
             to=sender_wa_id,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
-            error_message=f"We couldn't search for airports for *\"{text_input}\"* at the moment.",
+            error_message=f"We couldn't search for airports for *\"{cleaned_input}\"* at the moment.",
             retry_label="Retry Search",
         )
         await _update_flow_state(session, sender_wa_id, {
@@ -3124,16 +3172,16 @@ async def _handle_arr_airport_input(message, sender_wa_id, phone_number_id, in_r
         return
 
     if len(airports) == 0:
-        search_lower = text_input.strip().lower()
+        search_lower = cleaned_input.strip().lower()
         airports = await _fetch_airports(search_lower)
         if not airports:
-            search_upper = text_input.strip().upper()
+            search_upper = cleaned_input.strip().upper()
             airports = await _fetch_airports(search_upper)
 
     if not airports:
         await send_text_message(
             to=sender_wa_id,
-            body=f"No airports found for *\"{text_input}\"*.\n\nPlease try a different city or state name:",
+            body=f"No airports found for *\"{cleaned_input}\"*.\n\nPlease try a different city or state name:",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
