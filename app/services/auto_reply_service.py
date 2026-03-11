@@ -2,60 +2,124 @@ import logging
 import re
 from typing import Optional
 
-from app.services.whatsapp_service import send_text_message
+from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
 logger = logging.getLogger(__name__)
 
-STATIC_REPLIES = [
-    {
-        "patterns": [r"\b(hi|hello|hey|assalam|salam|aoa)\b"],
-        "reply": "Hello! 👋 Welcome to our service. How can we help you today?",
-    },
-    {
-        "patterns": [r"\b(help|support|assist)\b"],
-        "reply": "We're here to help! Please describe your issue and our team will get back to you shortly.",
-    },
-    {
-        "patterns": [r"\b(price|pricing|cost|plan|package)\b"],
-        "reply": "Thank you for your interest in our pricing! Our team will share the details with you shortly. Stay tuned! 📋",
-    },
-    {
-        "patterns": [r"\b(thank|thanks|shukria|shukriya)\b"],
-        "reply": "You're welcome! 😊 If you need anything else, feel free to reach out anytime.",
-    },
-    {
-        "patterns": [r"\b(bye|goodbye|see you|khuda hafiz)\b"],
-        "reply": "Goodbye! 👋 Have a great day. We're always here when you need us!",
-    },
-    {
-        "patterns": [r"\b(order|track|delivery|shipping)\b"],
-        "reply": "For order and delivery inquiries, please share your order number and we'll check the status for you. 📦",
-    },
-    {
-        "patterns": [r"\b(complaint|issue|problem|bug)\b"],
-        "reply": "We're sorry to hear about the issue. 🙏 Please describe the problem in detail and our support team will resolve it as soon as possible.",
-    },
-    {
-        "patterns": [r"\b(info|information|detail|about)\b"],
-        "reply": "We'd be happy to provide more information! Please let us know what you'd like to learn about. 📌",
-    },
-]
+GREETING_PATTERNS = [r"\b(hi|hello|hey|assalam|salam|aoa|start|menu)\b"]
+HELP_PATTERNS = [r"\b(help|support|assist)\b"]
+THANKS_PATTERNS = [r"\b(thank|thanks|shukria|shukriya)\b"]
+BYE_PATTERNS = [r"\b(bye|goodbye|see you|khuda hafiz)\b"]
 
-DEFAULT_REPLY = "Thank you for your message! 🙏 Our team will get back to you shortly. If it's urgent, please type 'help' for immediate assistance."
+WELCOME_BODY = (
+    "Hi, Welcome to *iPurvey!*\n"
+    "\U0001F44B Your Trusted Partner for Travel Disruption Compensation!\n"
+    "My name is *TravelAssist*.\n"
+    "Please select an option below so I can assist you!\n"
+    "\U0001F447\n\n"
+    "Please type *#shortcuts*, for navigation menu\n"
+    "iPurvey.com"
+)
+
+HELP_REPLY = (
+    "We're here to help! \U0001F64F\n\n"
+    "You can:\n"
+    "\u2022 Type *policy* to create a new travel policy\n"
+    "\u2022 Ask any question about travel insurance\n"
+    "\u2022 Type *#shortcuts* for the full navigation menu\n\n"
+    "How can we assist you today?"
+)
+
+THANKS_REPLY = "You're welcome! \U0001F60A If you need anything else, feel free to reach out anytime."
+
+BYE_REPLY = "Goodbye! \U0001F44B Have a great day. We're always here when you need us!"
+
+DEFAULT_REPLY = (
+    "Thank you for your message! \U0001F64F\n\n"
+    "I'm *TravelAssist*, your travel insurance companion.\n"
+    "You can:\n"
+    "\u2022 Type *policy* to create a new travel policy\n"
+    "\u2022 Ask me any question about travel insurance\n"
+    "\u2022 Type *hi* to see the main menu\n\n"
+    "How can I help you?"
+)
+
+MEDIA_REPLY = "Thanks for sending that! \U0001F4CE We've received your media. Our team will review it shortly."
 
 
-def _match_reply(text: str) -> str:
+def is_greeting(text: str) -> bool:
     if not text:
-        return DEFAULT_REPLY
+        return False
+    for pattern in GREETING_PATTERNS:
+        if re.search(pattern, text.lower().strip(), re.IGNORECASE):
+            return True
+    return False
 
+
+def _match_simple_reply(text: str) -> Optional[str]:
+    if not text:
+        return None
     text_lower = text.lower().strip()
+    for pattern in THANKS_PATTERNS:
+        if re.search(pattern, text_lower, re.IGNORECASE):
+            return THANKS_REPLY
+    for pattern in BYE_PATTERNS:
+        if re.search(pattern, text_lower, re.IGNORECASE):
+            return BYE_REPLY
+    for pattern in HELP_PATTERNS:
+        if re.search(pattern, text_lower, re.IGNORECASE):
+            return HELP_REPLY
+    return None
 
-    for rule in STATIC_REPLIES:
-        for pattern in rule["patterns"]:
-            if re.search(pattern, text_lower, re.IGNORECASE):
-                return rule["reply"]
 
-    return DEFAULT_REPLY
+async def send_welcome_message(
+    to: str,
+    phone_number_id: Optional[str],
+    in_reply_to: Optional[str],
+) -> Optional[dict]:
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {
+                "text": WELCOME_BODY
+            },
+            "action": {
+                "buttons": [
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": "welcome_create_policy",
+                            "title": "Create Policy"
+                        }
+                    },
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": "welcome_check_status",
+                            "title": "Check Claim Status"
+                        }
+                    },
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": "welcome_get_support",
+                            "title": "Get Support"
+                        }
+                    }
+                ]
+            }
+        }
+    }
+    return await send_whatsapp_payload(
+        whatsapp_payload=payload,
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="auto_reply",
+    )
 
 
 async def handle_auto_reply(
@@ -66,17 +130,30 @@ async def handle_auto_reply(
     in_reply_to: Optional[str] = None,
 ) -> Optional[dict]:
     if message_type != "text":
-        reply_text = "Thanks for sending that! 📎 We've received your media. Our team will review it shortly."
+        result = await send_text_message(
+            to=to_wa_id,
+            body=MEDIA_REPLY,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="auto_reply",
+        )
+    elif is_greeting(incoming_text):
+        result = await send_welcome_message(
+            to=to_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+        )
     else:
-        reply_text = _match_reply(incoming_text)
+        simple_reply = _match_simple_reply(incoming_text)
+        reply_text = simple_reply if simple_reply else DEFAULT_REPLY
 
-    result = await send_text_message(
-        to=to_wa_id,
-        body=reply_text,
-        phone_number_id=phone_number_id,
-        in_reply_to=in_reply_to,
-        source="auto_reply",
-    )
+        result = await send_text_message(
+            to=to_wa_id,
+            body=reply_text,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="auto_reply",
+        )
 
     if result:
         logger.info(f"Auto-reply sent to {to_wa_id}")

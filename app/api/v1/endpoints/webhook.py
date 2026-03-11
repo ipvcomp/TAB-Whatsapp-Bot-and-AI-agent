@@ -7,12 +7,14 @@ from fastapi import APIRouter, Query, HTTPException, Request, Response
 from app.core.config import get_settings
 from app.models.webhook import WebhookPayload
 from app.services import contact_service, message_service
-from app.services.auto_reply_service import handle_auto_reply
+from app.services.auto_reply_service import handle_auto_reply, is_greeting, send_welcome_message
 from app.services.session_service import get_session, save_session, build_default_session
 from app.services.llm_service import call_generic
-from app.services.whatsapp_service import send_text_message
+from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 from app.services.llm_log_service import save_llm_log
 from app.services.policy_flow_service import is_policy_trigger, is_in_policy_flow, handle_policy_flow
+
+WELCOME_BUTTON_IDS = {"welcome_create_policy", "welcome_check_status", "welcome_get_support"}
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -151,7 +153,32 @@ async def _process_change(entry_id: str, change):
                 resolved_profile = profile_name or (saved_contact.get("profile_name", "") if saved_contact else "")
                 msg_phone_number_id = value.metadata.phone_number_id
 
+                welcome_reply_id = _get_welcome_button_id(message)
+                if welcome_reply_id:
+                    await _handle_welcome_button(
+                        reply_id=welcome_reply_id,
+                        message=message,
+                        sender_wa_id=sender_wa_id,
+                        profile_name=resolved_profile,
+                        phone_number_id=msg_phone_number_id,
+                    )
+                    continue
+
                 user_session = await get_session(sender_wa_id)
+                incoming_text = message.text.body if message.text else None
+
+                if message.type == "text" and is_greeting(incoming_text) and not is_in_policy_flow(user_session):
+                    welcome_result = await send_welcome_message(
+                        to=sender_wa_id,
+                        phone_number_id=msg_phone_number_id,
+                        in_reply_to=message.id,
+                    )
+                    log_event("WELCOME_MESSAGE", {
+                        "to": sender_wa_id,
+                        "sent": welcome_result is not None,
+                    })
+                    continue
+
                 if is_policy_trigger(message) or is_in_policy_flow(user_session):
                     log_event("POLICY_FLOW", {
                         "message_id": message.id,
@@ -343,3 +370,65 @@ async def _handle_llm_reply(message, sender_wa_id, profile_name, phone_number_id
         success=outbound_message_id is not None,
         error=log_error,
     )
+
+
+def _get_welcome_button_id(message) -> str | None:
+    if message.type != "interactive":
+        return None
+    interactive = getattr(message, "interactive", None)
+    if not interactive:
+        return None
+    button_reply = interactive.get("button_reply") if isinstance(interactive, dict) else getattr(interactive, "button_reply", None)
+    if not button_reply:
+        return None
+    reply_id = button_reply.get("id") if isinstance(button_reply, dict) else getattr(button_reply, "id", None)
+    if reply_id in WELCOME_BUTTON_IDS:
+        return reply_id
+    return None
+
+
+async def _handle_welcome_button(
+    reply_id: str,
+    message,
+    sender_wa_id: str,
+    profile_name: str,
+    phone_number_id: str,
+):
+    in_reply_to = message.id
+
+    if reply_id == "welcome_create_policy":
+        log_event("WELCOME_BUTTON", {"action": "create_policy", "from": sender_wa_id})
+        await handle_policy_flow(
+            message=message,
+            sender_wa_id=sender_wa_id,
+            profile_name=profile_name,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+        )
+    elif reply_id == "welcome_check_status":
+        log_event("WELCOME_BUTTON", {"action": "check_status", "from": sender_wa_id})
+        await send_text_message(
+            to=sender_wa_id,
+            body=(
+                "To check your claim status, please provide your *policy number* or *claim reference number*.\n\n"
+                "If you don't have one yet, type *policy* to create a new travel policy."
+            ),
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="auto_reply",
+        )
+    elif reply_id == "welcome_get_support":
+        log_event("WELCOME_BUTTON", {"action": "get_support", "from": sender_wa_id})
+        await send_text_message(
+            to=sender_wa_id,
+            body=(
+                "Our support team is ready to assist you! \U0001F64F\n\n"
+                "Please describe your issue or question, and we'll get back to you as soon as possible.\n\n"
+                "You can also:\n"
+                "\u2022 Type *policy* to create a new travel policy\n"
+                "\u2022 Type *hi* to return to the main menu"
+            ),
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="auto_reply",
+        )
