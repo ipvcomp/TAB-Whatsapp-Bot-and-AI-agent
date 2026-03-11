@@ -30,7 +30,7 @@ The bot primarily interacts via WhatsApp messages, supporting interactive button
 ### Feature Specifications
 - **Dynamic Responses:** Integrates with an LLM for conversational AI, providing flexible answers and intent recognition.
 - **Static Auto-Reply:** A robust fallback system for predefined greetings, help, and media acknowledgments, active when the LLM is unavailable or not configured.
-- **Policy Creation Flow:** A guided, multi-step process for users to purchase insurance policies, covering country selection, product browsing, personal detail collection, and payment method selection. This flow takes precedence over LLM interactions.
+- **Policy Creation Flow:** A guided, multi-step process for users to purchase insurance policies. Country and MSISDN are auto-derived from the user's WhatsApp number (confirmed at flow start). Covers product browsing, personal detail collection, payment method/bank selection, and airport selection. This flow takes precedence over LLM interactions.
 - **Traceability:** Comprehensive logging for all messages, LLM interactions, and policy creation steps, linked for end-to-end debugging.
 - **Shortcuts & Navigation:** Supports in-chat commands for quick navigation within flows (e.g., `#menu`, `#back`, `#cancel`).
 

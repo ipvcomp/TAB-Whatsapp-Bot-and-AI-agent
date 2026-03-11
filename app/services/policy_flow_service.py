@@ -33,6 +33,7 @@ POLICY_KEYWORDS = [
 
 FLOW_STATE_KEY = "policy_flow"
 FLOW_STEP_MENU = "policy_menu"
+FLOW_STEP_MSISDN_CONFIRM = "msisdn_confirm"
 FLOW_STEP_COUNTRY = "country_input"
 FLOW_STEP_PRODUCT_LIST = "product_list"
 FLOW_STEP_PRODUCT_SELECTED = "product_selected"
@@ -56,8 +57,6 @@ PAYMENT_METHOD_PREFIX = "payout_"
 BANK_ID_PREFIX = "bank_"
 BANK_NAV_NEXT = "bank_nav_next"
 BANK_NAV_PREV = "bank_nav_prev"
-BUTTON_WALLET_SAME = "wallet_same_number"
-BUTTON_WALLET_DIFF = "wallet_diff_number"
 NAV_NEXT = "policy_nav_next"
 NAV_PREV = "policy_nav_prev"
 BUTTON_RETRY = "policy_retry"
@@ -77,7 +76,6 @@ SHORTCUT_COMMANDS = {
     "#cancel": "exit",
     "#restart": "restart",
     "#products": "products",
-    "#country": "country",
 }
 
 SHORTCUTS_TEXT = (
@@ -86,7 +84,6 @@ SHORTCUTS_TEXT = (
     "*#menu* \u2014 Go to main policy menu\n"
     "*#back* \u2014 Go back one step\n"
     "*#products* \u2014 Change product selection\n"
-    "*#country* \u2014 Change country\n"
     "*#restart* \u2014 Start a new policy from scratch\n"
     "*#exit* or *#cancel* \u2014 Exit policy flow\n"
     "*#shortcuts* \u2014 Show this menu\n\n"
@@ -98,9 +95,10 @@ SHORTCUTS_TEXT = (
 )
 
 BACK_STEP_MAP = {
+    FLOW_STEP_MSISDN_CONFIRM: FLOW_STEP_MENU,
     FLOW_STEP_COUNTRY: FLOW_STEP_MENU,
-    FLOW_STEP_PRODUCT_LIST: FLOW_STEP_COUNTRY,
-    FLOW_STEP_PRODUCT_SELECTED: FLOW_STEP_COUNTRY,
+    FLOW_STEP_PRODUCT_LIST: FLOW_STEP_MSISDN_CONFIRM,
+    FLOW_STEP_PRODUCT_SELECTED: FLOW_STEP_MSISDN_CONFIRM,
     FLOW_STEP_PD_FIRST_NAME: FLOW_STEP_PRODUCT_SELECTED,
     FLOW_STEP_PD_LAST_NAME: FLOW_STEP_PD_FIRST_NAME,
     FLOW_STEP_PD_EMAIL: FLOW_STEP_PD_LAST_NAME,
@@ -108,9 +106,7 @@ BACK_STEP_MAP = {
     FLOW_STEP_PD_ACCOUNT_NUMBER: FLOW_STEP_PD_NIN,
     FLOW_STEP_PAYMENT_METHOD: FLOW_STEP_PD_ACCOUNT_NUMBER,
     FLOW_STEP_BANK_SELECTION: FLOW_STEP_PAYMENT_METHOD,
-    FLOW_STEP_MSISDN_WALLET: FLOW_STEP_BANK_SELECTION,
-    FLOW_STEP_MSISDN_WALLET_INPUT: FLOW_STEP_MSISDN_WALLET,
-    FLOW_STEP_AIRPORT_INPUT: FLOW_STEP_PAYMENT_METHOD,
+    FLOW_STEP_AIRPORT_INPUT: FLOW_STEP_BANK_SELECTION,
     FLOW_STEP_AIRPORT_SELECT: FLOW_STEP_AIRPORT_INPUT,
 }
 
@@ -204,6 +200,49 @@ COUNTRY_MAP = {
     "iraq": "IQ", "iq": "IQ",
     "iran": "IR", "ir": "IR",
 }
+
+
+PHONE_CALLING_CODE_TO_COUNTRY = {
+    "234": "NG", "254": "KE", "233": "GH", "27": "ZA", "255": "TZ",
+    "256": "UG", "250": "RW", "251": "ET", "237": "CM", "221": "SN",
+    "225": "CI", "20": "EG", "212": "MA", "213": "DZ", "216": "TN",
+    "260": "ZM", "263": "ZW", "258": "MZ", "244": "AO", "223": "ML",
+    "227": "NE", "226": "BF", "229": "BJ", "228": "TG", "231": "LR",
+    "232": "SL", "220": "GM", "224": "GN", "243": "CD", "242": "CG",
+    "1": "US", "44": "GB", "91": "IN", "92": "PK", "880": "BD",
+    "94": "LK", "971": "AE", "966": "SA", "974": "QA", "965": "KW",
+    "973": "BH", "968": "OM", "61": "AU", "64": "NZ", "49": "DE",
+    "33": "FR", "39": "IT", "34": "ES", "351": "PT", "31": "NL",
+    "32": "BE", "41": "CH", "46": "SE", "47": "NO", "45": "DK",
+    "358": "FI", "353": "IE", "48": "PL", "55": "BR", "52": "MX",
+    "54": "AR", "56": "CL", "57": "CO", "51": "PE", "86": "CN",
+    "81": "JP", "82": "KR", "65": "SG", "60": "MY", "62": "ID",
+    "66": "TH", "63": "PH", "84": "VN", "90": "TR", "7": "RU",
+    "972": "IL", "962": "JO", "961": "LB", "964": "IQ", "98": "IR",
+}
+
+COUNTRY_CODE_TO_NAME = {}
+for _name, _code in COUNTRY_MAP.items():
+    if len(_name) > 2 and _code not in COUNTRY_CODE_TO_NAME:
+        COUNTRY_CODE_TO_NAME[_code] = _name.title()
+
+
+def _derive_country_from_phone(wa_id: str) -> tuple[Optional[str], Optional[str]]:
+    digits = wa_id.lstrip("+")
+    for length in (3, 2, 1):
+        prefix = digits[:length]
+        if prefix in PHONE_CALLING_CODE_TO_COUNTRY:
+            code = PHONE_CALLING_CODE_TO_COUNTRY[prefix]
+            name = COUNTRY_CODE_TO_NAME.get(code, code)
+            return code, name
+    return None, None
+
+
+def _format_phone_display(wa_id: str) -> str:
+    digits = wa_id.lstrip("+")
+    if len(digits) >= 10:
+        return f"+{digits[:3]} {digits[3:6]} {digits[6:9]} {digits[9:]}"
+    return f"+{digits}"
 
 
 def _resolve_country_code(text: str) -> Optional[str]:
@@ -335,35 +374,33 @@ async def _handle_shortcut(
         })
         return True
 
-    if shortcut == "country":
-        await send_text_message(
-            to=sender_wa_id,
-            body="Please type your *country name* (e.g. Nigeria, Kenya, Ghana):",
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-        await _update_flow_state(session, sender_wa_id, {
-            **flow_state,
-            "step": FLOW_STEP_COUNTRY,
-        })
-        return True
-
     if shortcut == "products":
-        country_code = flow_state.get("country_code")
-        if not country_code:
+        if not flow_state.get("msisdn_confirmed"):
+            phone_display = _format_phone_display(sender_wa_id)
             await send_text_message(
                 to=sender_wa_id,
-                body="Please select a country first.\n\nType your *country name* (e.g. Nigeria, Kenya, Ghana):",
+                body=(
+                    f"Before viewing products, please confirm your WhatsApp number "
+                    f"*[{phone_display}]* as your unique customer identifier.\n\n"
+                    f"Reply *YES* to proceed or *NO* to cancel."
+                ),
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
             )
             await _update_flow_state(session, sender_wa_id, {
                 **flow_state,
-                "step": FLOW_STEP_COUNTRY,
+                "step": FLOW_STEP_MSISDN_CONFIRM,
             })
             return True
+        country_code = flow_state.get("country_code")
+        if not country_code:
+            country_code, country_name = _derive_country_from_phone(sender_wa_id)
+            if not country_code:
+                country_code = "NG"
+                country_name = "Nigeria"
+            flow_state["country_code"] = country_code
+            flow_state["country_name"] = country_name
         products = await _fetch_products(country_code)
         if not products:
             await _send_retry_options(
@@ -427,6 +464,24 @@ async def _send_step_prompt(
     if step == FLOW_STEP_MENU:
         await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
 
+    elif step == FLOW_STEP_MSISDN_CONFIRM:
+        phone_display = _format_phone_display(sender_wa_id)
+        confirm_text = (
+            f"To create your customer profile, we will use your WhatsApp number "
+            f"*[{phone_display}]* as your unique customer identifier.\n\n"
+            f"For security reasons, you can only proceed using this WhatsApp number "
+            f"and it cannot be changed during this process.\n\n"
+            f"Please confirm that you understand and wish to continue.\n\n"
+            f"Reply *YES* to proceed or *NO* to cancel."
+        )
+        await send_text_message(
+            to=sender_wa_id,
+            body=confirm_text,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
     elif step == FLOW_STEP_COUNTRY:
         await send_text_message(
             to=sender_wa_id,
@@ -455,44 +510,6 @@ async def _send_step_prompt(
             await _send_banks_page(sender_wa_id, phone_number_id, in_reply_to, banks, 0)
             flow_state["available_banks"] = banks
             flow_state["bank_page"] = 0
-
-    elif step == FLOW_STEP_MSISDN_WALLET:
-        wallet_payload = {
-            "messaging_product": "whatsapp",
-            "recipient_type": "individual",
-            "to": sender_wa_id,
-            "type": "interactive",
-            "interactive": {
-                "type": "button",
-                "body": {
-                    "text": "Is your wallet number different from your WhatsApp number?"
-                },
-                "action": {
-                    "buttons": [
-                        {
-                            "type": "reply",
-                            "reply": {
-                                "id": BUTTON_WALLET_DIFF,
-                                "title": "Yes, different"
-                            }
-                        },
-                        {
-                            "type": "reply",
-                            "reply": {
-                                "id": BUTTON_WALLET_SAME,
-                                "title": "No, same number"
-                            }
-                        }
-                    ]
-                }
-            }
-        }
-        await send_whatsapp_payload(
-            wallet_payload,
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
 
     elif step == FLOW_STEP_AIRPORT_INPUT:
         await send_text_message(
@@ -794,6 +811,14 @@ async def handle_policy_flow(
             in_reply_to=in_reply_to,
             session=session,
         )
+    elif current_step == FLOW_STEP_MSISDN_CONFIRM:
+        await _handle_msisdn_confirm(
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
     elif current_step == FLOW_STEP_COUNTRY:
         await _handle_country_input(
             message=message,
@@ -841,23 +866,6 @@ async def handle_policy_flow(
     elif current_step == FLOW_STEP_BANK_SELECTION:
         await _handle_bank_selection(
             reply_id=reply_id,
-            message=message,
-            sender_wa_id=sender_wa_id,
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            session=session,
-        )
-    elif current_step == FLOW_STEP_MSISDN_WALLET:
-        await _handle_msisdn_wallet_choice(
-            reply_id=reply_id,
-            message=message,
-            sender_wa_id=sender_wa_id,
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            session=session,
-        )
-    elif current_step == FLOW_STEP_MSISDN_WALLET_INPUT:
-        await _handle_msisdn_wallet_input(
             message=message,
             sender_wa_id=sender_wa_id,
             phone_number_id=phone_number_id,
@@ -985,16 +993,25 @@ async def _handle_menu_selection(reply_id, message, sender_wa_id, phone_number_i
     policy_id = flow_state.get("policy_id")
 
     if reply_id == BUTTON_CREATE_NEW:
+        phone_display = _format_phone_display(sender_wa_id)
+        confirm_text = (
+            f"To create your customer profile, we will use your WhatsApp number "
+            f"*[{phone_display}]* as your unique customer identifier.\n\n"
+            f"For security reasons, you can only proceed using this WhatsApp number "
+            f"and it cannot be changed during this process.\n\n"
+            f"Please confirm that you understand and wish to continue.\n\n"
+            f"Reply *YES* to proceed or *NO* to cancel."
+        )
         await send_text_message(
             to=sender_wa_id,
-            body="Great! Let's create a new policy for you.\n\nPlease enter your *country name* (e.g. Nigeria, Kenya, Ghana):",
+            body=confirm_text,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
         )
         await _update_flow_state(session, sender_wa_id, {
             "active": True,
-            "step": FLOW_STEP_COUNTRY,
+            "step": FLOW_STEP_MSISDN_CONFIRM,
             "action": "create_new",
             "policy_id": policy_id,
         })
@@ -1015,6 +1032,116 @@ async def _handle_menu_selection(reply_id, message, sender_wa_id, phone_number_i
             in_reply_to=in_reply_to,
             source="policy_flow",
         )
+
+
+async def _handle_msisdn_confirm(message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+
+    if message.type != "text" or not message.text:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please reply *YES* to proceed or *NO* to cancel.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    user_input = message.text.body.strip().lower()
+
+    if user_input in ("no", "n", "nah", "nope"):
+        if policy_id:
+            await cancel_policy(policy_id)
+        session["active_policy_id"] = None
+        await send_text_message(
+            to=sender_wa_id,
+            body="No problem! Policy flow has been cancelled.\n\nType *policy* to start again or *hi* for the main menu.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _clear_flow_state(session, sender_wa_id)
+        return
+
+    if user_input not in ("yes", "y", "yeah", "yep", "sure", "ok", "okay"):
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please reply *YES* to proceed or *NO* to cancel.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    country_code, country_name = _derive_country_from_phone(sender_wa_id)
+
+    if not country_code:
+        country_code = "NG"
+        country_name = "Nigeria"
+        logger.warning(f"Could not derive country from phone {sender_wa_id}, defaulting to {country_code}")
+
+    if policy_id:
+        await set_country(policy_id, country_code, country_name)
+        logger.info(f"Country {country_code} ({country_name}) auto-derived from phone for policy {policy_id}")
+
+    msisdn_info = {
+        "phone_number": sender_wa_id,
+        "country_code": country_code,
+    }
+    if policy_id:
+        await set_msisdn_info(policy_id, msisdn_info)
+        logger.info(f"MSISDN auto-set from WhatsApp number for policy {policy_id}")
+
+    phone_display = _format_phone_display(sender_wa_id)
+    await send_text_message(
+        to=sender_wa_id,
+        body=(
+            f"Great! \U0001F44D Your WhatsApp number *[{phone_display}]* has been confirmed.\n"
+            f"Country detected: *{country_name}*\n\n"
+            f"Now let's find the right product for you."
+        ),
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+    products = await _fetch_products(country_code)
+    if not products:
+        await _send_retry_options(
+            to=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            error_message=f"We couldn't find any available products for *{country_name}*. This could be a temporary issue or there may be no products for this country yet.",
+            retry_label="Retry Products",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            "active": True,
+            "step": FLOW_STEP_PRODUCT_SELECTED,
+            "action": "create_new",
+            "policy_id": policy_id,
+            "country_code": country_code,
+            "country_name": country_name,
+            "msisdn_info": msisdn_info,
+            "msisdn_confirmed": True,
+            "retry_step": FLOW_STEP_PRODUCT_LIST,
+        })
+        return
+
+    page = 0
+    await _send_products_page(sender_wa_id, phone_number_id, in_reply_to, products, page, country_code)
+    await _update_flow_state(session, sender_wa_id, {
+        "active": True,
+        "step": FLOW_STEP_PRODUCT_SELECTED,
+        "action": "create_new",
+        "policy_id": policy_id,
+        "country_code": country_code,
+        "country_name": country_name,
+        "msisdn_info": msisdn_info,
+        "msisdn_confirmed": True,
+        "available_products": products,
+        "product_page": page,
+    })
 
 
 async def _handle_country_input(message, sender_wa_id, phone_number_id, in_reply_to, session):
@@ -1892,116 +2019,10 @@ async def _handle_bank_selection(reply_id, message, sender_wa_id, phone_number_i
             await set_bank_details(policy_id, bank_details)
             logger.info(f"Bank '{bank_details['bank_name']}' saved to policy {policy_id}")
 
-        payment_method = flow_state.get("payment_method", "")
-        country_code = flow_state.get("country_code", "")
-
-        msisdn_info = {
+        msisdn_info = flow_state.get("msisdn_info", {
             "phone_number": sender_wa_id,
-            "country_code": country_code,
-        }
-
-        if payment_method == "WALLET":
-            await send_text_message(
-                to=sender_wa_id,
-                body=(
-                    f"Bank selected: *{bank_details['bank_name']}*\n\n"
-                    f"Your MSISDN is set to your WhatsApp number: *{sender_wa_id}* (Country: {country_code})\n\n"
-                    f"Since you selected *Wallet* as your payment method, do you have a different phone number for your wallet?"
-                ),
-                phone_number_id=phone_number_id,
-                in_reply_to=in_reply_to,
-                source="policy_flow",
-            )
-
-            wallet_payload = {
-                "messaging_product": "whatsapp",
-                "recipient_type": "individual",
-                "to": sender_wa_id,
-                "type": "interactive",
-                "interactive": {
-                    "type": "button",
-                    "body": {
-                        "text": "Is your wallet number different from your WhatsApp number?"
-                    },
-                    "action": {
-                        "buttons": [
-                            {
-                                "type": "reply",
-                                "reply": {
-                                    "id": BUTTON_WALLET_DIFF,
-                                    "title": "Yes, different"
-                                }
-                            },
-                            {
-                                "type": "reply",
-                                "reply": {
-                                    "id": BUTTON_WALLET_SAME,
-                                    "title": "No, same number"
-                                }
-                            }
-                        ]
-                    }
-                }
-            }
-            await send_whatsapp_payload(
-                wallet_payload,
-                phone_number_id=phone_number_id,
-                in_reply_to=in_reply_to,
-                source="policy_flow",
-            )
-
-            await _update_flow_state(session, sender_wa_id, {
-                **flow_state,
-                "step": FLOW_STEP_MSISDN_WALLET,
-                "bank_details": bank_details,
-                "msisdn_info": msisdn_info,
-            })
-        else:
-            if policy_id:
-                await set_msisdn_info(policy_id, msisdn_info)
-                logger.info(f"MSISDN info saved to policy {policy_id}")
-
-            await _finalize_channel_and_airport_prompt(
-                sender_wa_id, phone_number_id, in_reply_to,
-                session, flow_state, policy_id,
-                bank_details, msisdn_info,
-            )
-    else:
-        await send_text_message(
-            to=sender_wa_id,
-            body="Please select a bank from the list. Tap the 'View Banks' button to see the options.",
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-        await _send_banks_page(sender_wa_id, phone_number_id, in_reply_to, banks, current_page)
-
-
-async def _handle_msisdn_wallet_choice(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
-    flow_state = _get_flow_state(session)
-    policy_id = flow_state.get("policy_id")
-    msisdn_info = flow_state.get("msisdn_info", {})
-    bank_details = flow_state.get("bank_details", {})
-
-    if reply_id == BUTTON_WALLET_DIFF:
-        await send_text_message(
-            to=sender_wa_id,
-            body="Please enter your *wallet phone number* (include country code, e.g. 2348012345678):",
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-        await _update_flow_state(session, sender_wa_id, {
-            **flow_state,
-            "step": FLOW_STEP_MSISDN_WALLET_INPUT,
+            "country_code": flow_state.get("country_code", ""),
         })
-
-    elif reply_id == BUTTON_WALLET_SAME:
-        msisdn_info["wallet_number"] = sender_wa_id
-
-        if policy_id:
-            await set_msisdn_info(policy_id, msisdn_info)
-            logger.info(f"MSISDN info (same wallet) saved to policy {policy_id}")
 
         await _finalize_channel_and_airport_prompt(
             sender_wa_id, phone_number_id, in_reply_to,
@@ -2011,75 +2032,12 @@ async def _handle_msisdn_wallet_choice(reply_id, message, sender_wa_id, phone_nu
     else:
         await send_text_message(
             to=sender_wa_id,
-            body="Please select one of the options above.",
+            body="Please select a bank from the list. Tap the 'View Banks' button to see the options.",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
         )
-
-
-async def _handle_msisdn_wallet_input(message, sender_wa_id, phone_number_id, in_reply_to, session):
-    flow_state = _get_flow_state(session)
-    policy_id = flow_state.get("policy_id")
-    msisdn_info = flow_state.get("msisdn_info", {})
-    bank_details = flow_state.get("bank_details", {})
-
-    text_input = _get_text_input(message)
-    if not text_input:
-        await send_text_message(
-            to=sender_wa_id,
-            body="Please enter your wallet phone number as text (e.g. 2348012345678):",
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-        return
-
-    extract_result = await _extract_value(
-        sender_wa_id=sender_wa_id,
-        field_name="phone_number",
-        question_asked="Please enter your wallet phone number (include country code, e.g. 2348012345678):",
-        user_response=text_input,
-        expected_format="phone",
-    )
-
-    if extract_result.get("needs_clarification"):
-        await send_text_message(
-            to=sender_wa_id,
-            body=extract_result["clarification_prompt"],
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-        return
-
-    if extract_result.get("is_valid"):
-        cleaned = extract_result.get("value", text_input)
-    else:
-        cleaned = re.sub(r"[^0-9+]", "", text_input)
-
-    cleaned = re.sub(r"[^0-9+]", "", cleaned)
-    if len(cleaned) < 7 or len(cleaned) > 20:
-        await send_text_message(
-            to=sender_wa_id,
-            body="That doesn't look like a valid phone number. Please enter a valid wallet number (e.g. 2348012345678):",
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-        return
-
-    msisdn_info["wallet_number"] = cleaned
-
-    if policy_id:
-        await set_msisdn_info(policy_id, msisdn_info)
-        logger.info(f"MSISDN info (wallet: {cleaned}) saved to policy {policy_id}")
-
-    await _finalize_channel_and_airport_prompt(
-        sender_wa_id, phone_number_id, in_reply_to,
-        session, flow_state, policy_id,
-        bank_details, msisdn_info,
-    )
+        await _send_banks_page(sender_wa_id, phone_number_id, in_reply_to, banks, current_page)
 
 
 async def _finalize_channel_and_airport_prompt(
