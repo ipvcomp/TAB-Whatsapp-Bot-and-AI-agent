@@ -2122,12 +2122,31 @@ async def _handle_id_number_input(message, sender_wa_id, phone_number_id, in_rep
         )
         return
 
-    cleaned = re.sub(r"[^0-9]", "", text_input.strip())
+    extract_result = await _extract_value(
+        sender_wa_id=sender_wa_id,
+        field_name=id_type.lower(),
+        question_asked=f"Please enter your 11-digit {id_type} number.",
+        user_response=text_input,
+        expected_format="number",
+    )
+
+    if extract_result.get("needs_clarification"):
+        await send_text_message(
+            to=sender_wa_id,
+            body=extract_result["clarification_prompt"],
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    extracted_raw = extract_result.get("value") or text_input
+    cleaned = re.sub(r"[^0-9]", "", extracted_raw.strip())
 
     if len(cleaned) != 11:
         await send_text_message(
             to=sender_wa_id,
-            body=f"Your {id_type} must be exactly *11 digits*. You entered {len(cleaned)} digit(s).\n\nPlease enter a valid *11-digit {id_type}*:",
+            body=f"Your {id_type} must be exactly *11 digits*. Please enter a valid *11-digit {id_type}*:",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -2254,12 +2273,31 @@ async def _handle_account_number_input(message, sender_wa_id, phone_number_id, i
         )
         return
 
-    cleaned = re.sub(r"[^0-9]", "", text_input.strip())
+    extract_result = await _extract_value(
+        sender_wa_id=sender_wa_id,
+        field_name="account_number",
+        question_asked="Please enter your 10-digit bank account number.",
+        user_response=text_input,
+        expected_format="number",
+    )
+
+    if extract_result.get("needs_clarification"):
+        await send_text_message(
+            to=sender_wa_id,
+            body=extract_result["clarification_prompt"],
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    extracted_raw = extract_result.get("value") or text_input
+    cleaned = re.sub(r"[^0-9]", "", extracted_raw.strip())
 
     if len(cleaned) != 10:
         await send_text_message(
             to=sender_wa_id,
-            body=f"Your account number must be exactly *10 digits*. You entered {len(cleaned)} digit(s).\n\nPlease enter a valid *10-digit account number*:",
+            body=f"Your account number must be exactly *10 digits*. Please enter a valid *10-digit account number*:",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -3052,7 +3090,24 @@ async def _handle_itinerary_text_input(message, sender_wa_id, phone_number_id, i
         value = extract_result.get("value") or text_input.strip()
 
     elif validation == "date":
-        validated = _validate_date(value)
+        extract_result = await _extract_value(
+            sender_wa_id=sender_wa_id,
+            field_name=current_info["field"].split(".")[-1],
+            question_asked=current_info["prompt"],
+            user_response=text_input,
+            expected_format="date",
+        )
+        if extract_result.get("needs_clarification"):
+            await send_text_message(
+                to=sender_wa_id,
+                body=extract_result["clarification_prompt"],
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            return
+        raw_for_date = extract_result.get("value") or value
+        validated = _validate_date(raw_for_date)
         if not validated:
             await send_text_message(
                 to=sender_wa_id,
@@ -3065,7 +3120,24 @@ async def _handle_itinerary_text_input(message, sender_wa_id, phone_number_id, i
         value = validated
 
     elif validation == "time":
-        validated = _validate_time(value)
+        extract_result = await _extract_value(
+            sender_wa_id=sender_wa_id,
+            field_name=current_info["field"].split(".")[-1],
+            question_asked=current_info["prompt"],
+            user_response=text_input,
+            expected_format="time",
+        )
+        if extract_result.get("needs_clarification"):
+            await send_text_message(
+                to=sender_wa_id,
+                body=extract_result["clarification_prompt"],
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            return
+        raw_for_time = extract_result.get("value") or value
+        validated = _validate_time(raw_for_time)
         if not validated:
             await send_text_message(
                 to=sender_wa_id,
