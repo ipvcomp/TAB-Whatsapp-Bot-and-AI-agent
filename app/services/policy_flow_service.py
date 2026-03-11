@@ -11,7 +11,8 @@ from app.services.whatsapp_service import send_whatsapp_payload, send_text_messa
 from app.services.llm_service import call_extract
 from app.services.policy_service import (
     create_policy, get_active_draft, set_product_selection, cancel_policy,
-    set_personal_details, set_payment_method, set_country,
+    set_personal_details, set_id_verification, set_payment_method,
+    set_payout_method, set_account_number, set_country,
     set_bank_details, set_msisdn_info, set_channel_info, set_airport_info,
 )
 
@@ -40,20 +41,23 @@ FLOW_STEP_PRODUCT_SELECTED = "product_selected"
 FLOW_STEP_PD_FIRST_NAME = "pd_first_name"
 FLOW_STEP_PD_LAST_NAME = "pd_last_name"
 FLOW_STEP_PD_EMAIL = "pd_email"
-FLOW_STEP_PD_NIN = "pd_nin"
-FLOW_STEP_PD_ACCOUNT_NUMBER = "pd_account_number"
+FLOW_STEP_ID_TYPE = "id_type_selection"
+FLOW_STEP_ID_NUMBER = "id_number_input"
 FLOW_STEP_PAYMENT_METHOD = "payment_method"
+FLOW_STEP_PAYOUT_METHOD = "payout_method"
+FLOW_STEP_PD_ACCOUNT_NUMBER = "pd_account_number"
 FLOW_STEP_BANK_SELECTION = "bank_selection"
-FLOW_STEP_MSISDN_WALLET = "msisdn_wallet"
-FLOW_STEP_MSISDN_WALLET_INPUT = "msisdn_wallet_input"
 FLOW_STEP_AIRPORT_INPUT = "airport_input"
 FLOW_STEP_AIRPORT_SELECT = "airport_select"
 
 BUTTON_CREATE_NEW = "policy_create_new"
 BUTTON_SUBMIT_ITINERARY = "policy_submit_itinerary"
 BUTTON_VIEW_PRODUCTS = "policy_view_products"
+BUTTON_ID_NIN = "id_type_nin"
+BUTTON_ID_BVN = "id_type_bvn"
 PRODUCT_ID_PREFIX = "product_"
-PAYMENT_METHOD_PREFIX = "payout_"
+PAYMENT_METHOD_PREFIX = "pay_method_"
+PAYOUT_METHOD_PREFIX = "payout_method_"
 BANK_ID_PREFIX = "bank_"
 BANK_NAV_NEXT = "bank_nav_next"
 BANK_NAV_PREV = "bank_nav_prev"
@@ -102,10 +106,12 @@ BACK_STEP_MAP = {
     FLOW_STEP_PD_FIRST_NAME: FLOW_STEP_PRODUCT_SELECTED,
     FLOW_STEP_PD_LAST_NAME: FLOW_STEP_PD_FIRST_NAME,
     FLOW_STEP_PD_EMAIL: FLOW_STEP_PD_LAST_NAME,
-    FLOW_STEP_PD_NIN: FLOW_STEP_PD_EMAIL,
-    FLOW_STEP_PD_ACCOUNT_NUMBER: FLOW_STEP_PD_NIN,
-    FLOW_STEP_PAYMENT_METHOD: FLOW_STEP_PD_ACCOUNT_NUMBER,
-    FLOW_STEP_BANK_SELECTION: FLOW_STEP_PAYMENT_METHOD,
+    FLOW_STEP_ID_TYPE: FLOW_STEP_PD_EMAIL,
+    FLOW_STEP_ID_NUMBER: FLOW_STEP_ID_TYPE,
+    FLOW_STEP_PAYMENT_METHOD: FLOW_STEP_ID_NUMBER,
+    FLOW_STEP_PAYOUT_METHOD: FLOW_STEP_PAYMENT_METHOD,
+    FLOW_STEP_PD_ACCOUNT_NUMBER: FLOW_STEP_PAYOUT_METHOD,
+    FLOW_STEP_BANK_SELECTION: FLOW_STEP_PD_ACCOUNT_NUMBER,
     FLOW_STEP_AIRPORT_INPUT: FLOW_STEP_BANK_SELECTION,
     FLOW_STEP_AIRPORT_SELECT: FLOW_STEP_AIRPORT_INPUT,
 }
@@ -114,8 +120,6 @@ PERSONAL_DETAIL_STEPS = [
     {"step": FLOW_STEP_PD_FIRST_NAME, "field": "first_name", "prompt": "Please enter your *first name*:", "expected_format": "text"},
     {"step": FLOW_STEP_PD_LAST_NAME, "field": "last_name", "prompt": "Please enter your *last name*:", "expected_format": "text"},
     {"step": FLOW_STEP_PD_EMAIL, "field": "email", "prompt": "Please enter your *email address*:", "expected_format": "email"},
-    {"step": FLOW_STEP_PD_NIN, "field": "nin", "prompt": "Please enter your *NIN (National Identification Number)*:", "expected_format": "text"},
-    {"step": FLOW_STEP_PD_ACCOUNT_NUMBER, "field": "account_number", "prompt": "Please enter your *account number*:", "expected_format": "text"},
 ]
 
 COUNTRY_MAP = {
@@ -499,8 +503,33 @@ async def _send_step_prompt(
             flow_state["available_products"] = products
             flow_state["product_page"] = 0
 
+    elif step == FLOW_STEP_ID_TYPE:
+        await _send_id_type_selection(sender_wa_id, phone_number_id, in_reply_to)
+
+    elif step == FLOW_STEP_ID_NUMBER:
+        id_type = flow_state.get("id_type", "NIN")
+        await send_text_message(
+            to=sender_wa_id,
+            body=f"Please enter your *11-digit {id_type}*:",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
     elif step == FLOW_STEP_PAYMENT_METHOD:
         await _send_payment_methods(sender_wa_id, phone_number_id, in_reply_to)
+
+    elif step == FLOW_STEP_PAYOUT_METHOD:
+        await _send_payout_methods(sender_wa_id, phone_number_id, in_reply_to)
+
+    elif step == FLOW_STEP_PD_ACCOUNT_NUMBER:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter your *10-digit account number* for future payouts:",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
 
     elif step == FLOW_STEP_BANK_SELECTION:
         country_code = flow_state.get("country_code", "NG")
@@ -854,9 +883,43 @@ async def handle_policy_flow(
             session=session,
             current_step=current_step,
         )
+    elif current_step == FLOW_STEP_ID_TYPE:
+        await _handle_id_type_selection(
+            reply_id=reply_id,
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
+    elif current_step == FLOW_STEP_ID_NUMBER:
+        await _handle_id_number_input(
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
     elif current_step == FLOW_STEP_PAYMENT_METHOD:
         await _handle_payment_method_selection(
             reply_id=reply_id,
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
+    elif current_step == FLOW_STEP_PAYOUT_METHOD:
+        await _handle_payout_method_selection(
+            reply_id=reply_id,
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
+    elif current_step == FLOW_STEP_PD_ACCOUNT_NUMBER:
+        await _handle_account_number_input(
             message=message,
             sender_wa_id=sender_wa_id,
             phone_number_id=phone_number_id,
@@ -1717,9 +1780,6 @@ async def _handle_personal_detail_input(message, sender_wa_id, phone_number_id, 
             f"Personal details saved:\n\n"
             f"Name: {personal_details.get('first_name', '')} {personal_details.get('last_name', '')}\n"
             f"Email: {personal_details.get('email', '')}\n"
-            f"NIN: {personal_details.get('nin', '')}\n"
-            f"Account Number: {personal_details.get('account_number', '')}\n\n"
-            f"Now let's select your preferred payment method."
         )
         await send_text_message(
             to=sender_wa_id,
@@ -1729,12 +1789,291 @@ async def _handle_personal_detail_input(message, sender_wa_id, phone_number_id, 
             source="policy_flow",
         )
 
-        await _send_payment_methods(sender_wa_id, phone_number_id, in_reply_to)
+        await _send_id_type_selection(sender_wa_id, phone_number_id, in_reply_to)
         await _update_flow_state(session, sender_wa_id, {
             **flow_state,
-            "step": FLOW_STEP_PAYMENT_METHOD,
+            "step": FLOW_STEP_ID_TYPE,
             "personal_details": personal_details,
         })
+
+
+async def _send_id_type_selection(to: str, phone_number_id: str, in_reply_to: str) -> None:
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {
+                "text": (
+                    "To continue with your policy purchase, we need a valid digital ID number "
+                    "to verify your details.\n\n"
+                    "Please choose the identification number you would like to provide for verification:"
+                )
+            },
+            "action": {
+                "buttons": [
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": BUTTON_ID_NIN,
+                            "title": "NIN (11 digit)"
+                        }
+                    },
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": BUTTON_ID_BVN,
+                            "title": "BVN (11 digit)"
+                        }
+                    }
+                ]
+            }
+        }
+    }
+    await send_whatsapp_payload(
+        payload,
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+
+async def _handle_id_type_selection(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+
+    if reply_id == BUTTON_ID_NIN:
+        id_type = "NIN"
+        id_label = "NIN (National Identification Number)"
+    elif reply_id == BUTTON_ID_BVN:
+        id_type = "BVN"
+        id_label = "BVN (Bank Verification Number)"
+    else:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please select one of the options: *NIN* or *BVN*.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    await send_text_message(
+        to=sender_wa_id,
+        body=f"You selected *{id_label}*.\n\nPlease enter your *11-digit {id_type}*:",
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+    await _update_flow_state(session, sender_wa_id, {
+        **flow_state,
+        "step": FLOW_STEP_ID_NUMBER,
+        "id_type": id_type,
+    })
+
+
+async def _handle_id_number_input(message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+    id_type = flow_state.get("id_type", "NIN")
+
+    text_input = _get_text_input(message)
+    if not text_input:
+        await send_text_message(
+            to=sender_wa_id,
+            body=f"Please enter your *11-digit {id_type}* as a text message.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    cleaned = re.sub(r"[^0-9]", "", text_input.strip())
+
+    if len(cleaned) != 11:
+        await send_text_message(
+            to=sender_wa_id,
+            body=f"Your {id_type} must be exactly *11 digits*. You entered {len(cleaned)} digit(s).\n\nPlease enter a valid *11-digit {id_type}*:",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    if policy_id:
+        await set_id_verification(policy_id, id_type, cleaned)
+        logger.info(f"{id_type} '***{cleaned[-4:]}' saved to policy {policy_id}")
+
+    await send_text_message(
+        to=sender_wa_id,
+        body=f"{id_type} verified: *{cleaned}*\n\nNow let's select your preferred payment method.",
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+    await _send_payment_methods(sender_wa_id, phone_number_id, in_reply_to)
+    await _update_flow_state(session, sender_wa_id, {
+        **flow_state,
+        "step": FLOW_STEP_PAYMENT_METHOD,
+        "id_number": cleaned,
+    })
+
+
+PAYOUT_METHOD_LABELS = {
+    "BANK_TRANSFER": "Bank Transfer",
+}
+
+
+async def _send_payout_methods(to: str, phone_number_id: str, in_reply_to: str) -> None:
+    methods = await _fetch_payment_methods()
+
+    payout_methods = []
+    if methods:
+        for m in methods:
+            if m == "BANK_TRANSFER":
+                payout_methods.append(m)
+    if not payout_methods:
+        payout_methods = ["BANK_TRANSFER"]
+
+    buttons = []
+    for method in payout_methods[:3]:
+        buttons.append({
+            "type": "reply",
+            "reply": {
+                "id": f"{PAYOUT_METHOD_PREFIX}{method}",
+                "title": PAYOUT_METHOD_LABELS.get(method, method.replace("_", " ").title())[:20],
+            }
+        })
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {
+                "text": "Please select your future payout method:"
+            },
+            "action": {
+                "buttons": buttons
+            }
+        }
+    }
+
+    await send_whatsapp_payload(
+        payload,
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+
+async def _handle_payout_method_selection(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+
+    if reply_id and reply_id.startswith(PAYOUT_METHOD_PREFIX):
+        method = reply_id[len(PAYOUT_METHOD_PREFIX):]
+        label = PAYOUT_METHOD_LABELS.get(method, method.replace("_", " ").title())
+
+        if policy_id:
+            await set_payout_method(policy_id, method)
+            logger.info(f"Payout method '{method}' saved to policy {policy_id}")
+
+        await send_text_message(
+            to=sender_wa_id,
+            body=f"Payout method selected: *{label}*\n\nPlease enter your *10-digit account number* for future payouts:",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_PD_ACCOUNT_NUMBER,
+            "payout_method": method,
+        })
+    else:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please select one of the payout method options above.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+
+async def _handle_account_number_input(message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+
+    text_input = _get_text_input(message)
+    if not text_input:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter your *10-digit account number* as a text message.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    cleaned = re.sub(r"[^0-9]", "", text_input.strip())
+
+    if len(cleaned) != 10:
+        await send_text_message(
+            to=sender_wa_id,
+            body=f"Your account number must be exactly *10 digits*. You entered {len(cleaned)} digit(s).\n\nPlease enter a valid *10-digit account number*:",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    if policy_id:
+        await set_account_number(policy_id, cleaned)
+        logger.info(f"Account number '***{cleaned[-4:]}' saved to policy {policy_id}")
+
+    await send_text_message(
+        to=sender_wa_id,
+        body=f"Account number saved: *{cleaned}*\n\nNow let's select your bank.",
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+    country_code = flow_state.get("country_code", "NG")
+    banks = await _fetch_banks(country_code)
+    if not banks:
+        country_name = flow_state.get("country_name", country_code)
+        await _send_retry_options(
+            to=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            error_message=f"We couldn't fetch available banks for *{country_name}*. This could be a temporary issue with the banking service.",
+            retry_label="Retry Banks",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_PD_ACCOUNT_NUMBER,
+            "account_number": cleaned,
+            "retry_step": FLOW_STEP_BANK_SELECTION,
+        })
+        return
+
+    banks.sort(key=lambda b: b.get("name", "").lower())
+    page = 0
+    await _send_banks_page(sender_wa_id, phone_number_id, in_reply_to, banks, page)
+    await _update_flow_state(session, sender_wa_id, {
+        **flow_state,
+        "step": FLOW_STEP_BANK_SELECTION,
+        "account_number": cleaned,
+        "available_banks": banks,
+        "bank_page": page,
+    })
 
 
 async def _fetch_payment_methods() -> Optional[list]:
@@ -1818,40 +2157,17 @@ async def _handle_payment_method_selection(reply_id, message, sender_wa_id, phon
 
         await send_text_message(
             to=sender_wa_id,
-            body=f"Payment method selected: *{label}*\n\nNow let's select your bank.",
+            body=f"Payment method selected: *{label}*\n\nNow let's select your future payout method.",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
         )
 
-        country_code = flow_state.get("country_code", "NG")
-        banks = await _fetch_banks(country_code)
-        if not banks:
-            country_name = flow_state.get("country_name", country_code)
-            await _send_retry_options(
-                to=sender_wa_id,
-                phone_number_id=phone_number_id,
-                in_reply_to=in_reply_to,
-                error_message=f"We couldn't fetch available banks for *{country_name}*. This could be a temporary issue with the banking service.",
-                retry_label="Retry Banks",
-            )
-            await _update_flow_state(session, sender_wa_id, {
-                **flow_state,
-                "step": FLOW_STEP_PAYMENT_METHOD,
-                "payment_method": method,
-                "retry_step": FLOW_STEP_BANK_SELECTION,
-            })
-            return
-
-        banks.sort(key=lambda b: b.get("name", "").lower())
-        page = 0
-        await _send_banks_page(sender_wa_id, phone_number_id, in_reply_to, banks, page)
+        await _send_payout_methods(sender_wa_id, phone_number_id, in_reply_to)
         await _update_flow_state(session, sender_wa_id, {
             **flow_state,
-            "step": FLOW_STEP_BANK_SELECTION,
+            "step": FLOW_STEP_PAYOUT_METHOD,
             "payment_method": method,
-            "available_banks": banks,
-            "bank_page": page,
         })
     else:
         await send_text_message(
@@ -2299,15 +2615,18 @@ async def _show_final_summary(
     personal_details = flow_state.get("personal_details", {})
     selected_product = flow_state.get("selected_product", {})
     payment_method = flow_state.get("payment_method", "")
+    payout_method = flow_state.get("payout_method", "")
     country_name = flow_state.get("country_name", "")
     country_code = flow_state.get("country_code", "")
     bank_details = flow_state.get("bank_details", {})
     msisdn_info = flow_state.get("msisdn_info", {})
+    id_type = flow_state.get("id_type", "")
+    id_number = flow_state.get("id_number", "")
+    account_number = flow_state.get("account_number", "")
     payment_label = PAYMENT_METHOD_LABELS.get(payment_method, payment_method)
+    payout_label = PAYOUT_METHOD_LABELS.get(payout_method, payout_method)
 
-    wallet_line = ""
-    if payment_method == "WALLET" and msisdn_info.get("wallet_number"):
-        wallet_line = f"\nWallet Number: {msisdn_info['wallet_number']}"
+    id_line = f"{id_type}: {id_number}" if id_type and id_number else ""
 
     summary = (
         f"Here's a summary of your policy details:\n\n"
@@ -2317,12 +2636,13 @@ async def _show_final_summary(
         f"*Personal Details:*\n"
         f"Name: {personal_details.get('first_name', '')} {personal_details.get('last_name', '')}\n"
         f"Email: {personal_details.get('email', '')}\n"
-        f"NIN: {personal_details.get('nin', '')}\n"
-        f"Account Number: {personal_details.get('account_number', '')}\n\n"
+        f"{id_line}\n\n"
         f"*Payment:*\n"
         f"Method: {payment_label}\n"
+        f"Payout Method: {payout_label}\n"
+        f"Account Number: {account_number}\n"
         f"Bank: {bank_details.get('bank_name', '')}\n"
-        f"MSISDN: {msisdn_info.get('phone_number', '')} ({country_code}){wallet_line}\n\n"
+        f"MSISDN: {msisdn_info.get('phone_number', '')} ({country_code})\n\n"
         f"*Airport:*\n"
         f"{airport_info.get('name', '')} ({airport_info.get('iata_code', '')})\n\n"
         f"*Settings:*\n"
@@ -2348,7 +2668,11 @@ async def _show_final_summary(
         "policy_id": policy_id,
         "selected_product": selected_product,
         "personal_details": personal_details,
+        "id_type": id_type,
+        "id_number": id_number,
         "payment_method": payment_method,
+        "payout_method": payout_method,
+        "account_number": account_number,
         "bank_details": bank_details,
         "msisdn_info": msisdn_info,
         "channel_info": flow_state.get("channel_info", {}),

@@ -47,7 +47,12 @@ async def create_policy(user_id: str, phone_number: str) -> Optional[dict]:
         "country_name": None,
         "selected_product": None,
         "personal_details": None,
+        "id_type": None,
+        "nin": None,
+        "bvn": None,
         "payment_method": None,
+        "payout_method": None,
+        "account_number": None,
         "bank_details": None,
         "msisdn_info": None,
         "channel_info": None,
@@ -143,10 +148,33 @@ async def set_personal_details(policy_id: str, details: dict) -> bool:
     })
 
 
+async def set_id_verification(policy_id: str, id_type: str, id_number: str) -> bool:
+    update_data = {"id_type": id_type}
+    if id_type == "NIN":
+        update_data["nin"] = id_number
+        update_data["bvn"] = None
+    elif id_type == "BVN":
+        update_data["bvn"] = id_number
+        update_data["nin"] = None
+    return await update_policy(policy_id, update_data)
+
+
 async def set_payment_method(policy_id: str, method: str) -> bool:
     return await update_policy(policy_id, {
         "payment_method": method,
         "status": STATUS_PENDING,
+    })
+
+
+async def set_payout_method(policy_id: str, method: str) -> bool:
+    return await update_policy(policy_id, {
+        "payout_method": method,
+    })
+
+
+async def set_account_number(policy_id: str, account_number: str) -> bool:
+    return await update_policy(policy_id, {
+        "account_number": account_number,
     })
 
 
