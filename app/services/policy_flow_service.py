@@ -14,6 +14,7 @@ from app.services.policy_service import (
     set_personal_details, set_id_verification, set_payment_method,
     set_payout_method, set_account_number, set_country,
     set_bank_details, set_msisdn_info, set_channel_info, set_airport_info,
+    set_itinerary,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,17 @@ FLOW_STEP_PD_ACCOUNT_NUMBER = "pd_account_number"
 FLOW_STEP_BANK_SELECTION = "bank_selection"
 FLOW_STEP_AIRPORT_INPUT = "airport_input"
 FLOW_STEP_AIRPORT_SELECT = "airport_select"
+FLOW_STEP_ITIN_BOOKING_REF = "itin_booking_ref"
+FLOW_STEP_ITIN_FLIGHT_NO = "itin_flight_no"
+FLOW_STEP_ITIN_CARRIER = "itin_carrier"
+FLOW_STEP_ITIN_DEP_DATE = "itin_dep_date"
+FLOW_STEP_ITIN_DEP_TIME = "itin_dep_time"
+FLOW_STEP_ITIN_ARR_AIRPORT_INPUT = "itin_arr_airport_input"
+FLOW_STEP_ITIN_ARR_AIRPORT_SELECT = "itin_arr_airport_select"
+FLOW_STEP_ITIN_ARR_DATE = "itin_arr_date"
+FLOW_STEP_ITIN_ARR_TIME = "itin_arr_time"
+
+ARR_AIRPORT_ID_PREFIX = "arr_airport_"
 
 BUTTON_CREATE_NEW = "policy_create_new"
 BUTTON_SUBMIT_ITINERARY = "policy_submit_itinerary"
@@ -114,6 +126,15 @@ BACK_STEP_MAP = {
     FLOW_STEP_BANK_SELECTION: FLOW_STEP_PD_ACCOUNT_NUMBER,
     FLOW_STEP_AIRPORT_INPUT: FLOW_STEP_BANK_SELECTION,
     FLOW_STEP_AIRPORT_SELECT: FLOW_STEP_AIRPORT_INPUT,
+    FLOW_STEP_ITIN_BOOKING_REF: FLOW_STEP_AIRPORT_INPUT,
+    FLOW_STEP_ITIN_FLIGHT_NO: FLOW_STEP_ITIN_BOOKING_REF,
+    FLOW_STEP_ITIN_CARRIER: FLOW_STEP_ITIN_FLIGHT_NO,
+    FLOW_STEP_ITIN_DEP_DATE: FLOW_STEP_ITIN_CARRIER,
+    FLOW_STEP_ITIN_DEP_TIME: FLOW_STEP_ITIN_DEP_DATE,
+    FLOW_STEP_ITIN_ARR_AIRPORT_INPUT: FLOW_STEP_ITIN_DEP_TIME,
+    FLOW_STEP_ITIN_ARR_AIRPORT_SELECT: FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
+    FLOW_STEP_ITIN_ARR_DATE: FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
+    FLOW_STEP_ITIN_ARR_TIME: FLOW_STEP_ITIN_ARR_DATE,
 }
 
 PERSONAL_DETAIL_STEPS = [
@@ -543,7 +564,79 @@ async def _send_step_prompt(
     elif step == FLOW_STEP_AIRPORT_INPUT:
         await send_text_message(
             to=sender_wa_id,
-            body="Please enter your *city or state name* to search for an airport (e.g. Ilorin, Kano, Port Harcourt):",
+            body="Please enter your *city or state name* to search for a departure airport (e.g. Ilorin, Kano, Port Harcourt):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+    elif step == FLOW_STEP_ITIN_BOOKING_REF:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter your *booking reference* (e.g. ABC123):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+    elif step == FLOW_STEP_ITIN_FLIGHT_NO:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter your *flight number* (e.g. BA1234, AA100):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+    elif step == FLOW_STEP_ITIN_CARRIER:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter the *airline/carrier name* (e.g. British Airways, Air Peace):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+    elif step == FLOW_STEP_ITIN_DEP_DATE:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter your *departure date* in DD/MM/YYYY format (e.g. 25/12/2026):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+    elif step == FLOW_STEP_ITIN_DEP_TIME:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter your *departure time* in HH:MM 24-hour format (e.g. 14:30):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+    elif step == FLOW_STEP_ITIN_ARR_AIRPORT_INPUT:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter your *city or state name* to search for an arrival airport (e.g. London, Dubai, Accra):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+    elif step == FLOW_STEP_ITIN_ARR_DATE:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter your *arrival date* in DD/MM/YYYY format (e.g. 25/12/2026):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+    elif step == FLOW_STEP_ITIN_ARR_TIME:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter your *arrival time* in HH:MM 24-hour format (e.g. 18:45):",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -768,9 +861,9 @@ async def handle_policy_flow(
                     }
                     if policy_id:
                         await set_airport_info(policy_id, airport_info)
-                    await _show_final_summary(
+                    await _start_itinerary_flow(
                         sender_wa_id, phone_number_id, in_reply_to,
-                        session, flow_state, policy_id, airport_info,
+                        session, flow_state, airport_info,
                     )
                 else:
                     rows = []
@@ -810,7 +903,7 @@ async def handle_policy_flow(
 
             await send_text_message(
                 to=sender_wa_id,
-                body="Please enter your *city or state name* to search for an airport (e.g. Ilorin, Kano, Port Harcourt):",
+                body="Please enter your *city or state name* to search for a departure airport (e.g. Ilorin, Kano, Port Harcourt):",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
@@ -818,6 +911,115 @@ async def handle_policy_flow(
             await _update_flow_state(session, sender_wa_id, {
                 **flow_state,
                 "step": FLOW_STEP_AIRPORT_INPUT,
+                "retry_step": None,
+                "retry_data": None,
+            })
+            return
+
+        if retry_step == FLOW_STEP_ITIN_ARR_AIRPORT_INPUT:
+            saved_search = retry_data.get("search_term") if retry_data else None
+            if saved_search:
+                airports = await _fetch_airports(saved_search)
+                if airports is None:
+                    await _send_retry_options(
+                        to=sender_wa_id,
+                        phone_number_id=phone_number_id,
+                        in_reply_to=in_reply_to,
+                        error_message=f"Still unable to search airports for *\"{saved_search}\"*. The airport service may be temporarily unavailable.",
+                        retry_label="Retry Search",
+                    )
+                    return
+                if not airports:
+                    await send_text_message(
+                        to=sender_wa_id,
+                        body=f"No airports found for *\"{saved_search}\"*.\n\nPlease try a different city or state name:",
+                        phone_number_id=phone_number_id,
+                        in_reply_to=in_reply_to,
+                        source="policy_flow",
+                    )
+                    await _update_flow_state(session, sender_wa_id, {
+                        **flow_state,
+                        "step": FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
+                        "retry_step": None,
+                        "retry_data": None,
+                    })
+                    return
+                itinerary = flow_state.get("itinerary", {})
+                if len(airports) == 1:
+                    airport = airports[0]
+                    arr_airport_info = {
+                        "name": airport.get("name", ""),
+                        "iata_code": airport.get("iata_code", ""),
+                        "country": airport.get("country", ""),
+                    }
+                    if "arrival" not in itinerary:
+                        itinerary["arrival"] = {}
+                    itinerary["arrival"]["airport"] = arr_airport_info.get("iata_code", "")
+                    itinerary["arrival"]["airportName"] = arr_airport_info.get("name", "")
+                    await send_text_message(
+                        to=sender_wa_id,
+                        body=(
+                            f"Arrival airport selected: *{arr_airport_info['name']}* ({arr_airport_info['iata_code']})\n\n"
+                            f"Please enter your *arrival date* in DD/MM/YYYY format (e.g. 25/12/2026):"
+                        ),
+                        phone_number_id=phone_number_id,
+                        in_reply_to=in_reply_to,
+                        source="policy_flow",
+                    )
+                    await _update_flow_state(session, sender_wa_id, {
+                        **flow_state,
+                        "step": FLOW_STEP_ITIN_ARR_DATE,
+                        "itinerary": itinerary,
+                        "retry_step": None,
+                        "retry_data": None,
+                    })
+                else:
+                    rows = []
+                    for idx, airport in enumerate(airports[:10]):
+                        iata = airport.get("iata_code", "")
+                        name = airport.get("name", "Unknown")
+                        country = airport.get("country", "")
+                        rows.append({
+                            "id": f"{ARR_AIRPORT_ID_PREFIX}{idx}",
+                            "title": str(name)[:24],
+                            "description": f"{iata} - {country}"[:72],
+                        })
+                    payload = {
+                        "messaging_product": "whatsapp",
+                        "recipient_type": "individual",
+                        "to": sender_wa_id,
+                        "type": "interactive",
+                        "interactive": {
+                            "type": "list",
+                            "header": {"type": "text", "text": "Arrival Airports"},
+                            "body": {"text": f"Found {len(airports)} airports. Select your arrival airport:"},
+                            "action": {
+                                "button": "View Airports",
+                                "sections": [{"title": "Airports", "rows": rows}]
+                            }
+                        }
+                    }
+                    await send_whatsapp_payload(payload, phone_number_id=phone_number_id, in_reply_to=in_reply_to, source="policy_flow")
+                    await _update_flow_state(session, sender_wa_id, {
+                        **flow_state,
+                        "step": FLOW_STEP_ITIN_ARR_AIRPORT_SELECT,
+                        "itinerary": itinerary,
+                        "available_arr_airports": airports[:10],
+                        "retry_step": None,
+                        "retry_data": None,
+                    })
+                return
+
+            await send_text_message(
+                to=sender_wa_id,
+                body="Please enter your *city or state name* to search for an arrival airport (e.g. London, Dubai, Accra):",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
                 "retry_step": None,
                 "retry_data": None,
             })
@@ -945,6 +1147,37 @@ async def handle_policy_flow(
         )
     elif current_step == FLOW_STEP_AIRPORT_SELECT:
         await _handle_airport_selection(
+            reply_id=reply_id,
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
+    elif current_step in (
+        FLOW_STEP_ITIN_BOOKING_REF, FLOW_STEP_ITIN_FLIGHT_NO,
+        FLOW_STEP_ITIN_CARRIER, FLOW_STEP_ITIN_DEP_DATE,
+        FLOW_STEP_ITIN_DEP_TIME, FLOW_STEP_ITIN_ARR_DATE,
+        FLOW_STEP_ITIN_ARR_TIME,
+    ):
+        await _handle_itinerary_text_input(
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+            current_step=current_step,
+        )
+    elif current_step == FLOW_STEP_ITIN_ARR_AIRPORT_INPUT:
+        await _handle_arr_airport_input(
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
+    elif current_step == FLOW_STEP_ITIN_ARR_AIRPORT_SELECT:
+        await _handle_arr_airport_selection(
             reply_id=reply_id,
             message=message,
             sender_wa_id=sender_wa_id,
@@ -2494,9 +2727,9 @@ async def _handle_airport_input(message, sender_wa_id, phone_number_id, in_reply
             await set_airport_info(policy_id, airport_info)
             logger.info(f"Airport '{airport_info['name']}' ({airport_info['iata_code']}) saved to policy {policy_id}")
 
-        await _show_final_summary(
+        await _start_itinerary_flow(
             sender_wa_id, phone_number_id, in_reply_to,
-            session, flow_state, policy_id, airport_info,
+            session, flow_state, airport_info,
         )
     else:
         rows = []
@@ -2584,9 +2817,9 @@ async def _handle_airport_selection(reply_id, message, sender_wa_id, phone_numbe
             await set_airport_info(policy_id, airport_info)
             logger.info(f"Airport '{airport_info['name']}' ({airport_info['iata_code']}) saved to policy {policy_id}")
 
-        await _show_final_summary(
+        await _start_itinerary_flow(
             sender_wa_id, phone_number_id, in_reply_to,
-            session, flow_state, policy_id, airport_info,
+            session, flow_state, airport_info,
         )
     else:
         text_input = _get_text_input(message)
@@ -2608,6 +2841,481 @@ async def _handle_airport_selection(reply_id, message, sender_wa_id, phone_numbe
             )
 
 
+ITINERARY_STEPS = [
+    {
+        "step": FLOW_STEP_ITIN_BOOKING_REF,
+        "field": "bookingReference",
+        "prompt": "Please enter your *booking reference* (e.g. ABC123):",
+        "validation": None,
+    },
+    {
+        "step": FLOW_STEP_ITIN_FLIGHT_NO,
+        "field": "flightNo",
+        "prompt": "Please enter your *flight number* (e.g. BA1234, AA100):",
+        "validation": None,
+    },
+    {
+        "step": FLOW_STEP_ITIN_CARRIER,
+        "field": "carrier",
+        "prompt": "Please enter the *airline/carrier name* (e.g. British Airways, Air Peace):",
+        "validation": None,
+    },
+    {
+        "step": FLOW_STEP_ITIN_DEP_DATE,
+        "field": "departure.scheduledDateLocal",
+        "prompt": "Please enter your *departure date* in DD/MM/YYYY format (e.g. 25/12/2026):",
+        "validation": "date",
+    },
+    {
+        "step": FLOW_STEP_ITIN_DEP_TIME,
+        "field": "departure.scheduledTimeLocal",
+        "prompt": "Please enter your *departure time* in HH:MM 24-hour format (e.g. 14:30):",
+        "validation": "time",
+    },
+    {
+        "step": FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
+        "field": "arrival.airport",
+        "prompt": "Please enter your *city or state name* to search for an arrival airport (e.g. London, Dubai, Accra):",
+        "validation": "airport_search",
+    },
+    {
+        "step": FLOW_STEP_ITIN_ARR_DATE,
+        "field": "arrival.scheduledDateLocal",
+        "prompt": "Please enter your *arrival date* in DD/MM/YYYY format (e.g. 25/12/2026):",
+        "validation": "date",
+    },
+    {
+        "step": FLOW_STEP_ITIN_ARR_TIME,
+        "field": "arrival.scheduledTimeLocal",
+        "prompt": "Please enter your *arrival time* in HH:MM 24-hour format (e.g. 18:45):",
+        "validation": "time",
+    },
+]
+
+
+def _validate_date(text: str) -> Optional[str]:
+    from datetime import datetime as _dt
+
+    cleaned = text.strip()
+    date_patterns = [
+        (r"^(\d{1,2})/(\d{1,2})/(\d{4})$", "dmy"),
+        (r"^(\d{1,2})-(\d{1,2})-(\d{4})$", "dmy"),
+        (r"^(\d{4})-(\d{1,2})-(\d{1,2})$", "ymd"),
+        (r"^(\d{4})/(\d{1,2})/(\d{1,2})$", "ymd"),
+    ]
+    for pattern, fmt in date_patterns:
+        match = re.match(pattern, cleaned)
+        if match:
+            groups = match.groups()
+            if fmt == "dmy":
+                day, month, year = int(groups[0]), int(groups[1]), int(groups[2])
+            else:
+                year, month, day = int(groups[0]), int(groups[1]), int(groups[2])
+            try:
+                _dt(year, month, day)
+            except ValueError:
+                return None
+            if year < 2024:
+                return None
+            return f"{day:02d}/{month:02d}/{year}"
+    return None
+
+
+def _validate_time(text: str) -> Optional[str]:
+    cleaned = text.strip()
+    match = re.match(r"^(\d{1,2}):(\d{2})$", cleaned)
+    if match:
+        hour, minute = int(match.group(1)), int(match.group(2))
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return f"{hour:02d}:{minute:02d}"
+    match = re.match(r"^(\d{1,2})\.(\d{2})$", cleaned)
+    if match:
+        hour, minute = int(match.group(1)), int(match.group(2))
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return f"{hour:02d}:{minute:02d}"
+    return None
+
+
+async def _start_itinerary_flow(
+    sender_wa_id, phone_number_id, in_reply_to,
+    session, flow_state, airport_info,
+):
+    dep_airport_display = f"{airport_info.get('name', '')} ({airport_info.get('iata_code', '')})"
+    await send_text_message(
+        to=sender_wa_id,
+        body=(
+            f"Departure airport selected: *{dep_airport_display}*\n\n"
+            f"Now let's capture your itinerary details.\n\n"
+            f"Please enter your *booking reference* (e.g. ABC123):"
+        ),
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+    itinerary = {
+        "departure": {
+            "airport": airport_info.get("iata_code", ""),
+            "airportName": airport_info.get("name", ""),
+        },
+        "arrival": {},
+    }
+
+    await _update_flow_state(session, sender_wa_id, {
+        **flow_state,
+        "step": FLOW_STEP_ITIN_BOOKING_REF,
+        "airport_info": airport_info,
+        "itinerary": itinerary,
+    })
+
+
+def _set_itinerary_field(itinerary: dict, field_path: str, value: str) -> None:
+    parts = field_path.split(".")
+    if len(parts) == 1:
+        itinerary[parts[0]] = value
+    elif len(parts) == 2:
+        if parts[0] not in itinerary:
+            itinerary[parts[0]] = {}
+        itinerary[parts[0]][parts[1]] = value
+
+
+def _get_next_itinerary_step(current_step: str) -> Optional[dict]:
+    for i, step_info in enumerate(ITINERARY_STEPS):
+        if step_info["step"] == current_step:
+            if i + 1 < len(ITINERARY_STEPS):
+                return ITINERARY_STEPS[i + 1]
+            return None
+    return None
+
+
+async def _handle_itinerary_text_input(message, sender_wa_id, phone_number_id, in_reply_to, session, current_step):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+    itinerary = flow_state.get("itinerary", {})
+
+    text_input = _get_text_input(message)
+    if not text_input:
+        current_info = None
+        for s in ITINERARY_STEPS:
+            if s["step"] == current_step:
+                current_info = s
+                break
+        prompt = current_info["prompt"] if current_info else "Please enter the requested information as text."
+        await send_text_message(
+            to=sender_wa_id,
+            body=prompt,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    current_info = None
+    for s in ITINERARY_STEPS:
+        if s["step"] == current_step:
+            current_info = s
+            break
+
+    if not current_info:
+        return
+
+    validation = current_info.get("validation")
+    value = text_input.strip()
+
+    if validation == "date":
+        validated = _validate_date(value)
+        if not validated:
+            await send_text_message(
+                to=sender_wa_id,
+                body="That doesn't look like a valid date. Please enter the date in *DD/MM/YYYY* format (e.g. 25/12/2026):",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            return
+        value = validated
+
+    elif validation == "time":
+        validated = _validate_time(value)
+        if not validated:
+            await send_text_message(
+                to=sender_wa_id,
+                body="That doesn't look like a valid time. Please enter the time in *HH:MM* 24-hour format (e.g. 14:30):",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            return
+        value = validated
+
+    _set_itinerary_field(itinerary, current_info["field"], value)
+
+    next_step_info = _get_next_itinerary_step(current_step)
+
+    if next_step_info is None:
+        if policy_id:
+            await set_itinerary(policy_id, itinerary)
+            logger.info(f"Itinerary saved to policy {policy_id}")
+
+        await _show_itinerary_summary_and_final(
+            sender_wa_id, phone_number_id, in_reply_to,
+            session, flow_state, policy_id, itinerary,
+        )
+    elif next_step_info["step"] == FLOW_STEP_ITIN_ARR_AIRPORT_INPUT:
+        await send_text_message(
+            to=sender_wa_id,
+            body=next_step_info["prompt"],
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
+            "itinerary": itinerary,
+        })
+    else:
+        await send_text_message(
+            to=sender_wa_id,
+            body=next_step_info["prompt"],
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": next_step_info["step"],
+            "itinerary": itinerary,
+        })
+
+
+async def _handle_arr_airport_input(message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+    itinerary = flow_state.get("itinerary", {})
+
+    text_input = _get_text_input(message)
+    if not text_input:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please type a *city or state name* to search for an arrival airport (e.g. London, Dubai):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    search_term = text_input.strip().title()
+    airports = await _fetch_airports(search_term)
+
+    if airports is None:
+        await _send_retry_options(
+            to=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            error_message=f"We couldn't search for airports for *\"{text_input}\"* at the moment.",
+            retry_label="Retry Search",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "retry_step": FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
+            "retry_data": {"search_term": search_term},
+        })
+        return
+
+    if len(airports) == 0:
+        search_lower = text_input.strip().lower()
+        airports = await _fetch_airports(search_lower)
+        if not airports:
+            search_upper = text_input.strip().upper()
+            airports = await _fetch_airports(search_upper)
+
+    if not airports:
+        await send_text_message(
+            to=sender_wa_id,
+            body=f"No airports found for *\"{text_input}\"*.\n\nPlease try a different city or state name:",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    if len(airports) == 1:
+        airport = airports[0]
+        arr_airport_info = {
+            "name": airport.get("name", ""),
+            "iata_code": airport.get("iata_code", ""),
+            "country": airport.get("country", ""),
+        }
+        if "arrival" not in itinerary:
+            itinerary["arrival"] = {}
+        itinerary["arrival"]["airport"] = arr_airport_info.get("iata_code", "")
+        itinerary["arrival"]["airportName"] = arr_airport_info.get("name", "")
+
+        await send_text_message(
+            to=sender_wa_id,
+            body=(
+                f"Arrival airport selected: *{arr_airport_info['name']}* ({arr_airport_info['iata_code']})\n\n"
+                f"Please enter your *arrival date* in DD/MM/YYYY format (e.g. 25/12/2026):"
+            ),
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_ITIN_ARR_DATE,
+            "itinerary": itinerary,
+        })
+    else:
+        rows = []
+        for idx, airport in enumerate(airports[:10]):
+            iata = airport.get("iata_code", "")
+            name = airport.get("name", "Unknown")
+            country = airport.get("country", "")
+            rows.append({
+                "id": f"{ARR_AIRPORT_ID_PREFIX}{idx}",
+                "title": str(name)[:24],
+                "description": f"{iata} - {country}"[:72],
+            })
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": sender_wa_id,
+            "type": "interactive",
+            "interactive": {
+                "type": "list",
+                "header": {"type": "text", "text": "Arrival Airports"},
+                "body": {"text": f"Found {len(airports)} airports. Select your arrival airport:"},
+                "action": {
+                    "button": "View Airports",
+                    "sections": [{"title": "Airports", "rows": rows}]
+                }
+            }
+        }
+
+        await send_whatsapp_payload(
+            payload,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_ITIN_ARR_AIRPORT_SELECT,
+            "itinerary": itinerary,
+            "available_arr_airports": airports[:10],
+        })
+
+
+async def _handle_arr_airport_selection(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    itinerary = flow_state.get("itinerary", {})
+    airports = flow_state.get("available_arr_airports", [])
+
+    if reply_id and reply_id.startswith(ARR_AIRPORT_ID_PREFIX):
+        idx_str = reply_id[len(ARR_AIRPORT_ID_PREFIX):]
+        try:
+            idx = int(idx_str)
+            airport = airports[idx]
+        except (ValueError, IndexError):
+            await send_text_message(
+                to=sender_wa_id,
+                body="Sorry, we couldn't find that airport. Please try again by entering a city or state name:",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
+            })
+            return
+
+        arr_airport_info = {
+            "name": airport.get("name", ""),
+            "iata_code": airport.get("iata_code", ""),
+            "country": airport.get("country", ""),
+        }
+        if "arrival" not in itinerary:
+            itinerary["arrival"] = {}
+        itinerary["arrival"]["airport"] = arr_airport_info.get("iata_code", "")
+        itinerary["arrival"]["airportName"] = arr_airport_info.get("name", "")
+
+        await send_text_message(
+            to=sender_wa_id,
+            body=(
+                f"Arrival airport selected: *{arr_airport_info['name']}* ({arr_airport_info['iata_code']})\n\n"
+                f"Please enter your *arrival date* in DD/MM/YYYY format (e.g. 25/12/2026):"
+            ),
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_ITIN_ARR_DATE,
+            "itinerary": itinerary,
+        })
+    else:
+        text_input = _get_text_input(message)
+        if text_input:
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
+            })
+            await _handle_arr_airport_input(
+                message, sender_wa_id, phone_number_id, in_reply_to, session,
+            )
+        else:
+            await send_text_message(
+                to=sender_wa_id,
+                body="Please select an airport from the list, or type a different city/state name to search again.",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+
+
+async def _show_itinerary_summary_and_final(
+    sender_wa_id, phone_number_id, in_reply_to,
+    session, flow_state, policy_id, itinerary,
+):
+    dep = itinerary.get("departure", {})
+    arr = itinerary.get("arrival", {})
+
+    itin_summary = (
+        f"Itinerary details saved:\n\n"
+        f"*Booking Reference:* {itinerary.get('bookingReference', '')}\n"
+        f"*Flight:* {itinerary.get('flightNo', '')} ({itinerary.get('carrier', '')})\n\n"
+        f"*Departure:*\n"
+        f"Airport: {dep.get('airportName', '')} ({dep.get('airport', '')})\n"
+        f"Date: {dep.get('scheduledDateLocal', '')}\n"
+        f"Time: {dep.get('scheduledTimeLocal', '')}\n\n"
+        f"*Arrival:*\n"
+        f"Airport: {arr.get('airportName', '')} ({arr.get('airport', '')})\n"
+        f"Date: {arr.get('scheduledDateLocal', '')}\n"
+        f"Time: {arr.get('scheduledTimeLocal', '')}"
+    )
+
+    await send_text_message(
+        to=sender_wa_id,
+        body=itin_summary,
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+    flow_state["itinerary"] = itinerary
+    airport_info = flow_state.get("airport_info", {})
+
+    await _show_final_summary(
+        sender_wa_id, phone_number_id, in_reply_to,
+        session, flow_state, policy_id, airport_info,
+    )
+
+
 async def _show_final_summary(
     sender_wa_id, phone_number_id, in_reply_to,
     session, flow_state, policy_id, airport_info,
@@ -2627,6 +3335,19 @@ async def _show_final_summary(
     payout_label = PAYOUT_METHOD_LABELS.get(payout_method, payout_method)
 
     id_line = f"{id_type}: {id_number}" if id_type and id_number else ""
+    itinerary = flow_state.get("itinerary", {})
+    dep = itinerary.get("departure", {})
+    arr = itinerary.get("arrival", {})
+
+    itinerary_section = ""
+    if itinerary:
+        itinerary_section = (
+            f"\n*Itinerary:*\n"
+            f"Booking Ref: {itinerary.get('bookingReference', '')}\n"
+            f"Flight: {itinerary.get('flightNo', '')} ({itinerary.get('carrier', '')})\n"
+            f"Departure: {dep.get('airportName', '')} ({dep.get('airport', '')}) on {dep.get('scheduledDateLocal', '')} at {dep.get('scheduledTimeLocal', '')}\n"
+            f"Arrival: {arr.get('airportName', '')} ({arr.get('airport', '')}) on {arr.get('scheduledDateLocal', '')} at {arr.get('scheduledTimeLocal', '')}\n"
+        )
 
     summary = (
         f"Here's a summary of your policy details:\n\n"
@@ -2644,12 +3365,13 @@ async def _show_final_summary(
         f"Bank: {bank_details.get('bank_name', '')}\n"
         f"MSISDN: {msisdn_info.get('phone_number', '')} ({country_code})\n\n"
         f"*Airport:*\n"
-        f"{airport_info.get('name', '')} ({airport_info.get('iata_code', '')})\n\n"
+        f"{airport_info.get('name', '')} ({airport_info.get('iata_code', '')})\n"
+        f"{itinerary_section}\n"
         f"*Settings:*\n"
         f"Channel Payout: Bank\n"
         f"Source: Passenger\n"
         f"Consent: Yes\n\n"
-        f"All details have been saved. The remaining steps (itinerary and policy submission) will be available soon.\n\n"
+        f"All details have been saved. Policy submission will be available soon.\n\n"
         f"Type 'policy' anytime to start a new policy."
     )
 
@@ -2677,6 +3399,7 @@ async def _show_final_summary(
         "msisdn_info": msisdn_info,
         "channel_info": flow_state.get("channel_info", {}),
         "airport_info": airport_info,
+        "itinerary": itinerary,
         "country_code": country_code,
         "country_name": country_name,
     })

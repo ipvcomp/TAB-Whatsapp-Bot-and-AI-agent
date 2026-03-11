@@ -30,7 +30,7 @@ The bot primarily interacts via WhatsApp messages, supporting interactive button
 ### Feature Specifications
 - **Dynamic Responses:** Integrates with an LLM for conversational AI, providing flexible answers and intent recognition.
 - **Static Auto-Reply:** A robust fallback system for predefined greetings, help, and media acknowledgments, active when the LLM is unavailable or not configured.
-- **Policy Creation Flow:** A guided, multi-step process for users to purchase insurance policies. Country and MSISDN are auto-derived from the user's WhatsApp number (confirmed at flow start). Flow: MSISDN confirm → Product selection → Personal details (name, email) → ID verification (NIN or BVN, 11-digit validated, stored as separate fields) → Payment method → Payout method (from API, currently Bank Transfer only) → Account number (10-digit validated) → Bank selection → Airport → Summary. This flow takes precedence over LLM interactions.
+- **Policy Creation Flow:** A guided, multi-step process for users to purchase insurance policies. Country and MSISDN are auto-derived from the user's WhatsApp number (confirmed at flow start). Flow: MSISDN confirm → Product selection → Personal details (name, email) → ID verification (NIN or BVN, 11-digit validated, stored as separate fields) → Payment method → Payout method (from API, currently Bank Transfer only) → Account number (10-digit validated) → Bank selection → Departure Airport → Itinerary (booking ref, flight no, carrier, departure date/time, arrival airport search, arrival date/time) → Summary. This flow takes precedence over LLM interactions.
 - **Traceability:** Comprehensive logging for all messages, LLM interactions, and policy creation steps, linked for end-to-end debugging.
 - **Shortcuts & Navigation:** Supports in-chat commands for quick navigation within flows (e.g., `#menu`, `#back`, `#cancel`).
 
@@ -43,7 +43,7 @@ The bot primarily interacts via WhatsApp messages, supporting interactive button
     - **messages:** All communications, linked by `message_id` and `contact_wa_id`.
     - **sessions:** LLM conversation state per user.
     - **llm_logs:** Raw LLM request/response for auditing.
-    - **policies:** Records of policy creation attempts, tracking flow status and collected data. Stores `nin` and `bvn` as separate top-level fields (not nested in `personal_details`). Includes `payout_method` and `account_number` as separate fields.
+    - **policies:** Records of policy creation attempts, tracking flow status and collected data. Stores `nin` and `bvn` as separate top-level fields (not nested in `personal_details`). Includes `payout_method`, `account_number`, and `itinerary` (with departure/arrival airport, dates, times, booking ref, flight no, carrier) as separate fields.
 - **Message Routing Priority:** Welcome buttons → #shortcuts → greeting (static mode only) → shortcut commands (in-flow) → policy flow → LLM → static auto-reply fallback.
 
 ## External Dependencies

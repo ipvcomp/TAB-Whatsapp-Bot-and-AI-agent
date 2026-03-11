@@ -202,6 +202,12 @@ async def set_airport_info(policy_id: str, airport_info: dict) -> bool:
     })
 
 
+async def set_itinerary(policy_id: str, itinerary: dict) -> bool:
+    return await update_policy(policy_id, {
+        "itinerary": itinerary,
+    })
+
+
 async def cancel_policy(policy_id: str) -> bool:
     return await update_policy(policy_id, {
         "status": STATUS_CANCELLED,
