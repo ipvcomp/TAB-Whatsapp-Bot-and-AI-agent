@@ -7,10 +7,10 @@ from fastapi import APIRouter, Query, HTTPException, Request, Response
 from app.core.config import get_settings
 from app.models.webhook import WebhookPayload
 from app.services import contact_service, message_service
-from app.services.auto_reply_service import handle_auto_reply, is_greeting, send_welcome_message
+from app.services.auto_reply_service import handle_auto_reply
 from app.services.session_service import get_session, save_session, build_default_session
 from app.services.llm_service import call_generic
-from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
+from app.services.whatsapp_service import send_text_message
 from app.services.llm_log_service import save_llm_log
 from app.services.policy_flow_service import is_policy_trigger, is_in_policy_flow, handle_policy_flow
 
@@ -165,20 +165,6 @@ async def _process_change(entry_id: str, change):
                     continue
 
                 user_session = await get_session(sender_wa_id)
-                incoming_text = message.text.body if message.text else None
-
-                if message.type == "text" and is_greeting(incoming_text) and not is_in_policy_flow(user_session):
-                    welcome_result = await send_welcome_message(
-                        to=sender_wa_id,
-                        phone_number_id=msg_phone_number_id,
-                        in_reply_to=message.id,
-                    )
-                    log_event("WELCOME_MESSAGE", {
-                        "to": sender_wa_id,
-                        "sent": welcome_result is not None,
-                    })
-                    continue
-
                 if is_policy_trigger(message) or is_in_policy_flow(user_session):
                     log_event("POLICY_FLOW", {
                         "message_id": message.id,
