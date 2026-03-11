@@ -7,14 +7,14 @@ import httpx
 from app.core.config import get_settings
 from app.models.webhook import WhatsAppMessage
 from app.services.session_service import get_session, save_session, build_default_session
-from app.services.whatsapp_service import send_whatsapp_payload, send_text_message
+from app.services.whatsapp_service import send_whatsapp_payload, send_text_message, download_whatsapp_media, SUPPORTED_BOARDING_PASS_TYPES
 from app.services.llm_service import call_extract
 from app.services.policy_service import (
     create_policy, get_active_draft, set_product_selection, cancel_policy,
     set_personal_details, set_id_verification, set_payment_method,
     set_payout_method, set_account_number, set_country,
     set_bank_details, set_msisdn_info, set_channel_info, set_airport_info,
-    set_itinerary,
+    set_itinerary, set_boarding_pass,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,6 +59,7 @@ FLOW_STEP_ITIN_ARR_AIRPORT_INPUT = "itin_arr_airport_input"
 FLOW_STEP_ITIN_ARR_AIRPORT_SELECT = "itin_arr_airport_select"
 FLOW_STEP_ITIN_ARR_DATE = "itin_arr_date"
 FLOW_STEP_ITIN_ARR_TIME = "itin_arr_time"
+FLOW_STEP_BOARDING_PASS = "boarding_pass"
 
 ARR_AIRPORT_ID_PREFIX = "arr_airport_"
 
@@ -135,6 +136,7 @@ BACK_STEP_MAP = {
     FLOW_STEP_ITIN_ARR_AIRPORT_SELECT: FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
     FLOW_STEP_ITIN_ARR_DATE: FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
     FLOW_STEP_ITIN_ARR_TIME: FLOW_STEP_ITIN_ARR_DATE,
+    FLOW_STEP_BOARDING_PASS: FLOW_STEP_ITIN_ARR_TIME,
 }
 
 PERSONAL_DETAIL_STEPS = [
@@ -637,6 +639,19 @@ async def _send_step_prompt(
         await send_text_message(
             to=sender_wa_id,
             body="Please enter your *arrival time* in HH:MM 24-hour format (e.g. 18:45):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+    elif step == FLOW_STEP_BOARDING_PASS:
+        await send_text_message(
+            to=sender_wa_id,
+            body=(
+                "Please upload a photo of your *boarding pass*.\n\n"
+                "Accepted formats: JPG, PNG, WebP, or PDF.\n"
+                "You can take a photo of your physical boarding pass or send a screenshot of your e-boarding pass."
+            ),
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -1179,6 +1194,14 @@ async def handle_policy_flow(
     elif current_step == FLOW_STEP_ITIN_ARR_AIRPORT_SELECT:
         await _handle_arr_airport_selection(
             reply_id=reply_id,
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
+    elif current_step == FLOW_STEP_BOARDING_PASS:
+        await _handle_boarding_pass_upload(
             message=message,
             sender_wa_id=sender_wa_id,
             phone_number_id=phone_number_id,
@@ -3158,10 +3181,24 @@ async def _handle_itinerary_text_input(message, sender_wa_id, phone_number_id, i
             await set_itinerary(policy_id, itinerary)
             logger.info(f"Itinerary saved to policy {policy_id}")
 
-        await _show_itinerary_summary_and_final(
-            sender_wa_id, phone_number_id, in_reply_to,
-            session, flow_state, policy_id, itinerary,
+        await send_text_message(
+            to=sender_wa_id,
+            body=(
+                "Great! Itinerary details saved.\n\n"
+                "Finally, please upload a photo of your *boarding pass*.\n\n"
+                "Accepted formats: JPG, PNG, WebP, or PDF.\n"
+                "You can take a photo of your physical boarding pass or send a screenshot of your e-boarding pass."
+            ),
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
         )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_BOARDING_PASS,
+            "itinerary": itinerary,
+        })
+
     elif next_step_info["step"] == FLOW_STEP_ITIN_ARR_AIRPORT_INPUT:
         await send_text_message(
             to=sender_wa_id,
@@ -3398,6 +3435,95 @@ async def _handle_arr_airport_selection(reply_id, message, sender_wa_id, phone_n
             )
 
 
+async def _handle_boarding_pass_upload(message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+    itinerary = flow_state.get("itinerary", {})
+
+    media_id = None
+    mime_type = None
+    sha256 = None
+    caption = None
+
+    if message.type == "image" and message.image:
+        media_id = message.image.id
+        mime_type = message.image.mime_type
+        sha256 = message.image.sha256
+        caption = message.image.caption
+    elif message.type == "document" and message.document:
+        media_id = message.document.id
+        mime_type = message.document.mime_type
+        sha256 = message.document.sha256
+        caption = getattr(message.document, "caption", None)
+    else:
+        await send_text_message(
+            to=sender_wa_id,
+            body=(
+                "Please send your boarding pass as an *image* (JPG, PNG, WebP) or *PDF*.\n\n"
+                "You can take a photo of your physical boarding pass or send a screenshot of your e-boarding pass."
+            ),
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    if mime_type and mime_type not in SUPPORTED_BOARDING_PASS_TYPES:
+        await send_text_message(
+            to=sender_wa_id,
+            body=(
+                f"File type *{mime_type}* is not supported.\n\n"
+                "Please upload your boarding pass as JPG, PNG, WebP, or PDF."
+            ),
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    await send_text_message(
+        to=sender_wa_id,
+        body="Uploading your boarding pass... please wait.",
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+    media_data = await download_whatsapp_media(media_id)
+
+    if not media_data:
+        await send_text_message(
+            to=sender_wa_id,
+            body=(
+                "We couldn't download your boarding pass at the moment.\n\n"
+                "Please try sending it again:"
+            ),
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    if policy_id:
+        await set_boarding_pass(policy_id, {
+            "media_id": media_id,
+            "mime_type": mime_type,
+            "sha256": sha256,
+            "caption": caption,
+            "file_size": media_data.get("file_size"),
+            "bytes": media_data.get("bytes"),
+        })
+        logger.info(
+            f"Boarding pass saved to policy {policy_id}: "
+            f"type={mime_type}, size={media_data.get('file_size')} bytes"
+        )
+
+    await _show_itinerary_summary_and_final(
+        sender_wa_id, phone_number_id, in_reply_to,
+        session, flow_state, policy_id, itinerary,
+    )
+
+
 async def _show_itinerary_summary_and_final(
     sender_wa_id, phone_number_id, in_reply_to,
     session, flow_state, policy_id, itinerary,
@@ -3487,6 +3613,7 @@ async def _show_final_summary(
         f"*Airport:*\n"
         f"{airport_info.get('name', '')} ({airport_info.get('iata_code', '')})\n"
         f"{itinerary_section}\n"
+        f"*Boarding Pass:* Uploaded ✓\n\n"
         f"*Settings:*\n"
         f"Channel Payout: Bank\n"
         f"Source: Passenger\n"

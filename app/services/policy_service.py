@@ -208,6 +208,25 @@ async def set_itinerary(policy_id: str, itinerary: dict) -> bool:
     })
 
 
+async def set_boarding_pass(policy_id: str, boarding_pass: dict) -> bool:
+    from bson import Binary
+    from datetime import datetime, timezone
+
+    data = {
+        "media_id": boarding_pass.get("media_id", ""),
+        "mime_type": boarding_pass.get("mime_type", ""),
+        "sha256": boarding_pass.get("sha256", ""),
+        "caption": boarding_pass.get("caption"),
+        "file_size": boarding_pass.get("file_size"),
+        "uploaded_at": datetime.now(timezone.utc),
+    }
+    raw_bytes = boarding_pass.get("bytes")
+    if raw_bytes:
+        data["file_data"] = Binary(raw_bytes)
+
+    return await update_policy(policy_id, {"boarding_pass": data})
+
+
 async def cancel_policy(policy_id: str) -> bool:
     return await update_policy(policy_id, {
         "status": STATUS_CANCELLED,

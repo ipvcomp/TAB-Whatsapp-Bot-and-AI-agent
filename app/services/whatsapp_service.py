@@ -112,6 +112,53 @@ async def send_whatsapp_payload(
         return None
 
 
+SUPPORTED_BOARDING_PASS_TYPES = {
+    "image/jpeg", "image/png", "image/webp",
+    "application/pdf",
+}
+
+
+async def download_whatsapp_media(media_id: str) -> Optional[dict]:
+    settings = get_settings()
+    token = settings.WHATSAPP_API_TOKEN
+    graph_url = f"https://graph.facebook.com/v22.0/{media_id}"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            meta_resp = await client.get(graph_url, headers=headers)
+            if meta_resp.status_code != 200:
+                logger.error(f"Failed to fetch media metadata for {media_id}: HTTP {meta_resp.status_code}")
+                return None
+
+            meta = meta_resp.json()
+            download_url = meta.get("url")
+            mime_type = meta.get("mime_type", "application/octet-stream")
+            file_size = meta.get("file_size")
+
+            if not download_url:
+                logger.error(f"No download URL in media metadata for {media_id}")
+                return None
+
+            media_resp = await client.get(download_url, headers=headers)
+            if media_resp.status_code != 200:
+                logger.error(f"Failed to download media {media_id}: HTTP {media_resp.status_code}")
+                return None
+
+            logger.info(f"Downloaded media {media_id}: {len(media_resp.content)} bytes, type={mime_type}")
+            return {
+                "mime_type": mime_type,
+                "file_size": file_size or len(media_resp.content),
+                "bytes": media_resp.content,
+            }
+    except httpx.TimeoutException:
+        logger.error(f"Timeout downloading media {media_id}")
+        return None
+    except Exception as e:
+        logger.error(f"Error downloading media {media_id}: {e}")
+        return None
+
+
 async def _save_outbound_message(
     message_id: Optional[str],
     to_wa_id: str,
