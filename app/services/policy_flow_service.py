@@ -68,6 +68,52 @@ AIRPORTS_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/v2/airports/search"
 BANKS_PER_PAGE = 8
 AIRPORT_ID_PREFIX = "airport_"
 
+SHORTCUT_COMMANDS = {
+    "#shortcuts": "shortcuts",
+    "#menu": "menu",
+    "#home": "menu",
+    "#back": "back",
+    "#exit": "exit",
+    "#cancel": "exit",
+    "#restart": "restart",
+    "#products": "products",
+    "#country": "country",
+}
+
+SHORTCUTS_TEXT = (
+    "*Navigation Shortcuts* \u2328\uFE0F\n\n"
+    "Type any of these commands anytime:\n\n"
+    "*#menu* \u2014 Go to main policy menu\n"
+    "*#back* \u2014 Go back one step\n"
+    "*#products* \u2014 Change product selection\n"
+    "*#country* \u2014 Change country\n"
+    "*#restart* \u2014 Start a new policy from scratch\n"
+    "*#exit* or *#cancel* \u2014 Exit policy flow\n"
+    "*#shortcuts* \u2014 Show this menu\n\n"
+    "*Trigger Words:*\n"
+    "\u2022 _hi, hello, hey, start, menu_ \u2014 Welcome message\n"
+    "\u2022 _policy, purchase policy, /policy_ \u2014 Start policy flow\n"
+    "\u2022 _help, support_ \u2014 Get help\n"
+    "\u2022 _cancel, exit, stop_ \u2014 Exit current flow"
+)
+
+BACK_STEP_MAP = {
+    FLOW_STEP_COUNTRY: FLOW_STEP_MENU,
+    FLOW_STEP_PRODUCT_LIST: FLOW_STEP_COUNTRY,
+    FLOW_STEP_PRODUCT_SELECTED: FLOW_STEP_COUNTRY,
+    FLOW_STEP_PD_FIRST_NAME: FLOW_STEP_PRODUCT_SELECTED,
+    FLOW_STEP_PD_LAST_NAME: FLOW_STEP_PD_FIRST_NAME,
+    FLOW_STEP_PD_EMAIL: FLOW_STEP_PD_LAST_NAME,
+    FLOW_STEP_PD_NIN: FLOW_STEP_PD_EMAIL,
+    FLOW_STEP_PD_ACCOUNT_NUMBER: FLOW_STEP_PD_NIN,
+    FLOW_STEP_PAYMENT_METHOD: FLOW_STEP_PD_ACCOUNT_NUMBER,
+    FLOW_STEP_BANK_SELECTION: FLOW_STEP_PAYMENT_METHOD,
+    FLOW_STEP_MSISDN_WALLET: FLOW_STEP_BANK_SELECTION,
+    FLOW_STEP_MSISDN_WALLET_INPUT: FLOW_STEP_MSISDN_WALLET,
+    FLOW_STEP_AIRPORT_INPUT: FLOW_STEP_PAYMENT_METHOD,
+    FLOW_STEP_AIRPORT_SELECT: FLOW_STEP_AIRPORT_INPUT,
+}
+
 PERSONAL_DETAIL_STEPS = [
     {"step": FLOW_STEP_PD_FIRST_NAME, "field": "first_name", "prompt": "Please enter your *first name*:", "expected_format": "text"},
     {"step": FLOW_STEP_PD_LAST_NAME, "field": "last_name", "prompt": "Please enter your *last name*:", "expected_format": "text"},
@@ -180,6 +226,17 @@ def _is_cancel_command(message: WhatsAppMessage) -> bool:
     return False
 
 
+def _get_shortcut_command(message: WhatsAppMessage) -> Optional[str]:
+    if message.type == "text" and message.text:
+        text = message.text.body.lower().strip()
+        return SHORTCUT_COMMANDS.get(text)
+    return None
+
+
+def get_shortcuts_text() -> str:
+    return SHORTCUTS_TEXT
+
+
 def is_policy_trigger(message: WhatsAppMessage) -> bool:
     if message.type == "text" and message.text:
         text = message.text.body.lower().strip()
@@ -211,6 +268,255 @@ def _get_interactive_reply_id(message: WhatsAppMessage) -> Optional[str]:
     return None
 
 
+async def _handle_shortcut(
+    shortcut: str,
+    message: WhatsAppMessage,
+    sender_wa_id: str,
+    phone_number_id: str,
+    in_reply_to: str,
+    session: dict,
+) -> bool:
+    flow_state = _get_flow_state(session)
+    current_step = flow_state.get("step")
+    policy_id = flow_state.get("policy_id")
+
+    if shortcut == "shortcuts":
+        await send_text_message(
+            to=sender_wa_id,
+            body=SHORTCUTS_TEXT,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return True
+
+    if shortcut == "exit":
+        if policy_id:
+            await cancel_policy(policy_id)
+        session["active_policy_id"] = None
+        await send_text_message(
+            to=sender_wa_id,
+            body="Policy flow cancelled. \U0001F44B\n\nType *policy* to start again or *hi* for the main menu.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _clear_flow_state(session, sender_wa_id)
+        return True
+
+    if shortcut == "restart":
+        if policy_id:
+            await cancel_policy(policy_id)
+        await _clear_flow_state(session, sender_wa_id)
+        phone_number = session.get("phone_number", sender_wa_id)
+        policy = await create_policy(user_id=sender_wa_id, phone_number=phone_number)
+        new_policy_id = policy.get("policy_id") if policy else None
+        session["active_policy_id"] = new_policy_id
+        await send_text_message(
+            to=sender_wa_id,
+            body="Starting fresh! \U0001F504",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
+        await _update_flow_state(session, sender_wa_id, {
+            "active": True,
+            "step": FLOW_STEP_MENU,
+            "policy_id": new_policy_id,
+        })
+        return True
+
+    if shortcut == "menu":
+        await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_MENU,
+        })
+        return True
+
+    if shortcut == "country":
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please type your *country name* (e.g. Nigeria, Kenya, Ghana):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_COUNTRY,
+        })
+        return True
+
+    if shortcut == "products":
+        country_code = flow_state.get("country_code")
+        if not country_code:
+            await send_text_message(
+                to=sender_wa_id,
+                body="Please select a country first.\n\nType your *country name* (e.g. Nigeria, Kenya, Ghana):",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_COUNTRY,
+            })
+            return True
+        products = await _fetch_products(country_code)
+        if not products:
+            await _send_retry_options(
+                to=sender_wa_id,
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                error_message=f"Couldn't fetch products for *{flow_state.get('country_name', country_code)}*. Please try again.",
+                retry_label="Retry Products",
+            )
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "retry_step": FLOW_STEP_PRODUCT_LIST,
+            })
+            return True
+        page = 0
+        await _send_products_page(sender_wa_id, phone_number_id, in_reply_to, products, page, country_code)
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_PRODUCT_SELECTED,
+            "available_products": products,
+            "product_page": page,
+        })
+        return True
+
+    if shortcut == "back":
+        if not current_step or current_step == FLOW_STEP_MENU:
+            await send_text_message(
+                to=sender_wa_id,
+                body="You're already at the beginning. \U0001F60A",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            return True
+        prev_step = BACK_STEP_MAP.get(current_step)
+        if not prev_step:
+            await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_MENU,
+            })
+            return True
+        await _send_step_prompt(prev_step, sender_wa_id, phone_number_id, in_reply_to, session, flow_state)
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": prev_step,
+        })
+        return True
+
+    return False
+
+
+async def _send_step_prompt(
+    step: str,
+    sender_wa_id: str,
+    phone_number_id: str,
+    in_reply_to: str,
+    session: dict,
+    flow_state: dict,
+) -> None:
+    if step == FLOW_STEP_MENU:
+        await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
+
+    elif step == FLOW_STEP_COUNTRY:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please type your *country name* (e.g. Nigeria, Kenya, Ghana):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+    elif step == FLOW_STEP_PRODUCT_SELECTED:
+        country_code = flow_state.get("country_code", "NG")
+        products = flow_state.get("available_products") or await _fetch_products(country_code)
+        if products:
+            await _send_products_page(sender_wa_id, phone_number_id, in_reply_to, products, 0, country_code)
+            flow_state["available_products"] = products
+            flow_state["product_page"] = 0
+
+    elif step == FLOW_STEP_PAYMENT_METHOD:
+        await _send_payment_methods(sender_wa_id, phone_number_id, in_reply_to)
+
+    elif step == FLOW_STEP_BANK_SELECTION:
+        country_code = flow_state.get("country_code", "NG")
+        banks = flow_state.get("available_banks") or await _fetch_banks(country_code)
+        if banks:
+            banks.sort(key=lambda b: b.get("name", "").lower())
+            await _send_banks_page(sender_wa_id, phone_number_id, in_reply_to, banks, 0)
+            flow_state["available_banks"] = banks
+            flow_state["bank_page"] = 0
+
+    elif step == FLOW_STEP_MSISDN_WALLET:
+        wallet_payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": sender_wa_id,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {
+                    "text": "Is your wallet number different from your WhatsApp number?"
+                },
+                "action": {
+                    "buttons": [
+                        {
+                            "type": "reply",
+                            "reply": {
+                                "id": BUTTON_WALLET_DIFF,
+                                "title": "Yes, different"
+                            }
+                        },
+                        {
+                            "type": "reply",
+                            "reply": {
+                                "id": BUTTON_WALLET_SAME,
+                                "title": "No, same number"
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+        await send_whatsapp_payload(
+            wallet_payload,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+    elif step == FLOW_STEP_AIRPORT_INPUT:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter your *city or state name* to search for an airport (e.g. Ilorin, Kano, Port Harcourt):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+    else:
+        for pd_step in PERSONAL_DETAIL_STEPS:
+            if pd_step["step"] == step:
+                await send_text_message(
+                    to=sender_wa_id,
+                    body=pd_step["prompt"],
+                    phone_number_id=phone_number_id,
+                    in_reply_to=in_reply_to,
+                    source="policy_flow",
+                )
+                return
+        await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
+
+
 async def handle_policy_flow(
     message: WhatsAppMessage,
     sender_wa_id: str,
@@ -225,6 +531,19 @@ async def handle_policy_flow(
             phone_number=sender_wa_id,
             first_name=profile_name,
         )
+
+    shortcut = _get_shortcut_command(message)
+    if shortcut:
+        handled = await _handle_shortcut(
+            shortcut=shortcut,
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
+        if handled:
+            return
 
     if _is_cancel_command(message):
         flow_state = _get_flow_state(session)

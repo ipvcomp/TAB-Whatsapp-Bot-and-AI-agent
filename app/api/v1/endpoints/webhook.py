@@ -12,7 +12,7 @@ from app.services.session_service import get_session, save_session, build_defaul
 from app.services.llm_service import call_generic
 from app.services.whatsapp_service import send_text_message
 from app.services.llm_log_service import save_llm_log
-from app.services.policy_flow_service import is_policy_trigger, is_in_policy_flow, handle_policy_flow
+from app.services.policy_flow_service import is_policy_trigger, is_in_policy_flow, handle_policy_flow, get_shortcuts_text, SHORTCUT_COMMANDS
 
 WELCOME_BUTTON_IDS = {"welcome_purchase_policy", "welcome_submit_boarding"}
 
@@ -163,6 +163,19 @@ async def _process_change(entry_id: str, change):
                         phone_number_id=msg_phone_number_id,
                     )
                     continue
+
+                if message.type == "text" and message.text:
+                    text_lower = message.text.body.lower().strip()
+                    if text_lower == "#shortcuts":
+                        await send_text_message(
+                            to=sender_wa_id,
+                            body=get_shortcuts_text(),
+                            phone_number_id=msg_phone_number_id,
+                            in_reply_to=message.id,
+                            source="auto_reply",
+                        )
+                        log_event("SHORTCUTS", {"to": sender_wa_id})
+                        continue
 
                 user_session = await get_session(sender_wa_id)
                 if is_policy_trigger(message) or is_in_policy_flow(user_session):
