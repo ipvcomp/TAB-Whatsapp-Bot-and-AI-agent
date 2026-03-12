@@ -257,6 +257,7 @@ for _name, _code in COUNTRY_MAP.items():
 
 TEST_PHONE_COUNTRY_OVERRIDES: dict[str, str] = {
     "923176811061": "NG",
+    "13055083815": "NG",
 }
 
 
