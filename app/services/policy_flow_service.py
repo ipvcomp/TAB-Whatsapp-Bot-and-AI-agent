@@ -2284,6 +2284,16 @@ async def _handle_id_number_input(message, sender_wa_id, phone_number_id, in_rep
 
 PAYOUT_METHOD_LABELS = {
     "BANK_TRANSFER": "Bank Transfer",
+    "BANK_ACCOUNT": "Bank Account",
+    "MOBILE_MONEY": "Mobile Money",
+    "WALLET": "Wallet",
+}
+
+PAYOUT_METHOD_SUBMISSION_MAP = {
+    "BANK_TRANSFER": "BANK_ACCOUNT",
+    "BANK_ACCOUNT": "BANK_ACCOUNT",
+    "MOBILE_MONEY": "MOBILE_MONEY",
+    "WALLET": "MOBILE_MONEY",
 }
 
 
@@ -3604,7 +3614,7 @@ async def _submit_policy_to_api(
             "payoutAlertsConsent": True,
             "kycConsent": True,
             "payoutMethod": {
-                "type": payout_method,
+                "type": PAYOUT_METHOD_SUBMISSION_MAP.get(payout_method, payout_method),
                 "accountNumber": account_number,
                 "accountName": account_name,
                 "config": payout_config,
