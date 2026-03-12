@@ -2478,9 +2478,19 @@ async def _fetch_payment_methods() -> Optional[list]:
 
 
 PAYMENT_METHOD_LABELS = {
+    "BANK_ACCOUNT": "Bank Account",
     "BANK_TRANSFER": "Bank Transfer",
     "WALLET": "Wallet",
     "MOBILE_MONEY": "Mobile Money",
+    "CARD": "Card",
+}
+
+PAYMENT_METHOD_SUBMISSION_MAP = {
+    "BANK_ACCOUNT": "BANK_TRANSFER",
+    "BANK_TRANSFER": "BANK_TRANSFER",
+    "WALLET": "WALLET",
+    "MOBILE_MONEY": "MOBILE_MONEY",
+    "CARD": "CARD",
 }
 
 
@@ -3580,7 +3590,7 @@ async def _submit_policy_to_api(
     policy_payload = {
         "productId": selected_product.get("product_id", ""),
         "channel": "WHATSAPP",
-        "preferredPaymentMethod": payment_method,
+        "preferredPaymentMethod": PAYMENT_METHOD_SUBMISSION_MAP.get(payment_method, payment_method),
         "userRequestDto": {
             "msisdn": msisdn,
             "countryCode": country_code,
@@ -3900,8 +3910,10 @@ async def _show_final_summary(
 
     if not submission_success:
         await send_whatsapp_payload(
-            to=sender_wa_id,
-            payload={
+            {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": sender_wa_id,
                 "type": "interactive",
                 "interactive": {
                     "type": "button",
