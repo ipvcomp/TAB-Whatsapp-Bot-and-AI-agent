@@ -14,7 +14,7 @@ from app.services.policy_service import (
     set_personal_details, set_id_verification, set_payment_method,
     set_payout_method, set_account_number, set_country,
     set_bank_details, set_msisdn_info, set_channel_info, set_airport_info,
-    set_itinerary, set_boarding_pass,
+    set_itinerary, set_boarding_pass, set_policy_submitted, get_policy_by_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,7 @@ ARR_AIRPORT_ID_PREFIX = "arr_airport_"
 BUTTON_CREATE_NEW = "policy_create_new"
 BUTTON_SUBMIT_ITINERARY = "policy_submit_itinerary"
 BUTTON_VIEW_PRODUCTS = "policy_view_products"
+BUTTON_RETRY_SUBMISSION = "policy_retry_submission"
 BUTTON_ID_NIN = "id_type_nin"
 BUTTON_ID_BVN = "id_type_bvn"
 PRODUCT_ID_PREFIX = "product_"
@@ -736,6 +737,79 @@ async def handle_policy_flow(
 
     flow_state = _get_flow_state(session)
     current_step = flow_state.get("step")
+
+    early_reply_id = _get_interactive_reply_id(message)
+
+    if early_reply_id == BUTTON_RETRY_SUBMISSION:
+        policy_id = flow_state.get("policy_id")
+        if not policy_id:
+            await send_text_message(
+                to=sender_wa_id,
+                body="No active policy found to retry. Type 'policy' to start a new one.",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            return
+
+        await send_text_message(
+            to=sender_wa_id,
+            body="Retrying policy submission... please wait.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+        policy_doc = await get_policy_by_id(policy_id)
+        boarding_pass_data = (policy_doc or {}).get("boarding_pass", {})
+        boarding_pass_bytes = boarding_pass_data.get("file_data", b"")
+        boarding_pass_mime = boarding_pass_data.get("mime_type", "image/jpeg")
+
+        if not boarding_pass_bytes:
+            await send_text_message(
+                to=sender_wa_id,
+                body=(
+                    "We couldn't retrieve your boarding pass for resubmission.\n\n"
+                    "Please upload your boarding pass again:"
+                ),
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "active": True,
+                "step": FLOW_STEP_BOARDING_PASS,
+            })
+            return
+
+        success, err_msg, resp_data = await _submit_policy_to_api(
+            flow_state, policy_id, bytes(boarding_pass_bytes), boarding_pass_mime,
+        )
+
+        policy_reference = ""
+        if success and policy_id:
+            policy_reference = (
+                resp_data.get("data", {}).get("policyId", "")
+                or resp_data.get("data", {}).get("id", "")
+                or resp_data.get("policyId", "")
+                or resp_data.get("id", "")
+                or ""
+            )
+            await set_policy_submitted(policy_id, resp_data)
+            logger.info(f"Policy {policy_id} resubmitted successfully. Reference: {policy_reference}")
+        else:
+            logger.error(f"Policy {policy_id} resubmission failed: {err_msg}")
+
+        airport_info = flow_state.get("airport_info", {})
+        await _show_final_summary(
+            sender_wa_id, phone_number_id, in_reply_to,
+            session, flow_state, policy_id, airport_info,
+            submission_success=success,
+            policy_reference=str(policy_reference) if policy_reference else "",
+            submission_error=err_msg,
+        )
+        return
 
     if not is_in_policy_flow(session):
         existing_draft = await get_active_draft(sender_wa_id)
@@ -2624,6 +2698,8 @@ async def _handle_bank_selection(reply_id, message, sender_wa_id, phone_number_i
             "bank_code": selected_bank.get("code", ""),
             "bank_name": selected_bank.get("name", ""),
         }
+        if selected_bank.get("branch_code"):
+            bank_details["branch_code"] = selected_bank["branch_code"]
 
         if policy_id:
             await set_bank_details(policy_id, bank_details)
@@ -3435,6 +3511,142 @@ async def _handle_arr_airport_selection(reply_id, message, sender_wa_id, phone_n
             )
 
 
+async def _submit_policy_to_api(
+    flow_state: dict,
+    policy_id: str,
+    boarding_pass_bytes: bytes,
+    boarding_pass_mime: str,
+) -> tuple:
+    import json as _json
+
+    personal_details = flow_state.get("personal_details", {})
+    selected_product = flow_state.get("selected_product", {})
+    payment_method = flow_state.get("payment_method", "")
+    payout_method = flow_state.get("payout_method", "")
+    country_code = flow_state.get("country_code", "")
+    bank_details = flow_state.get("bank_details", {})
+    msisdn_info = flow_state.get("msisdn_info", {})
+    id_type = flow_state.get("id_type", "")
+    id_number = flow_state.get("id_number", "")
+    account_number = flow_state.get("account_number", "")
+    itinerary = flow_state.get("itinerary", {})
+
+    bvn = id_number if id_type == "BVN" else ""
+    nin = id_number if id_type == "NIN" else ""
+
+    msisdn = msisdn_info.get("phone_number", "")
+    if msisdn and not msisdn.startswith("+"):
+        msisdn = f"+{msisdn}"
+
+    account_name = f"{personal_details.get('first_name', '')} {personal_details.get('last_name', '')}".strip()
+
+    payout_config = {"bank_code": bank_details.get("bank_code", "")}
+    if bank_details.get("branch_code"):
+        payout_config["branch_code"] = bank_details["branch_code"]
+
+    def _convert_date(d: str) -> str:
+        return d.replace("/", "-") if d else d
+
+    dep = itinerary.get("departure", {})
+    arr = itinerary.get("arrival", {})
+
+    legs = [{
+        "flightNo": itinerary.get("flightNo", ""),
+        "carrier": itinerary.get("carrier", ""),
+        "departure": {
+            "airport": dep.get("airport", ""),
+            "scheduledDateLocal": _convert_date(dep.get("scheduledDateLocal", "")),
+            "scheduledTimeLocal": dep.get("scheduledTimeLocal", ""),
+        },
+        "arrival": {
+            "airport": arr.get("airport", ""),
+            "scheduledDateLocal": _convert_date(arr.get("scheduledDateLocal", "")),
+            "scheduledTimeLocal": arr.get("scheduledTimeLocal", ""),
+        },
+    }]
+
+    policy_payload = {
+        "productId": selected_product.get("product_id", ""),
+        "channel": "WHATSAPP",
+        "preferredPaymentMethod": payment_method,
+        "userRequestDto": {
+            "msisdn": msisdn,
+            "countryCode": country_code,
+            "firstName": personal_details.get("first_name", ""),
+            "lastName": personal_details.get("last_name", ""),
+            "email": personal_details.get("email", ""),
+            "bvn": bvn,
+            "nin": nin,
+            "marketingConsent": True,
+            "policyUpdatesConsent": True,
+            "payoutAlertsConsent": True,
+            "kycConsent": True,
+            "payoutMethod": {
+                "type": payout_method,
+                "accountNumber": account_number,
+                "accountName": account_name,
+                "config": payout_config,
+            },
+        },
+        "itineraryRequest": {
+            "bookingReference": itinerary.get("bookingReference", ""),
+            "source": "OTA",
+            "legs": legs,
+        },
+    }
+
+    mime_to_ext = {
+        "image/jpeg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+        "application/pdf": "pdf",
+    }
+    ext = mime_to_ext.get(boarding_pass_mime, "jpg")
+    filename = f"boarding_pass_{policy_id}.{ext}"
+
+    SUBMIT_POLICY_URL = "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies"
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            logger.info(f"Submitting policy {policy_id} to API: productId={policy_payload['productId']}, channel=WHATSAPP")
+            response = await client.post(
+                SUBMIT_POLICY_URL,
+                files=[
+                    ("policy", (None, _json.dumps(policy_payload), "application/json")),
+                    ("boardingPassFile", (filename, boarding_pass_bytes, boarding_pass_mime)),
+                ],
+            )
+            logger.info(f"Policy submission response: HTTP {response.status_code}, policy_id={policy_id}")
+
+            if response.status_code in (200, 201):
+                try:
+                    resp_data = response.json()
+                except Exception:
+                    resp_data = {}
+                return True, "", resp_data
+
+            try:
+                err_data = response.json()
+                err_msg = (
+                    err_data.get("message")
+                    or err_data.get("error")
+                    or err_data.get("detail")
+                    or response.text[:300]
+                )
+            except Exception:
+                err_msg = response.text[:300]
+
+            logger.error(f"Policy submission failed: HTTP {response.status_code}, body={response.text[:500]}")
+            return False, str(err_msg), {}
+
+    except httpx.TimeoutException:
+        logger.error(f"Policy submission timed out for policy {policy_id}")
+        return False, "The request timed out. Please try again.", {}
+    except Exception as e:
+        logger.error(f"Policy submission exception for policy {policy_id}: {e}")
+        return False, "An unexpected error occurred. Please try again.", {}
+
+
 async def _handle_boarding_pass_upload(message, sender_wa_id, phone_number_id, in_reply_to, session):
     flow_state = _get_flow_state(session)
     policy_id = flow_state.get("policy_id")
@@ -3518,9 +3730,45 @@ async def _handle_boarding_pass_upload(message, sender_wa_id, phone_number_id, i
             f"type={mime_type}, size={media_data.get('file_size')} bytes"
         )
 
+    await send_text_message(
+        to=sender_wa_id,
+        body="Boarding pass received. Submitting your policy... please wait.",
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+    boarding_pass_bytes = media_data.get("bytes", b"")
+    success, err_msg, resp_data = await _submit_policy_to_api(
+        flow_state, policy_id or "", boarding_pass_bytes, mime_type or "image/jpeg",
+    )
+
+    policy_reference = ""
+    if success and policy_id:
+        policy_reference = (
+            resp_data.get("data", {}).get("policyId", "")
+            or resp_data.get("data", {}).get("id", "")
+            or resp_data.get("policyId", "")
+            or resp_data.get("id", "")
+            or ""
+        )
+        await set_policy_submitted(policy_id, resp_data)
+        logger.info(f"Policy {policy_id} submitted successfully. Reference: {policy_reference}")
+    elif not success:
+        logger.error(f"Policy {policy_id} submission failed: {err_msg}")
+
     await _show_itinerary_summary_and_final(
         sender_wa_id, phone_number_id, in_reply_to,
         session, flow_state, policy_id, itinerary,
+    )
+
+    airport_info = flow_state.get("airport_info", {})
+    await _show_final_summary(
+        sender_wa_id, phone_number_id, in_reply_to,
+        session, flow_state, policy_id, airport_info,
+        submission_success=success,
+        policy_reference=str(policy_reference) if policy_reference else "",
+        submission_error=err_msg,
     )
 
 
@@ -3554,17 +3802,14 @@ async def _show_itinerary_summary_and_final(
     )
 
     flow_state["itinerary"] = itinerary
-    airport_info = flow_state.get("airport_info", {})
-
-    await _show_final_summary(
-        sender_wa_id, phone_number_id, in_reply_to,
-        session, flow_state, policy_id, airport_info,
-    )
 
 
 async def _show_final_summary(
     sender_wa_id, phone_number_id, in_reply_to,
     session, flow_state, policy_id, airport_info,
+    submission_success: bool = False,
+    policy_reference: str = "",
+    submission_error: str = "",
 ):
     personal_details = flow_state.get("personal_details", {})
     selected_product = flow_state.get("selected_product", {})
@@ -3595,8 +3840,24 @@ async def _show_final_summary(
             f"Arrival: {arr.get('airportName', '')} ({arr.get('airport', '')}) on {arr.get('scheduledDateLocal', '')} at {arr.get('scheduledTimeLocal', '')}\n"
         )
 
+    if submission_success:
+        ref_line = f"\n*Policy Reference:* {policy_reference}" if policy_reference else ""
+        status_block = (
+            f"*Status:* Policy Submitted Successfully ✓{ref_line}\n\n"
+            f"You will receive further updates on your WhatsApp number.\n\n"
+            f"Type 'policy' anytime to start a new policy."
+        )
+    else:
+        error_detail = f"\nReason: {submission_error}" if submission_error else ""
+        status_block = (
+            f"*Status:* Submission Failed{error_detail}\n\n"
+            f"All your details have been saved. Please tap *Retry* to try submitting again, "
+            f"or type '#back' repeatedly to correct any information.\n\n"
+            f"Type 'policy' anytime to start a new policy."
+        )
+
     summary = (
-        f"Here's a summary of your policy details:\n\n"
+        f"*Policy Application Summary*\n\n"
         f"*Country:* {country_name} ({country_code})\n"
         f"*Product:* {selected_product.get('name', '')}\n"
         f"*Price:* {selected_product.get('currency', '')} {selected_product.get('price', '')}\n\n"
@@ -3610,16 +3871,11 @@ async def _show_final_summary(
         f"Account Number: {account_number}\n"
         f"Bank: {bank_details.get('bank_name', '')}\n"
         f"MSISDN: {msisdn_info.get('phone_number', '')} ({country_code})\n\n"
-        f"*Airport:*\n"
+        f"*Departure Airport:*\n"
         f"{airport_info.get('name', '')} ({airport_info.get('iata_code', '')})\n"
         f"{itinerary_section}\n"
         f"*Boarding Pass:* Uploaded ✓\n\n"
-        f"*Settings:*\n"
-        f"Channel Payout: Bank\n"
-        f"Source: Passenger\n"
-        f"Consent: Yes\n\n"
-        f"All details have been saved. Policy submission will be available soon.\n\n"
-        f"Type 'policy' anytime to start a new policy."
+        f"{status_block}"
     )
 
     await send_text_message(
@@ -3630,9 +3886,30 @@ async def _show_final_summary(
         source="policy_flow",
     )
 
+    if not submission_success:
+        await send_whatsapp_payload(
+            to=sender_wa_id,
+            payload={
+                "type": "interactive",
+                "interactive": {
+                    "type": "button",
+                    "body": {"text": "Would you like to retry the submission?"},
+                    "action": {
+                        "buttons": [
+                            {"type": "reply", "reply": {"id": BUTTON_RETRY_SUBMISSION, "title": "Retry Submission"}},
+                            {"type": "reply", "reply": {"id": BUTTON_CREATE_NEW, "title": "Start New Policy"}},
+                        ]
+                    },
+                },
+            },
+            phone_number_id=phone_number_id,
+            source="policy_flow",
+        )
+
+    final_step = "submitted" if submission_success else "submission_failed"
     await _update_flow_state(session, sender_wa_id, {
         "active": False,
-        "step": "completed_details",
+        "step": final_step,
         "action": "create_new",
         "policy_id": policy_id,
         "selected_product": selected_product,
@@ -3649,6 +3926,8 @@ async def _show_final_summary(
         "itinerary": itinerary,
         "country_code": country_code,
         "country_name": country_name,
+        "submission_success": submission_success,
+        "policy_reference": policy_reference,
     })
 
 

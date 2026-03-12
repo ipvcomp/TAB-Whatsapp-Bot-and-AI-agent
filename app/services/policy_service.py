@@ -208,6 +208,15 @@ async def set_itinerary(policy_id: str, itinerary: dict) -> bool:
     })
 
 
+async def set_policy_submitted(policy_id: str, api_response: dict) -> bool:
+    from datetime import datetime, timezone
+    return await update_policy(policy_id, {
+        "status": "submitted",
+        "submitted_at": datetime.now(timezone.utc),
+        "api_response": api_response,
+    })
+
+
 async def set_boarding_pass(policy_id: str, boarding_pass: dict) -> bool:
     from bson import Binary
     from datetime import datetime, timezone
