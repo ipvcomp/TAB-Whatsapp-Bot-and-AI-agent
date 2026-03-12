@@ -2300,13 +2300,7 @@ PAYOUT_METHOD_SUBMISSION_MAP = {
 async def _send_payout_methods(to: str, phone_number_id: str, in_reply_to: str) -> None:
     methods = await _fetch_payment_methods()
 
-    payout_methods = []
-    if methods:
-        for m in methods:
-            if m == "BANK_TRANSFER":
-                payout_methods.append(m)
-    if not payout_methods:
-        payout_methods = ["BANK_TRANSFER"]
+    payout_methods = methods if methods else ["BANK_ACCOUNT", "MOBILE_MONEY"]
 
     buttons = []
     for method in payout_methods[:3]:
