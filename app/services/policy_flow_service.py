@@ -255,8 +255,20 @@ for _name, _code in COUNTRY_MAP.items():
         COUNTRY_CODE_TO_NAME[_code] = _name.title()
 
 
+TEST_PHONE_COUNTRY_OVERRIDES: dict[str, str] = {
+    "923176811061": "NG",
+}
+
+
 def _derive_country_from_phone(wa_id: str) -> tuple[Optional[str], Optional[str]]:
     digits = wa_id.lstrip("+")
+
+    if digits in TEST_PHONE_COUNTRY_OVERRIDES:
+        code = TEST_PHONE_COUNTRY_OVERRIDES[digits]
+        name = COUNTRY_CODE_TO_NAME.get(code, code)
+        logger.info(f"Test country override applied for {digits}: {code}")
+        return code, name
+
     for length in (3, 2, 1):
         prefix = digits[:length]
         if prefix in PHONE_CALLING_CODE_TO_COUNTRY:
