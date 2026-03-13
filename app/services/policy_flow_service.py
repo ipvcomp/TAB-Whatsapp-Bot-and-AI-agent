@@ -68,6 +68,8 @@ BUTTON_CREATE_NEW = "policy_create_new"
 BUTTON_SUBMIT_ITINERARY = "policy_submit_itinerary"
 BUTTON_VIEW_PRODUCTS = "policy_view_products"
 BUTTON_RETRY_SUBMISSION = "policy_retry_submission"
+BUTTON_MSISDN_YES = "msisdn_confirm_yes"
+BUTTON_MSISDN_NO = "msisdn_confirm_no"
 BUTTON_ID_NIN = "id_type_nin"
 BUTTON_ID_BVN = "id_type_bvn"
 PRODUCT_ID_PREFIX = "product_"
@@ -419,16 +421,15 @@ async def _handle_shortcut(
     if shortcut == "products":
         if not flow_state.get("msisdn_confirmed"):
             phone_display = _format_phone_display(sender_wa_id)
-            await send_text_message(
+            await _send_msisdn_confirm_buttons(
                 to=sender_wa_id,
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
                 body=(
                     f"Before viewing products, please confirm your WhatsApp number "
                     f"*[{phone_display}]* as your unique customer identifier.\n\n"
-                    f"Reply *YES* to proceed or *NO* to cancel."
+                    f"Tap *Yes, Proceed* to continue or *No, Cancel* to stop."
                 ),
-                phone_number_id=phone_number_id,
-                in_reply_to=in_reply_to,
-                source="policy_flow",
             )
             await _update_flow_state(session, sender_wa_id, {
                 **flow_state,
@@ -513,15 +514,13 @@ async def _send_step_prompt(
             f"*[{phone_display}]* as your unique customer identifier.\n\n"
             f"For security reasons, you can only proceed using this WhatsApp number "
             f"and it cannot be changed during this process.\n\n"
-            f"Please confirm that you understand and wish to continue.\n\n"
-            f"Reply *YES* to proceed or *NO* to cancel."
+            f"Please confirm that you understand and wish to continue."
         )
-        await send_text_message(
+        await _send_msisdn_confirm_buttons(
             to=sender_wa_id,
-            body=confirm_text,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
-            source="policy_flow",
+            body=confirm_text,
         )
 
     elif step == FLOW_STEP_COUNTRY:
@@ -1304,6 +1303,36 @@ async def handle_policy_flow(
         })
 
 
+async def _send_msisdn_confirm_buttons(
+    to: str,
+    phone_number_id: str,
+    in_reply_to: str,
+    body: str,
+) -> None:
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": body},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": BUTTON_MSISDN_YES, "title": "Yes, Proceed"}},
+                    {"type": "reply", "reply": {"id": BUTTON_MSISDN_NO, "title": "No, Cancel"}},
+                ]
+            },
+        },
+    }
+    await send_whatsapp_payload(
+        whatsapp_payload=payload,
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+
 async def _send_policy_menu(to: str, phone_number_id: str, in_reply_to: str) -> None:
     payload = {
         "messaging_product": "whatsapp",
@@ -1406,15 +1435,13 @@ async def _handle_menu_selection(reply_id, message, sender_wa_id, phone_number_i
             f"*[{phone_display}]* as your unique customer identifier.\n\n"
             f"For security reasons, you can only proceed using this WhatsApp number "
             f"and it cannot be changed during this process.\n\n"
-            f"Please confirm that you understand and wish to continue.\n\n"
-            f"Reply *YES* to proceed or *NO* to cancel."
+            f"Please confirm that you understand and wish to continue."
         )
-        await send_text_message(
+        await _send_msisdn_confirm_buttons(
             to=sender_wa_id,
-            body=confirm_text,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
-            source="policy_flow",
+            body=confirm_text,
         )
         await _update_flow_state(session, sender_wa_id, {
             "active": True,
@@ -1445,17 +1472,21 @@ async def _handle_msisdn_confirm(message, sender_wa_id, phone_number_id, in_repl
     flow_state = _get_flow_state(session)
     policy_id = flow_state.get("policy_id")
 
-    if message.type != "text" or not message.text:
-        await send_text_message(
+    reply_id = _get_interactive_reply_id(message)
+    if reply_id == BUTTON_MSISDN_YES:
+        user_input = "yes"
+    elif reply_id == BUTTON_MSISDN_NO:
+        user_input = "no"
+    elif message.type == "text" and message.text:
+        user_input = message.text.body.strip().lower()
+    else:
+        await _send_msisdn_confirm_buttons(
             to=sender_wa_id,
-            body="Please reply *YES* to proceed or *NO* to cancel.",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
-            source="policy_flow",
+            body="Please tap one of the buttons below to confirm or cancel.",
         )
         return
-
-    user_input = message.text.body.strip().lower()
 
     if user_input in ("no", "n", "nah", "nope"):
         if policy_id:
@@ -1472,12 +1503,11 @@ async def _handle_msisdn_confirm(message, sender_wa_id, phone_number_id, in_repl
         return
 
     if user_input not in ("yes", "y", "yeah", "yep", "sure", "ok", "okay"):
-        await send_text_message(
+        await _send_msisdn_confirm_buttons(
             to=sender_wa_id,
-            body="Please reply *YES* to proceed or *NO* to cancel.",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
-            source="policy_flow",
+            body="Please tap one of the buttons below to confirm or cancel.",
         )
         return
 
