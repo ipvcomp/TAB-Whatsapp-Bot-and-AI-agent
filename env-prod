@@ -7,7 +7,7 @@ WHATSAPP_API_BASE_URL = "https://graph.facebook.com/v22.0"
 WHATSAPP_API_TOKEN = "EAAF5fZCVdNfwBQy8jxmKpkHyGLCWTc2HEjdwl9WUPczvQ9HfWilrBD7UELXb5lynQzlFVH9BkjdZBxN7w9rszfnmqdaZAQ1VWK8AvKpeqbxpQSEzcyAco48rdNmpZAWSIV2uaBA0GNsDDUend1Wf4WlZAf5CglSNH0GqoWYv9SejWUuEZBZBTXRykse0dZAOzAZDZD"
 WHATSAPP_VERIFY_TOKEN = "wa_bot_verify_token_2026"
 LLM_API_URL = "https://staging-tab-whatsappllm.ipurvey.com"
-LLM_API_TIMEOUT = "30"
+LLM_API_TIMEOUT = "120"
 APP_BASE_URL = "https://staging-tab-whatsappbot.ipurvey.com"
 DEBUG = "FALSE"
 
