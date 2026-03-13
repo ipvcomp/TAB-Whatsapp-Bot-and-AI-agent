@@ -2334,14 +2334,11 @@ async def _send_payout_methods(to: str, phone_number_id: str, in_reply_to: str) 
 
     payout_methods = methods if methods else ["BANK_ACCOUNT", "MOBILE_MONEY"]
 
-    buttons = []
-    for method in payout_methods[:3]:
-        buttons.append({
-            "type": "reply",
-            "reply": {
-                "id": f"{PAYOUT_METHOD_PREFIX}{method}",
-                "title": PAYOUT_METHOD_LABELS.get(method, method.replace("_", " ").title())[:20],
-            }
+    rows = []
+    for method in payout_methods:
+        rows.append({
+            "id": f"{PAYOUT_METHOD_PREFIX}{method}",
+            "title": PAYOUT_METHOD_LABELS.get(method, method.replace("_", " ").title())[:24],
         })
 
     payload = {
@@ -2350,12 +2347,18 @@ async def _send_payout_methods(to: str, phone_number_id: str, in_reply_to: str) 
         "to": to,
         "type": "interactive",
         "interactive": {
-            "type": "button",
+            "type": "list",
             "body": {
-                "text": "Please select your future payout method:"
+                "text": "Please select your preferred payout method:"
             },
             "action": {
-                "buttons": buttons
+                "button": "Select Method",
+                "sections": [
+                    {
+                        "title": "Payout Methods",
+                        "rows": rows,
+                    }
+                ]
             }
         }
     }
@@ -2569,14 +2572,11 @@ async def _send_payment_methods(to: str, phone_number_id: str, in_reply_to: str,
     if not methods:
         methods = ["CARD", "BANK_TRANSFER", "USSD"]
 
-    buttons = []
-    for method in methods[:3]:
-        buttons.append({
-            "type": "reply",
-            "reply": {
-                "id": f"{PAYMENT_METHOD_PREFIX}{method}",
-                "title": PAYMENT_METHOD_LABELS.get(method, method.replace("_", " ").title())[:20],
-            }
+    rows = []
+    for method in methods:
+        rows.append({
+            "id": f"{PAYMENT_METHOD_PREFIX}{method}",
+            "title": PAYMENT_METHOD_LABELS.get(method, method.replace("_", " ").title())[:24],
         })
 
     payload = {
@@ -2585,12 +2585,18 @@ async def _send_payment_methods(to: str, phone_number_id: str, in_reply_to: str,
         "to": to,
         "type": "interactive",
         "interactive": {
-            "type": "button",
+            "type": "list",
             "body": {
                 "text": "Please select your preferred payment method:"
             },
             "action": {
-                "buttons": buttons
+                "button": "Select Method",
+                "sections": [
+                    {
+                        "title": "Payment Methods",
+                        "rows": rows,
+                    }
+                ]
             }
         }
     }
