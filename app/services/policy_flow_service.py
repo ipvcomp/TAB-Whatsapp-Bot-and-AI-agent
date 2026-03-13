@@ -12,7 +12,7 @@ from app.services.llm_service import call_extract
 from app.services.policy_service import (
     create_policy, get_active_draft, set_product_selection, cancel_policy,
     set_personal_details, set_id_verification, set_payment_method,
-    set_payout_method, set_account_number, set_country,
+    set_account_number, set_country,
     set_bank_details, set_msisdn_info, set_channel_info, set_airport_info,
     set_itinerary, set_boarding_pass, set_policy_submitted, get_policy_by_id,
 )
@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 PRODUCTS_API_BASE_URL = "https://dev-ilekun-ipv.ipurvey.com/api/v1/tab-pc/products/getByCountry"
 PAYMENT_METHODS_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/payment-method/types"
-PAYOUT_METHODS_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/payout-method/types"
 
 PRODUCTS_PER_PAGE = 8
 
@@ -46,7 +45,6 @@ FLOW_STEP_PD_EMAIL = "pd_email"
 FLOW_STEP_ID_TYPE = "id_type_selection"
 FLOW_STEP_ID_NUMBER = "id_number_input"
 FLOW_STEP_PAYMENT_METHOD = "payment_method"
-FLOW_STEP_PAYOUT_METHOD = "payout_method"
 FLOW_STEP_PD_ACCOUNT_NUMBER = "pd_account_number"
 FLOW_STEP_BANK_SELECTION = "bank_selection"
 FLOW_STEP_AIRPORT_INPUT = "airport_input"
@@ -74,7 +72,6 @@ BUTTON_ID_NIN = "id_type_nin"
 BUTTON_ID_BVN = "id_type_bvn"
 PRODUCT_ID_PREFIX = "product_"
 PAYMENT_METHOD_PREFIX = "pay_method_"
-PAYOUT_METHOD_PREFIX = "payout_method_"
 BANK_ID_PREFIX = "bank_"
 BANK_NAV_NEXT = "bank_nav_next"
 BANK_NAV_PREV = "bank_nav_prev"
@@ -126,8 +123,7 @@ BACK_STEP_MAP = {
     FLOW_STEP_ID_TYPE: FLOW_STEP_PD_EMAIL,
     FLOW_STEP_ID_NUMBER: FLOW_STEP_ID_TYPE,
     FLOW_STEP_PAYMENT_METHOD: FLOW_STEP_ID_NUMBER,
-    FLOW_STEP_PAYOUT_METHOD: FLOW_STEP_PAYMENT_METHOD,
-    FLOW_STEP_PD_ACCOUNT_NUMBER: FLOW_STEP_PAYOUT_METHOD,
+    FLOW_STEP_PD_ACCOUNT_NUMBER: FLOW_STEP_PAYMENT_METHOD,
     FLOW_STEP_BANK_SELECTION: FLOW_STEP_PD_ACCOUNT_NUMBER,
     FLOW_STEP_AIRPORT_INPUT: FLOW_STEP_BANK_SELECTION,
     FLOW_STEP_AIRPORT_SELECT: FLOW_STEP_AIRPORT_INPUT,
@@ -555,9 +551,6 @@ async def _send_step_prompt(
 
     elif step == FLOW_STEP_PAYMENT_METHOD:
         await _send_payment_methods(sender_wa_id, phone_number_id, in_reply_to, country_code=flow_state.get("country_code", "NG"))
-
-    elif step == FLOW_STEP_PAYOUT_METHOD:
-        await _send_payout_methods(sender_wa_id, phone_number_id, in_reply_to)
 
     elif step == FLOW_STEP_PD_ACCOUNT_NUMBER:
         await send_text_message(
@@ -1206,15 +1199,6 @@ async def handle_policy_flow(
         )
     elif current_step == FLOW_STEP_PAYMENT_METHOD:
         await _handle_payment_method_selection(
-            reply_id=reply_id,
-            message=message,
-            sender_wa_id=sender_wa_id,
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            session=session,
-        )
-    elif current_step == FLOW_STEP_PAYOUT_METHOD:
-        await _handle_payout_method_selection(
             reply_id=reply_id,
             message=message,
             sender_wa_id=sender_wa_id,
@@ -2314,98 +2298,6 @@ async def _handle_id_number_input(message, sender_wa_id, phone_number_id, in_rep
     })
 
 
-PAYOUT_METHOD_LABELS = {
-    "BANK_TRANSFER": "Bank Transfer",
-    "BANK_ACCOUNT": "Bank Account",
-    "MOBILE_MONEY": "Mobile Money",
-    "WALLET": "Wallet",
-}
-
-PAYOUT_METHOD_SUBMISSION_MAP = {
-    "BANK_TRANSFER": "BANK_ACCOUNT",
-    "BANK_ACCOUNT": "BANK_ACCOUNT",
-    "MOBILE_MONEY": "MOBILE_MONEY",
-    "WALLET": "MOBILE_MONEY",
-}
-
-
-async def _send_payout_methods(to: str, phone_number_id: str, in_reply_to: str) -> None:
-    methods = await _fetch_payout_methods()
-
-    payout_methods = methods if methods else ["BANK_ACCOUNT", "MOBILE_MONEY"]
-
-    rows = []
-    for method in payout_methods:
-        rows.append({
-            "id": f"{PAYOUT_METHOD_PREFIX}{method}",
-            "title": PAYOUT_METHOD_LABELS.get(method, method.replace("_", " ").title())[:24],
-        })
-
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": to,
-        "type": "interactive",
-        "interactive": {
-            "type": "list",
-            "body": {
-                "text": "Please select your preferred payout method:"
-            },
-            "action": {
-                "button": "Select Method",
-                "sections": [
-                    {
-                        "title": "Payout Methods",
-                        "rows": rows,
-                    }
-                ]
-            }
-        }
-    }
-
-    await send_whatsapp_payload(
-        payload,
-        phone_number_id=phone_number_id,
-        in_reply_to=in_reply_to,
-        source="policy_flow",
-    )
-
-
-async def _handle_payout_method_selection(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
-    flow_state = _get_flow_state(session)
-    policy_id = flow_state.get("policy_id")
-
-    if reply_id and reply_id.startswith(PAYOUT_METHOD_PREFIX):
-        method = reply_id[len(PAYOUT_METHOD_PREFIX):]
-        label = PAYOUT_METHOD_LABELS.get(method, method.replace("_", " ").title())
-
-        if policy_id:
-            await set_payout_method(policy_id, method)
-            logger.info(f"Payout method '{method}' saved to policy {policy_id}")
-
-        await send_text_message(
-            to=sender_wa_id,
-            body=f"Payout method selected: *{label}*\n\nPlease enter your *10-digit account number* for future payouts:",
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-
-        await _update_flow_state(session, sender_wa_id, {
-            **flow_state,
-            "step": FLOW_STEP_PD_ACCOUNT_NUMBER,
-            "payout_method": method,
-        })
-    else:
-        await send_text_message(
-            to=sender_wa_id,
-            body="Please select one of the payout method options above.",
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-
-
 async def _handle_account_number_input(message, sender_wa_id, phone_number_id, in_reply_to, session):
     flow_state = _get_flow_state(session)
     policy_id = flow_state.get("policy_id")
@@ -2517,27 +2409,6 @@ async def _fetch_payment_methods(country_code: str) -> Optional[list]:
         return None
 
 
-async def _fetch_payout_methods() -> Optional[list]:
-    try:
-        async with httpx.AsyncClient(timeout=30.0, verify=True) as client:
-            logger.info(f"Fetching payout methods from {PAYOUT_METHODS_API_URL}")
-            response = await client.get(PAYOUT_METHODS_API_URL)
-            logger.info(f"Payout methods API response: HTTP {response.status_code}, size={len(response.content)} bytes")
-            if response.status_code == 200:
-                data = response.json()
-                if isinstance(data, list):
-                    logger.info(f"Fetched {len(data)} payout methods")
-                    return data
-            logger.error(f"Payout methods API error: HTTP {response.status_code}, body={response.text[:500]}")
-            return None
-    except httpx.TimeoutException as e:
-        logger.error(f"Payout methods API timeout: {type(e).__name__}: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"Failed to fetch payout methods: {type(e).__name__}: {e}")
-        return None
-
-
 PAYMENT_METHOD_LABELS = {
     "CARD": "Card",
     "BANK_TRANSFER": "Bank Transfer",
@@ -2623,17 +2494,17 @@ async def _handle_payment_method_selection(reply_id, message, sender_wa_id, phon
 
         await send_text_message(
             to=sender_wa_id,
-            body=f"Payment method selected: *{label}*\n\nNow let's select your future payout method.",
+            body=f"Payment method selected: *{label}*\n\nPlease enter your *10-digit account number* for future payouts:",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
         )
 
-        await _send_payout_methods(sender_wa_id, phone_number_id, in_reply_to)
         await _update_flow_state(session, sender_wa_id, {
             **flow_state,
-            "step": FLOW_STEP_PAYOUT_METHOD,
+            "step": FLOW_STEP_PD_ACCOUNT_NUMBER,
             "payment_method": method,
+            "payout_method": "BANK_ACCOUNT",
         })
     else:
         await send_text_message(
@@ -3620,7 +3491,7 @@ async def _submit_policy_to_api(
     personal_details = flow_state.get("personal_details", {})
     selected_product = flow_state.get("selected_product", {})
     payment_method = flow_state.get("payment_method", "")
-    payout_method = flow_state.get("payout_method", "")
+    payout_method = flow_state.get("payout_method", "BANK_ACCOUNT")
     country_code = flow_state.get("country_code", "")
     bank_details = flow_state.get("bank_details", {})
     msisdn_info = flow_state.get("msisdn_info", {})
@@ -3680,7 +3551,7 @@ async def _submit_policy_to_api(
             "payoutAlertsConsent": True,
             "kycConsent": True,
             "payoutMethod": {
-                "type": PAYOUT_METHOD_SUBMISSION_MAP.get(payout_method, payout_method),
+                "type": "BANK_ACCOUNT",
                 "accountNumber": account_number,
                 "accountName": account_name,
                 "config": payout_config,
@@ -3912,7 +3783,7 @@ async def _show_final_summary(
     personal_details = flow_state.get("personal_details", {})
     selected_product = flow_state.get("selected_product", {})
     payment_method = flow_state.get("payment_method", "")
-    payout_method = flow_state.get("payout_method", "")
+    payout_method = flow_state.get("payout_method", "BANK_ACCOUNT")
     country_name = flow_state.get("country_name", "")
     country_code = flow_state.get("country_code", "")
     bank_details = flow_state.get("bank_details", {})
@@ -3921,7 +3792,7 @@ async def _show_final_summary(
     id_number = flow_state.get("id_number", "")
     account_number = flow_state.get("account_number", "")
     payment_label = PAYMENT_METHOD_LABELS.get(payment_method, payment_method)
-    payout_label = PAYOUT_METHOD_LABELS.get(payout_method, payout_method)
+    payout_label = "Bank Account"
 
     id_line = f"{id_type}: {id_number}" if id_type and id_number else ""
     itinerary = flow_state.get("itinerary", {})
