@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     META_API_BASE_URL: str = "https://graph.facebook.com"
 
     LLM_API_URL: str = ""
-    LLM_API_TIMEOUT: int = 30
+    LLM_API_TIMEOUT: int = 120
 
     APP_BASE_URL: str = ""
 
