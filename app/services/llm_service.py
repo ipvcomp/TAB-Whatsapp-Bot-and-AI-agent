@@ -7,6 +7,8 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+LLM_REQUEST_TIMEOUT = 120
+
 
 async def call_generic(
     user_id: str,
@@ -32,7 +34,7 @@ async def call_generic(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=float(settings.LLM_API_TIMEOUT)) as client:
+        async with httpx.AsyncClient(timeout=LLM_REQUEST_TIMEOUT) as client:
             logger.info(f"LLM generic request for user {user_id}, node={current_node}")
             response = await client.post(
                 url,
@@ -53,7 +55,7 @@ async def call_generic(
                 logger.error(f"LLM generic error: HTTP {response.status_code} - {response_data}")
                 return None
     except httpx.TimeoutException:
-        logger.error(f"LLM generic timeout after {settings.LLM_API_TIMEOUT}s for user {user_id}")
+        logger.error(f"LLM generic timeout after {LLM_REQUEST_TIMEOUT}s for user {user_id}")
         return None
     except httpx.ConnectError:
         logger.error(f"LLM generic connection failed: {url}")
@@ -87,7 +89,7 @@ async def call_extract(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=float(settings.LLM_API_TIMEOUT)) as client:
+        async with httpx.AsyncClient(timeout=LLM_REQUEST_TIMEOUT) as client:
             logger.info(f"LLM extract request: field={field_name}, user={user_id}")
             response = await client.post(
                 url,
@@ -112,7 +114,7 @@ async def call_extract(
                 logger.error(f"LLM extract error: HTTP {response.status_code} - {response_data}")
                 return None
     except httpx.TimeoutException:
-        logger.error(f"LLM extract timeout after {settings.LLM_API_TIMEOUT}s for field {field_name}")
+        logger.error(f"LLM extract timeout after {LLM_REQUEST_TIMEOUT}s for field {field_name}")
         return None
     except httpx.ConnectError:
         logger.error(f"LLM extract connection failed: {url}")
