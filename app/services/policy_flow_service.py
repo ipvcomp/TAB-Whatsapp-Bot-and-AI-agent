@@ -20,6 +20,7 @@ from app.services.policy_service import (
 logger = logging.getLogger(__name__)
 
 PRODUCTS_API_BASE_URL = "https://dev-ilekun-ipv.ipurvey.com/api/v1/tab-pc/products/getByCountry"
+PAYMENT_METHODS_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/payment-method/types"
 PAYOUT_METHODS_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/payout-method/types"
 
 PRODUCTS_PER_PAGE = 8
@@ -554,7 +555,7 @@ async def _send_step_prompt(
         )
 
     elif step == FLOW_STEP_PAYMENT_METHOD:
-        await _send_payment_methods(sender_wa_id, phone_number_id, in_reply_to)
+        await _send_payment_methods(sender_wa_id, phone_number_id, in_reply_to, country_code=flow_state.get("country_code", "NG"))
 
     elif step == FLOW_STEP_PAYOUT_METHOD:
         await _send_payout_methods(sender_wa_id, phone_number_id, in_reply_to)
@@ -916,7 +917,7 @@ async def handle_policy_flow(
             return
 
         if retry_step == FLOW_STEP_PAYMENT_METHOD:
-            await _send_payment_methods(sender_wa_id, phone_number_id, in_reply_to)
+            await _send_payment_methods(sender_wa_id, phone_number_id, in_reply_to, country_code=flow_state.get("country_code", "NG"))
             await _update_flow_state(session, sender_wa_id, {
                 **flow_state,
                 "step": FLOW_STEP_PAYMENT_METHOD,
@@ -2275,7 +2276,7 @@ async def _handle_id_number_input(message, sender_wa_id, phone_number_id, in_rep
         source="policy_flow",
     )
 
-    await _send_payment_methods(sender_wa_id, phone_number_id, in_reply_to)
+    await _send_payment_methods(sender_wa_id, phone_number_id, in_reply_to, country_code=flow_state.get("country_code", "NG"))
     await _update_flow_state(session, sender_wa_id, {
         **flow_state,
         "step": FLOW_STEP_PAYMENT_METHOD,
@@ -2299,7 +2300,7 @@ PAYOUT_METHOD_SUBMISSION_MAP = {
 
 
 async def _send_payout_methods(to: str, phone_number_id: str, in_reply_to: str) -> None:
-    methods = await _fetch_payment_methods()
+    methods = await _fetch_payout_methods()
 
     payout_methods = methods if methods else ["BANK_ACCOUNT", "MOBILE_MONEY"]
 
@@ -2461,16 +2462,17 @@ async def _handle_account_number_input(message, sender_wa_id, phone_number_id, i
     })
 
 
-async def _fetch_payment_methods() -> Optional[list]:
+async def _fetch_payment_methods(country_code: str) -> Optional[list]:
     try:
         async with httpx.AsyncClient(timeout=30.0, verify=True) as client:
-            logger.info(f"Fetching payment methods from {PAYOUT_METHODS_API_URL}")
-            response = await client.get(PAYOUT_METHODS_API_URL)
+            url = f"{PAYMENT_METHODS_API_URL}?countryCode={country_code}"
+            logger.info(f"Fetching payment methods from {url}")
+            response = await client.get(url)
             logger.info(f"Payment methods API response: HTTP {response.status_code}, size={len(response.content)} bytes")
             if response.status_code == 200:
                 data = response.json()
                 if isinstance(data, list):
-                    logger.info(f"Fetched {len(data)} payment methods")
+                    logger.info(f"Fetched {len(data)} payment methods for country={country_code}")
                     return data
             logger.error(f"Payment methods API error: HTTP {response.status_code}, body={response.text[:500]}")
             return None
@@ -2482,27 +2484,60 @@ async def _fetch_payment_methods() -> Optional[list]:
         return None
 
 
+async def _fetch_payout_methods() -> Optional[list]:
+    try:
+        async with httpx.AsyncClient(timeout=30.0, verify=True) as client:
+            logger.info(f"Fetching payout methods from {PAYOUT_METHODS_API_URL}")
+            response = await client.get(PAYOUT_METHODS_API_URL)
+            logger.info(f"Payout methods API response: HTTP {response.status_code}, size={len(response.content)} bytes")
+            if response.status_code == 200:
+                data = response.json()
+                if isinstance(data, list):
+                    logger.info(f"Fetched {len(data)} payout methods")
+                    return data
+            logger.error(f"Payout methods API error: HTTP {response.status_code}, body={response.text[:500]}")
+            return None
+    except httpx.TimeoutException as e:
+        logger.error(f"Payout methods API timeout: {type(e).__name__}: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to fetch payout methods: {type(e).__name__}: {e}")
+        return None
+
+
 PAYMENT_METHOD_LABELS = {
-    "BANK_ACCOUNT": "Bank Account",
-    "BANK_TRANSFER": "Bank Transfer",
-    "WALLET": "Wallet",
-    "MOBILE_MONEY": "Mobile Money",
     "CARD": "Card",
+    "BANK_TRANSFER": "Bank Transfer",
+    "USSD": "USSD",
+    "OPAY": "OPay",
+    "MOMO_MOBILE_MONEY": "MTN MoMo",
+    "SMARTCASH_MOBILE_MONEY": "SmartCash",
+    "GOOGLE_PAY": "Google Pay",
+    "APPLE_PAY": "Apple Pay",
+    "BANK_ACCOUNT": "Bank Account",
+    "MOBILE_MONEY": "Mobile Money",
+    "WALLET": "Wallet",
 }
 
 PAYMENT_METHOD_SUBMISSION_MAP = {
-    "BANK_ACCOUNT": "BANK_TRANSFER",
-    "BANK_TRANSFER": "BANK_TRANSFER",
-    "WALLET": "WALLET",
-    "MOBILE_MONEY": "MOBILE_MONEY",
     "CARD": "CARD",
+    "BANK_TRANSFER": "BANK_TRANSFER",
+    "USSD": "USSD",
+    "OPAY": "OPAY",
+    "MOMO_MOBILE_MONEY": "MOMO_MOBILE_MONEY",
+    "SMARTCASH_MOBILE_MONEY": "SMARTCASH_MOBILE_MONEY",
+    "GOOGLE_PAY": "GOOGLE_PAY",
+    "APPLE_PAY": "APPLE_PAY",
+    "BANK_ACCOUNT": "BANK_TRANSFER",
+    "MOBILE_MONEY": "MOBILE_MONEY",
+    "WALLET": "WALLET",
 }
 
 
-async def _send_payment_methods(to: str, phone_number_id: str, in_reply_to: str) -> None:
-    methods = await _fetch_payment_methods()
+async def _send_payment_methods(to: str, phone_number_id: str, in_reply_to: str, country_code: str = "NG") -> None:
+    methods = await _fetch_payment_methods(country_code)
     if not methods:
-        methods = ["BANK_TRANSFER", "WALLET", "MOBILE_MONEY"]
+        methods = ["CARD", "BANK_TRANSFER", "USSD"]
 
     buttons = []
     for method in methods[:3]:
