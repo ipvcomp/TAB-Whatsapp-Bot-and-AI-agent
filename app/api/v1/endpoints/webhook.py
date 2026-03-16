@@ -12,7 +12,10 @@ from app.services.session_service import get_session, save_session, build_defaul
 from app.services.llm_service import call_generic
 from app.services.whatsapp_service import send_text_message
 from app.services.llm_log_service import save_llm_log
-from app.services.policy_flow_service import is_policy_trigger, is_in_policy_flow, handle_policy_flow, get_shortcuts_text, SHORTCUT_COMMANDS
+from app.services.policy_flow_service import (
+    is_policy_trigger, is_in_policy_flow, handle_policy_flow, get_shortcuts_text, SHORTCUT_COMMANDS,
+    is_in_bp_upload_flow, handle_boarding_pass_upload_flow,
+)
 
 WELCOME_BUTTON_IDS = {"welcome_purchase_policy", "welcome_submit_boarding"}
 
@@ -178,7 +181,20 @@ async def _process_change(entry_id: str, change):
                         continue
 
                 user_session = await get_session(sender_wa_id)
-                if is_policy_trigger(message) or is_in_policy_flow(user_session):
+                if is_in_bp_upload_flow(user_session):
+                    log_event("BP_UPLOAD_FLOW", {
+                        "message_id": message.id,
+                        "from": sender_wa_id,
+                        "trigger": "active_bp_flow",
+                    })
+                    await handle_boarding_pass_upload_flow(
+                        message=message,
+                        sender_wa_id=sender_wa_id,
+                        profile_name=resolved_profile,
+                        phone_number_id=msg_phone_number_id,
+                        in_reply_to=message.id,
+                    )
+                elif is_policy_trigger(message) or is_in_policy_flow(user_session):
                     log_event("POLICY_FLOW", {
                         "message_id": message.id,
                         "from": sender_wa_id,
@@ -406,13 +422,10 @@ async def _handle_welcome_button(
         )
     elif reply_id == "welcome_submit_boarding":
         log_event("WELCOME_BUTTON", {"action": "submit_boarding", "from": sender_wa_id})
-        await send_text_message(
-            to=sender_wa_id,
-            body=(
-                "The *Submit Boarding Pass* feature is coming soon! \U0001F6EB\n\n"
-                "In the meantime, you can type *policy* to purchase a new travel policy."
-            ),
+        await handle_boarding_pass_upload_flow(
+            message=message,
+            sender_wa_id=sender_wa_id,
+            profile_name=profile_name,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
-            source="auto_reply",
         )

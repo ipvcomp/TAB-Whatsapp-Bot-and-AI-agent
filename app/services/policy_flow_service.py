@@ -3923,3 +3923,574 @@ async def _clear_flow_state(session: dict, user_id: str) -> None:
     if "user_id" not in session:
         session["user_id"] = user_id
     await save_session(session)
+
+
+# ============================================================
+# BOARDING PASS UPLOAD FLOW (retrospective upload for existing policies)
+# ============================================================
+
+BP_UPLOAD_FLOW_KEY = "bp_upload_flow"
+BP_STEP_POLICY_LIST = "bp_policy_list"
+BP_STEP_POLICY_SELECTED = "bp_policy_selected"
+BP_STEP_UPLOAD = "bp_upload"
+
+BUTTON_BP_CANCEL = "bp_cancel"
+BUTTON_BP_YES_UPDATE = "bp_yes_update"
+BUTTON_BP_POLICY_PREFIX = "bp_policy_"
+BUTTON_BP_NAV_NEXT = "bp_nav_next"
+BUTTON_BP_NAV_PREV = "bp_nav_prev"
+
+POLICIES_BY_MSISDN_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/by-msisdn"
+BOARDING_PASS_UPLOAD_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/upload-boarding-pass"
+
+BP_POLICIES_PER_PAGE = 6
+
+ACTIVE_POLICY_STATUSES = {"ACTIVE", "ISSUED", "LINKED", "NEW", "PROCESSING"}
+
+STATUS_EMOJI = {
+    "ACTIVE": "✅", "ISSUED": "✅", "LINKED": "🔗",
+    "NEW": "🆕", "PROCESSING": "⏳", "EXPIRED": "⏰", "CANCELLED": "❌",
+}
+
+
+def is_in_bp_upload_flow(session: Optional[dict]) -> bool:
+    if not session:
+        return False
+    return session.get("temp_data", {}).get(BP_UPLOAD_FLOW_KEY, {}).get("active", False)
+
+
+def _get_bp_flow_state(session: dict) -> dict:
+    return session.get("temp_data", {}).get(BP_UPLOAD_FLOW_KEY, {})
+
+
+async def _update_bp_flow_state(session: dict, user_id: str, bp_state: dict) -> None:
+    if "temp_data" not in session:
+        session["temp_data"] = {}
+    session["temp_data"][BP_UPLOAD_FLOW_KEY] = bp_state
+    if "user_id" not in session:
+        session["user_id"] = user_id
+    await save_session(session)
+
+
+async def _clear_bp_flow_state(session: dict, user_id: str) -> None:
+    if "temp_data" not in session:
+        session["temp_data"] = {}
+    session["temp_data"][BP_UPLOAD_FLOW_KEY] = {"active": False}
+    if "user_id" not in session:
+        session["user_id"] = user_id
+    await save_session(session)
+
+
+async def _fetch_policies_by_msisdn(msisdn: str) -> list:
+    url = f"{POLICIES_BY_MSISDN_API_URL}/{msisdn}"
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url)
+            if response.status_code == 200:
+                return response.json().get("data", [])
+            logger.error(f"Policies by MSISDN API error: {response.status_code}")
+            return []
+    except Exception as e:
+        logger.error(f"Failed to fetch policies by MSISDN: {e}")
+        return []
+
+
+def _format_policy_date(date_str: Optional[str]) -> str:
+    if not date_str:
+        return ""
+    try:
+        parts = date_str[:10].split("-")
+        if len(parts) == 3:
+            return f"{parts[2]}/{parts[1]}/{parts[0]}"
+    except Exception:
+        pass
+    return date_str[:10]
+
+
+def _format_policy_summary(policy: dict) -> str:
+    lines = ["*Policy Details*\n"]
+
+    policy_code = policy.get("policyCode", "")
+    if policy_code:
+        lines.append(f"*Policy Code:* {policy_code}")
+
+    status = policy.get("status", "")
+    if status:
+        emoji = STATUS_EMOJI.get(status, "")
+        lines.append(f"*Status:* {emoji} {status}")
+
+    product_name = policy.get("productName", "")
+    if product_name:
+        lines.append(f"*Product:* {product_name}")
+
+    insurer = policy.get("insuranceProvider", "")
+    if insurer:
+        lines.append(f"*Insurer:* {insurer}")
+
+    issue_date = _format_policy_date(policy.get("issueTimestamp", ""))
+    if issue_date:
+        lines.append(f"*Issued:* {issue_date}")
+
+    itinerary = policy.get("itinerary") or {}
+    legs = itinerary.get("legs", [])
+    booking_ref = itinerary.get("bookingReference", "")
+    if booking_ref:
+        lines.append(f"\n*Booking Reference:* {booking_ref}")
+    if legs:
+        leg = legs[0]
+        dep = leg.get("departureAirport", "")
+        arr = leg.get("arrivalAirport", "")
+        flight_no = leg.get("flightNo", "")
+        carrier = leg.get("carrier", "")
+        if dep and arr:
+            lines.append(f"*Route:* {dep} → {arr}")
+        if flight_no or carrier:
+            lines.append(f"*Flight:* {' '.join(filter(None, [carrier, flight_no]))}")
+
+    payment_amount = policy.get("paymentAmount")
+    payment_currency = policy.get("paymentCurrency", "")
+    if payment_amount is not None:
+        lines.append(f"\n*Premium Paid:* {payment_currency} {payment_amount:,.0f}")
+
+    coverage = policy.get("coverageLimit")
+    if coverage is not None:
+        lines.append(f"*Coverage:* {payment_currency} {coverage:,.0f}")
+
+    trigger_events = policy.get("triggerEvents", [])
+    if trigger_events:
+        lines.append(f"*Covers:* {', '.join(e.title() for e in trigger_events)}")
+
+    bp_keys = policy.get("boardingPassKeys", [])
+    bp_uploaded_at = policy.get("boardingPassUploadedAt")
+    if bp_keys or bp_uploaded_at:
+        bp_date = _format_policy_date(bp_uploaded_at) if bp_uploaded_at else ""
+        bp_line = "✅ Uploaded"
+        if bp_date:
+            bp_line += f" on {bp_date}"
+        lines.append(f"\n*Boarding Pass:* {bp_line}")
+    else:
+        lines.append("\n*Boarding Pass:* ❌ Not yet uploaded")
+
+    return "\n".join(lines)
+
+
+async def _send_bp_policy_list_page(
+    to: str,
+    phone_number_id: str,
+    in_reply_to: str,
+    policies: list,
+    page: int,
+) -> None:
+    total = len(policies)
+    per_page = BP_POLICIES_PER_PAGE
+    start = page * per_page
+    end = min(start + per_page, total)
+    page_policies = policies[start:end]
+    total_pages = max(1, (total + per_page - 1) // per_page)
+
+    rows = []
+    for p in page_policies:
+        policy_code = p.get("policyCode", "")
+        status = p.get("status", "")
+        bp_icon = "✅" if p.get("boardingPassKeys") else "❌"
+        title = policy_code[:24] if policy_code else "Unknown"
+
+        itinerary = p.get("itinerary") or {}
+        legs = itinerary.get("legs", [])
+        route = ""
+        if legs:
+            dep = legs[0].get("departureAirport", "")
+            arr = legs[0].get("arrivalAirport", "")
+            if dep and arr:
+                route = f"{dep}→{arr}"
+
+        desc_parts = [x for x in [route, status, f"BP:{bp_icon}"] if x]
+        description = " | ".join(desc_parts)[:72]
+
+        rows.append({
+            "id": f"{BUTTON_BP_POLICY_PREFIX}{policy_code}",
+            "title": title,
+            "description": description,
+        })
+
+    if total > per_page:
+        if page > 0:
+            rows.append({"id": BUTTON_BP_NAV_PREV, "title": "⬆ Previous page", "description": f"Go to page {page}"})
+        if end < total:
+            rows.append({"id": BUTTON_BP_NAV_NEXT, "title": "⬇ Next page", "description": f"Go to page {page + 2}"})
+
+    rows.append({"id": BUTTON_BP_CANCEL, "title": "✖ Cancel", "description": "Return to main menu"})
+
+    page_info = f" (Page {page + 1}/{total_pages})" if total_pages > 1 else ""
+    body_text = f"Found *{total}* policy/policies linked to your number.{page_info}\n\nSelect a policy to upload or update its boarding pass:"
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "header": {"type": "text", "text": "Your Policies"},
+            "body": {"text": body_text},
+            "footer": {"text": "Tap a policy to continue"},
+            "action": {
+                "button": "Select Policy",
+                "sections": [{"title": "Policies", "rows": rows}],
+            },
+        },
+    }
+    await send_whatsapp_payload(payload, phone_number_id=phone_number_id, source="bp_upload_flow")
+
+
+async def _upload_boarding_pass_to_api(
+    policy_code: str,
+    file_bytes: bytes,
+    mime_type: str,
+    filename: str,
+) -> tuple[bool, str]:
+    import mimetypes
+    ext = mimetypes.guess_extension(mime_type) or ".jpg"
+    fname = filename or f"boarding_pass{ext}"
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                BOARDING_PASS_UPLOAD_API_URL,
+                files={"file": (fname, file_bytes, mime_type)},
+                data={"policyCode": policy_code},
+            )
+            resp_data = response.json() if response.content else {}
+            if response.status_code in (200, 201) and resp_data.get("status") == "success":
+                return True, ""
+            msg = resp_data.get("message", f"HTTP {response.status_code}")
+            return False, msg
+    except httpx.TimeoutException:
+        return False, "Upload request timed out. Please try again."
+    except Exception as e:
+        logger.error(f"Boarding pass upload failed: {e}")
+        return False, str(e)
+
+
+async def handle_boarding_pass_upload_flow(
+    message: WhatsAppMessage,
+    sender_wa_id: str,
+    profile_name: str,
+    phone_number_id: str,
+    in_reply_to: str,
+) -> None:
+    session = await get_session(sender_wa_id)
+    if not session:
+        session = build_default_session(
+            user_id=sender_wa_id,
+            phone_number=sender_wa_id,
+            first_name=profile_name,
+        )
+
+    bp_state = _get_bp_flow_state(session)
+    current_step = bp_state.get("step")
+    reply_id = _get_interactive_reply_id(message)
+
+    is_cancel = (
+        reply_id == BUTTON_BP_CANCEL
+        or (
+            message.type == "text"
+            and message.text
+            and message.text.body.lower().strip() in ("#cancel", "#exit", "#menu", "#home", "cancel", "exit")
+        )
+    )
+    if is_cancel:
+        await _clear_bp_flow_state(session, sender_wa_id)
+        await send_text_message(
+            to=sender_wa_id,
+            body="Boarding pass upload cancelled. 👋\n\nType *hi* for the main menu or *policy* to purchase a new policy.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="bp_upload_flow",
+        )
+        return
+
+    # ── Step 1: Initial entry — fetch & show policy list ──────────────────
+    if not current_step or current_step == "start":
+        msisdn = f"+{sender_wa_id.lstrip('+')}"
+        await send_text_message(
+            to=sender_wa_id,
+            body="🔍 Searching for policies linked to your WhatsApp number, please wait...",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="bp_upload_flow",
+        )
+
+        policies = await _fetch_policies_by_msisdn(msisdn)
+
+        if not policies:
+            await send_text_message(
+                to=sender_wa_id,
+                body=(
+                    "No policies found linked to your WhatsApp number. 😕\n\n"
+                    "Type *policy* to purchase a new travel policy."
+                ),
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="bp_upload_flow",
+            )
+            await _clear_bp_flow_state(session, sender_wa_id)
+            return
+
+        active = sorted(
+            [p for p in policies if p.get("status", "") in ACTIVE_POLICY_STATUSES],
+            key=lambda p: p.get("createdAt", ""),
+            reverse=True,
+        )
+        others = sorted(
+            [p for p in policies if p.get("status", "") not in ACTIVE_POLICY_STATUSES],
+            key=lambda p: p.get("createdAt", ""),
+            reverse=True,
+        )
+        policies_sorted = active + others
+
+        await _send_bp_policy_list_page(
+            to=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            policies=policies_sorted,
+            page=0,
+        )
+        await _update_bp_flow_state(session, sender_wa_id, {
+            "active": True,
+            "step": BP_STEP_POLICY_LIST,
+            "policies": policies_sorted,
+            "page": 0,
+        })
+        return
+
+    # ── Step 2: Policy list — pagination & selection ───────────────────────
+    if current_step == BP_STEP_POLICY_LIST:
+        policies = bp_state.get("policies", [])
+        page = bp_state.get("page", 0)
+
+        if reply_id == BUTTON_BP_NAV_NEXT:
+            page += 1
+            await _send_bp_policy_list_page(sender_wa_id, phone_number_id, in_reply_to, policies, page)
+            await _update_bp_flow_state(session, sender_wa_id, {**bp_state, "page": page})
+            return
+
+        if reply_id == BUTTON_BP_NAV_PREV:
+            page = max(0, page - 1)
+            await _send_bp_policy_list_page(sender_wa_id, phone_number_id, in_reply_to, policies, page)
+            await _update_bp_flow_state(session, sender_wa_id, {**bp_state, "page": page})
+            return
+
+        if reply_id and reply_id.startswith(BUTTON_BP_POLICY_PREFIX):
+            selected_code = reply_id[len(BUTTON_BP_POLICY_PREFIX):]
+            selected_policy = next((p for p in policies if p.get("policyCode") == selected_code), None)
+
+            if not selected_policy:
+                await send_text_message(
+                    to=sender_wa_id,
+                    body="Could not find that policy. Please select again.",
+                    phone_number_id=phone_number_id,
+                    in_reply_to=in_reply_to,
+                    source="bp_upload_flow",
+                )
+                await _send_bp_policy_list_page(sender_wa_id, phone_number_id, in_reply_to, policies, page)
+                return
+
+            summary = _format_policy_summary(selected_policy)
+            await send_text_message(
+                to=sender_wa_id,
+                body=summary,
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="bp_upload_flow",
+            )
+
+            has_bp = bool(selected_policy.get("boardingPassKeys"))
+            if has_bp:
+                await send_whatsapp_payload(
+                    {
+                        "messaging_product": "whatsapp",
+                        "recipient_type": "individual",
+                        "to": sender_wa_id,
+                        "type": "interactive",
+                        "interactive": {
+                            "type": "button",
+                            "body": {
+                                "text": (
+                                    "A boarding pass is already uploaded for this policy. ✅\n\n"
+                                    "Would you like to upload a new one to replace it?"
+                                )
+                            },
+                            "action": {
+                                "buttons": [
+                                    {"type": "reply", "reply": {"id": BUTTON_BP_YES_UPDATE, "title": "Yes, Replace"}},
+                                    {"type": "reply", "reply": {"id": BUTTON_BP_CANCEL, "title": "Cancel"}},
+                                ]
+                            },
+                        },
+                    },
+                    phone_number_id=phone_number_id,
+                    source="bp_upload_flow",
+                )
+                await _update_bp_flow_state(session, sender_wa_id, {
+                    **bp_state,
+                    "step": BP_STEP_POLICY_SELECTED,
+                    "selected_policy_code": selected_code,
+                    "has_existing_bp": True,
+                })
+            else:
+                await send_text_message(
+                    to=sender_wa_id,
+                    body=(
+                        "Please upload your *boarding pass* for this policy. 📎\n\n"
+                        "Accepted formats: JPG, PNG, WebP, or PDF.\n"
+                        "You can take a photo or send a screenshot of your e-boarding pass.\n\n"
+                        "Type *cancel* at any time to go back."
+                    ),
+                    phone_number_id=phone_number_id,
+                    in_reply_to=in_reply_to,
+                    source="bp_upload_flow",
+                )
+                await _update_bp_flow_state(session, sender_wa_id, {
+                    **bp_state,
+                    "step": BP_STEP_UPLOAD,
+                    "selected_policy_code": selected_code,
+                    "has_existing_bp": False,
+                })
+            return
+
+        await _send_bp_policy_list_page(sender_wa_id, phone_number_id, in_reply_to, policies, page)
+        return
+
+    # ── Step 3: Confirm replacement of existing boarding pass ─────────────
+    if current_step == BP_STEP_POLICY_SELECTED:
+        if reply_id == BUTTON_BP_YES_UPDATE:
+            await send_text_message(
+                to=sender_wa_id,
+                body=(
+                    "Please upload your *new boarding pass*. 📎\n\n"
+                    "Accepted formats: JPG, PNG, WebP, or PDF.\n\n"
+                    "Type *cancel* at any time to go back."
+                ),
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="bp_upload_flow",
+            )
+            await _update_bp_flow_state(session, sender_wa_id, {**bp_state, "step": BP_STEP_UPLOAD})
+        else:
+            policies = bp_state.get("policies", [])
+            page = bp_state.get("page", 0)
+            await _send_bp_policy_list_page(sender_wa_id, phone_number_id, in_reply_to, policies, page)
+            await _update_bp_flow_state(session, sender_wa_id, {**bp_state, "step": BP_STEP_POLICY_LIST})
+        return
+
+    # ── Step 4: Receive & upload boarding pass ────────────────────────────
+    if current_step == BP_STEP_UPLOAD:
+        policy_code = bp_state.get("selected_policy_code", "")
+
+        if message.type not in ("image", "document"):
+            await send_text_message(
+                to=sender_wa_id,
+                body=(
+                    "Please send your boarding pass as an *image or document*. 📎\n\n"
+                    "Accepted: JPG, PNG, WebP, or PDF.\n"
+                    "Type *cancel* to go back."
+                ),
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="bp_upload_flow",
+            )
+            return
+
+        media = (
+            message.image if message.type == "image" and message.image
+            else message.document if message.type == "document" and message.document
+            else None
+        )
+        if not media:
+            await send_text_message(
+                to=sender_wa_id,
+                body="Couldn't read the file. Please try again.",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="bp_upload_flow",
+            )
+            return
+
+        media_id = getattr(media, "id", None)
+        mime_type = getattr(media, "mime_type", "image/jpeg") or "image/jpeg"
+        filename = getattr(media, "filename", None) or "boarding_pass.jpg"
+
+        if mime_type not in SUPPORTED_BOARDING_PASS_TYPES:
+            await send_text_message(
+                to=sender_wa_id,
+                body=(
+                    f"Unsupported file type (*{mime_type}*).\n\n"
+                    "Please upload a JPG, PNG, WebP, or PDF file."
+                ),
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="bp_upload_flow",
+            )
+            return
+
+        if not media_id:
+            await send_text_message(
+                to=sender_wa_id,
+                body="Couldn't process your file. Please try uploading again.",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="bp_upload_flow",
+            )
+            return
+
+        await send_text_message(
+            to=sender_wa_id,
+            body="📤 Uploading your boarding pass... please wait.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="bp_upload_flow",
+        )
+
+        media_data = await download_whatsapp_media(media_id, mime_type)
+        if not media_data or not media_data.get("bytes"):
+            await send_text_message(
+                to=sender_wa_id,
+                body="Failed to download your file from WhatsApp. Please try uploading again.",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="bp_upload_flow",
+            )
+            return
+
+        file_bytes = bytes(media_data["bytes"])
+        success, error_msg = await _upload_boarding_pass_to_api(policy_code, file_bytes, mime_type, filename)
+
+        if success:
+            await send_text_message(
+                to=sender_wa_id,
+                body=(
+                    f"✅ *Boarding pass uploaded successfully!*\n\n"
+                    f"*Policy:* {policy_code}\n\n"
+                    f"Your boarding pass has been linked to this policy.\n\n"
+                    f"Type *hi* for the main menu or *policy* to purchase a new policy."
+                ),
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="bp_upload_flow",
+            )
+        else:
+            await send_text_message(
+                to=sender_wa_id,
+                body=(
+                    f"❌ *Boarding pass upload failed.*\n\n"
+                    f"Reason: {error_msg}\n\n"
+                    f"Please try again or contact support.\n\n"
+                    f"Type *cancel* to go back or upload another file."
+                ),
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="bp_upload_flow",
+            )
+
+        await _clear_bp_flow_state(session, sender_wa_id)
+        return
