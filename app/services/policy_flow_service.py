@@ -122,8 +122,10 @@ SHORTCUTS_TEXT = (
 BACK_STEP_MAP = {
     FLOW_STEP_MSISDN_CONFIRM: FLOW_STEP_MENU,
     FLOW_STEP_COUNTRY: FLOW_STEP_MENU,
-    FLOW_STEP_PRODUCT_LIST: FLOW_STEP_MSISDN_CONFIRM,
-    FLOW_STEP_PRODUCT_SELECTED: FLOW_STEP_MSISDN_CONFIRM,
+    FLOW_STEP_AIRPORT_INPUT: FLOW_STEP_MSISDN_CONFIRM,
+    FLOW_STEP_AIRPORT_SELECT: FLOW_STEP_AIRPORT_INPUT,
+    FLOW_STEP_PRODUCT_LIST: FLOW_STEP_AIRPORT_INPUT,
+    FLOW_STEP_PRODUCT_SELECTED: FLOW_STEP_AIRPORT_INPUT,
     FLOW_STEP_PRODUCT_CONFIRM: FLOW_STEP_PRODUCT_SELECTED,
     FLOW_STEP_ITIN_DEP_DATE: FLOW_STEP_PRODUCT_CONFIRM,
     FLOW_STEP_ITIN_DEP_TIME: FLOW_STEP_ITIN_DEP_DATE,
@@ -142,9 +144,7 @@ BACK_STEP_MAP = {
     FLOW_STEP_PAYMENT_METHOD: FLOW_STEP_DETAILS_CONFIRM,
     FLOW_STEP_PD_ACCOUNT_NUMBER: FLOW_STEP_PAYMENT_METHOD,
     FLOW_STEP_BANK_SELECTION: FLOW_STEP_PD_ACCOUNT_NUMBER,
-    FLOW_STEP_AIRPORT_INPUT: FLOW_STEP_BANK_SELECTION,
-    FLOW_STEP_AIRPORT_SELECT: FLOW_STEP_AIRPORT_INPUT,
-    FLOW_STEP_BOARDING_PASS: FLOW_STEP_AIRPORT_INPUT,
+    FLOW_STEP_BOARDING_PASS: FLOW_STEP_BANK_SELECTION,
 }
 
 PERSONAL_DETAIL_STEPS = [
@@ -621,7 +621,7 @@ async def _send_step_prompt(
     elif step == FLOW_STEP_AIRPORT_INPUT:
         await send_text_message(
             to=sender_wa_id,
-            body="Please enter your *city or state name* to search for a departure airport (e.g. Ilorin, Kano, Port Harcourt):",
+            body="Please enter the first 3 characters of the *departure airport name* or *airport code* (e.g. LOS, Mur, NBO, Jom):",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -1037,7 +1037,7 @@ async def handle_policy_flow(
 
             await send_text_message(
                 to=sender_wa_id,
-                body="Please enter your *city or state name* to search for a departure airport (e.g. Ilorin, Kano, Port Harcourt):",
+                body="Please enter the first 3 characters of the *departure airport name* or *airport code* (e.g. LOS, Mur, NBO, Jom):",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
@@ -1576,48 +1576,22 @@ async def _handle_msisdn_confirm(message, sender_wa_id, phone_number_id, in_repl
         body=(
             f"Great! \U0001F44D Your WhatsApp number *[{phone_display}]* has been confirmed.\n"
             f"Country detected: *{country_name}*\n\n"
-            f"Tap the button below to browse the available products."
+            f"Please enter the first 3 characters of the *departure airport name* or *airport code* (e.g. LOS, Mur, NBO, Jom):"
         ),
         phone_number_id=phone_number_id,
         in_reply_to=in_reply_to,
         source="policy_flow",
     )
 
-    products = await _fetch_products(country_code)
-    if not products:
-        await _send_retry_options(
-            to=sender_wa_id,
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            error_message=f"We couldn't find any available products for *{country_name}*. This could be a temporary issue or there may be no products for this country yet.",
-            retry_label="Retry Products",
-        )
-        await _update_flow_state(session, sender_wa_id, {
-            "active": True,
-            "step": FLOW_STEP_PRODUCT_SELECTED,
-            "action": "create_new",
-            "policy_id": policy_id,
-            "country_code": country_code,
-            "country_name": country_name,
-            "msisdn_info": msisdn_info,
-            "msisdn_confirmed": True,
-            "retry_step": FLOW_STEP_PRODUCT_LIST,
-        })
-        return
-
-    page = 0
-    await _send_products_page(sender_wa_id, phone_number_id, in_reply_to, products, page, country_code)
     await _update_flow_state(session, sender_wa_id, {
         "active": True,
-        "step": FLOW_STEP_PRODUCT_SELECTED,
+        "step": FLOW_STEP_AIRPORT_INPUT,
         "action": "create_new",
         "policy_id": policy_id,
         "country_code": country_code,
         "country_name": country_name,
         "msisdn_info": msisdn_info,
         "msisdn_confirmed": True,
-        "available_products": products,
-        "product_page": page,
     })
 
 
@@ -2994,7 +2968,7 @@ async def _handle_bank_selection(reply_id, message, sender_wa_id, phone_number_i
             "country_code": flow_state.get("country_code", ""),
         })
 
-        await _finalize_channel_and_airport_prompt(
+        await _finalize_channel_and_boarding_pass_prompt(
             sender_wa_id, phone_number_id, in_reply_to,
             session, flow_state, policy_id,
             bank_details, msisdn_info,
@@ -3010,7 +2984,7 @@ async def _handle_bank_selection(reply_id, message, sender_wa_id, phone_number_i
         await _send_banks_page(sender_wa_id, phone_number_id, in_reply_to, banks, current_page)
 
 
-async def _finalize_channel_and_airport_prompt(
+async def _finalize_channel_and_boarding_pass_prompt(
     sender_wa_id, phone_number_id, in_reply_to,
     session, flow_state, policy_id,
     bank_details, msisdn_info,
@@ -3027,7 +3001,11 @@ async def _finalize_channel_and_airport_prompt(
 
     await send_text_message(
         to=sender_wa_id,
-        body="Now let's set your departure airport.\n\nPlease enter your *city or state name* (e.g. Ilorin, Kano, Port Harcourt):",
+        body=(
+            "Now please upload a photo of your *boarding pass*.\n\n"
+            "Accepted formats: JPG, PNG, WebP, or PDF.\n"
+            "You can take a photo of your physical boarding pass or send a screenshot of your e-boarding pass."
+        ),
         phone_number_id=phone_number_id,
         in_reply_to=in_reply_to,
         source="policy_flow",
@@ -3035,7 +3013,7 @@ async def _finalize_channel_and_airport_prompt(
 
     await _update_flow_state(session, sender_wa_id, {
         **flow_state,
-        "step": FLOW_STEP_AIRPORT_INPUT,
+        "step": FLOW_STEP_BOARDING_PASS,
         "bank_details": bank_details,
         "msisdn_info": msisdn_info,
         "channel_info": channel_info,
@@ -3074,33 +3052,14 @@ async def _handle_airport_input(message, sender_wa_id, phone_number_id, in_reply
     if not text_input:
         await send_text_message(
             to=sender_wa_id,
-            body="Please type a *city or state name* to search for an airport (e.g. Ilorin, Kano):",
+            body="Please enter the first 3 characters of the *departure airport name* or *airport code* (e.g. LOS, Mur, NBO, Jom):",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
         )
         return
 
-    extract_result = await _extract_value(
-        sender_wa_id=sender_wa_id,
-        field_name="city",
-        question_asked="Please enter your city or state name (e.g. Ilorin, Kano, Port Harcourt):",
-        user_response=text_input,
-        expected_format="text",
-    )
-
-    if extract_result.get("needs_clarification"):
-        await send_text_message(
-            to=sender_wa_id,
-            body=extract_result["clarification_prompt"],
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-        return
-
-    cleaned_input = extract_result.get("value", text_input) if extract_result.get("is_valid") else text_input
-    search_term = cleaned_input.strip().title()
+    search_term = text_input.strip()
 
     airports = await _fetch_airports(search_term)
 
@@ -3109,7 +3068,7 @@ async def _handle_airport_input(message, sender_wa_id, phone_number_id, in_reply
             to=sender_wa_id,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
-            error_message=f"We couldn't search for airports for *\"{cleaned_input}\"* at the moment. The airport service may be temporarily unavailable.",
+            error_message=f"We couldn't search for airports for *\"{search_term}\"* at the moment. The airport service may be temporarily unavailable.",
             retry_label="Retry Search",
         )
         await _update_flow_state(session, sender_wa_id, {
@@ -3129,7 +3088,7 @@ async def _handle_airport_input(message, sender_wa_id, phone_number_id, in_reply
     if not airports:
         await send_text_message(
             to=sender_wa_id,
-            body=f"No airports found for *\"{text_input}\"*.\n\nPlease try a different city or state name:",
+            body=f"No airports found for *\"{text_input}\"*.\n\nPlease try again with a different airport name or code (e.g. LOS, Mur, NBO, Jom):",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -3141,7 +3100,8 @@ async def _handle_airport_input(message, sender_wa_id, phone_number_id, in_reply
         airport_info = {
             "name": airport.get("name", ""),
             "iata_code": airport.get("iata_code", ""),
-            "country": airport.get("country", ""),
+            "country": airport.get("country_name", "") or airport.get("country", ""),
+            "country_iso2": airport.get("country_iso2", ""),
         }
 
         if policy_id:
@@ -3157,7 +3117,7 @@ async def _handle_airport_input(message, sender_wa_id, phone_number_id, in_reply
         for idx, airport in enumerate(airports[:10]):
             iata = airport.get("iata_code", "")
             name = airport.get("name", "Unknown")
-            country = airport.get("country", "")
+            country = airport.get("country_name", "") or airport.get("country", "")
             rows.append({
                 "id": f"{AIRPORT_ID_PREFIX}{idx}",
                 "title": str(name)[:24],
@@ -3231,7 +3191,8 @@ async def _handle_airport_selection(reply_id, message, sender_wa_id, phone_numbe
         airport_info = {
             "name": airport.get("name", ""),
             "iata_code": airport.get("iata_code", ""),
-            "country": airport.get("country", ""),
+            "country": airport.get("country_name", "") or airport.get("country", ""),
+            "country_iso2": airport.get("country_iso2", ""),
         }
 
         if policy_id:
@@ -3255,7 +3216,7 @@ async def _handle_airport_selection(reply_id, message, sender_wa_id, phone_numbe
         else:
             await send_text_message(
                 to=sender_wa_id,
-                body="Please select an airport from the list, or type a different city/state name to search again.",
+                body="Please select an airport from the list, or type a different airport name or code to search again.",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
@@ -3363,24 +3324,61 @@ async def _start_itinerary_flow(
     itinerary["departure"]["airport"] = airport_info.get("iata_code", "")
     itinerary["departure"]["airportName"] = airport_info.get("name", "")
 
+    airport_iso2 = airport_info.get("country_iso2", "")
+    country_code = airport_iso2 if len(airport_iso2) == 2 else flow_state.get("country_code", "NG")
+    country_name = airport_info.get("country", "") or flow_state.get("country_name", "")
+
+    policy_id = flow_state.get("policy_id")
+    if policy_id and country_code:
+        await set_country(policy_id, country_code, country_name)
+        logger.info(f"Country updated to {country_code} ({country_name}) from departure airport for policy {policy_id}")
+
+    products = await _fetch_products(country_code)
+    if not products:
+        await send_text_message(
+            to=sender_wa_id,
+            body=f"Departure airport selected: *{dep_airport_display}*",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _send_retry_options(
+            to=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            error_message="We couldn't find any available products at the moment. This could be a temporary issue.",
+            retry_label="Retry Products",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_PRODUCT_SELECTED,
+            "airport_info": airport_info,
+            "itinerary": itinerary,
+            "country_code": country_code,
+            "country_name": country_name,
+            "retry_step": FLOW_STEP_PRODUCT_LIST,
+        })
+        return
+
     await send_text_message(
         to=sender_wa_id,
-        body=(
-            f"Departure airport selected: *{dep_airport_display}*\n\n"
-            f"Now please upload a photo of your *boarding pass*.\n\n"
-            f"Accepted formats: JPG, PNG, WebP, or PDF.\n"
-            f"You can take a photo of your physical boarding pass or send a screenshot of your e-boarding pass."
-        ),
+        body=f"Departure airport selected: *{dep_airport_display}*\n\nNow let's select a product.",
         phone_number_id=phone_number_id,
         in_reply_to=in_reply_to,
         source="policy_flow",
     )
 
+    page = 0
+    await _send_products_page(sender_wa_id, phone_number_id, in_reply_to, products, page, country_code)
     await _update_flow_state(session, sender_wa_id, {
         **flow_state,
-        "step": FLOW_STEP_BOARDING_PASS,
+        "step": FLOW_STEP_PRODUCT_SELECTED,
         "airport_info": airport_info,
         "itinerary": itinerary,
+        "country_code": country_code,
+        "country_name": country_name,
+        "available_products": products,
+        "product_page": page,
     })
 
 
