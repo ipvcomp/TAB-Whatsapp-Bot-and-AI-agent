@@ -102,6 +102,13 @@ async def send_welcome_message(
                             "id": "welcome_submit_boarding",
                             "title": "Submit Boarding Pass"
                         }
+                    },
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": "welcome_get_support",
+                            "title": "Get Support"
+                        }
                     }
                 ]
             }

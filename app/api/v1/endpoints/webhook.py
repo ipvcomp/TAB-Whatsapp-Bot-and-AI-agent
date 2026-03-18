@@ -17,7 +17,7 @@ from app.services.policy_flow_service import (
     is_in_bp_upload_flow, handle_boarding_pass_upload_flow,
 )
 
-WELCOME_BUTTON_IDS = {"welcome_purchase_policy", "welcome_submit_boarding"}
+WELCOME_BUTTON_IDS = {"welcome_purchase_policy", "welcome_submit_boarding", "welcome_get_support"}
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -178,6 +178,17 @@ async def _process_change(entry_id: str, change):
                             source="auto_reply",
                         )
                         log_event("SHORTCUTS", {"to": sender_wa_id})
+                        continue
+
+                if message.type == "text" and message.text:
+                    from app.services.auto_reply_service import is_greeting, send_welcome_message
+                    if is_greeting(message.text.body):
+                        await send_welcome_message(
+                            to=sender_wa_id,
+                            phone_number_id=msg_phone_number_id,
+                            in_reply_to=message.id,
+                        )
+                        log_event("GREETING_WELCOME", {"to": sender_wa_id})
                         continue
 
                 user_session = await get_session(sender_wa_id)
@@ -428,4 +439,13 @@ async def _handle_welcome_button(
             profile_name=profile_name,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
+        )
+    elif reply_id == "welcome_get_support":
+        log_event("WELCOME_BUTTON", {"action": "get_support", "from": sender_wa_id})
+        await send_text_message(
+            to=sender_wa_id,
+            body=get_shortcuts_text(),
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="auto_reply",
         )
