@@ -49,6 +49,7 @@ FLOW_STEP_ID_NUMBER = "id_number_input"
 FLOW_STEP_DETAILS_CONFIRM = "details_confirmation"
 FLOW_STEP_PAYMENT_METHOD = "payment_method"
 FLOW_STEP_PD_ACCOUNT_NUMBER = "pd_account_number"
+FLOW_STEP_BANK_NAME_INPUT = "bank_name_input"
 FLOW_STEP_BANK_SELECTION = "bank_selection"
 FLOW_STEP_AIRPORT_INPUT = "airport_input"
 FLOW_STEP_AIRPORT_SELECT = "airport_select"
@@ -62,6 +63,8 @@ FLOW_STEP_ITIN_ARR_AIRPORT_SELECT = "itin_arr_airport_select"
 FLOW_STEP_ITIN_ARR_DATE = "itin_arr_date"
 FLOW_STEP_ITIN_ARR_TIME = "itin_arr_time"
 FLOW_STEP_BOARDING_PASS = "boarding_pass"
+FLOW_STEP_BOARDING_PASS_CHOICE = "boarding_pass_choice"
+FLOW_STEP_POLICY_SUMMARY = "policy_summary"
 
 ARR_AIRPORT_ID_PREFIX = "arr_airport_"
 
@@ -77,6 +80,10 @@ BUTTON_ID_NIN = "id_type_nin"
 BUTTON_ID_BVN = "id_type_bvn"
 BUTTON_DETAILS_CONFIRM = "details_confirm_yes"
 BUTTON_DETAILS_CHANGE = "details_confirm_change"
+BUTTON_BP_UPLOAD_NOW = "bp_upload_now"
+BUTTON_BP_UPLOAD_LATER = "bp_upload_later"
+BUTTON_SUMMARY_SUBMIT = "policy_summary_submit"
+BUTTON_SUMMARY_CHANGE = "policy_summary_change"
 PRODUCT_ID_PREFIX = "product_"
 PAYMENT_METHOD_PREFIX = "pay_method_"
 BANK_ID_PREFIX = "bank_"
@@ -143,8 +150,11 @@ BACK_STEP_MAP = {
     FLOW_STEP_DETAILS_CONFIRM: FLOW_STEP_ID_NUMBER,
     FLOW_STEP_PAYMENT_METHOD: FLOW_STEP_DETAILS_CONFIRM,
     FLOW_STEP_PD_ACCOUNT_NUMBER: FLOW_STEP_PAYMENT_METHOD,
-    FLOW_STEP_BANK_SELECTION: FLOW_STEP_PD_ACCOUNT_NUMBER,
-    FLOW_STEP_BOARDING_PASS: FLOW_STEP_BANK_SELECTION,
+    FLOW_STEP_BANK_NAME_INPUT: FLOW_STEP_PD_ACCOUNT_NUMBER,
+    FLOW_STEP_BANK_SELECTION: FLOW_STEP_BANK_NAME_INPUT,
+    FLOW_STEP_BOARDING_PASS_CHOICE: FLOW_STEP_BANK_SELECTION,
+    FLOW_STEP_BOARDING_PASS: FLOW_STEP_BOARDING_PASS_CHOICE,
+    FLOW_STEP_POLICY_SUMMARY: FLOW_STEP_BOARDING_PASS_CHOICE,
 }
 
 PERSONAL_DETAIL_STEPS = [
@@ -609,14 +619,38 @@ async def _send_step_prompt(
             source="policy_flow",
         )
 
+    elif step == FLOW_STEP_BANK_NAME_INPUT:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter the first 3 characters of your payout bank name (e.g. Zen, Wem):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
     elif step == FLOW_STEP_BANK_SELECTION:
-        country_code = flow_state.get("country_code", "NG")
-        banks = flow_state.get("available_banks") or await _fetch_banks(country_code)
+        banks = flow_state.get("available_banks", [])
         if banks:
             banks.sort(key=lambda b: b.get("name", "").lower())
             await _send_banks_page(sender_wa_id, phone_number_id, in_reply_to, banks, 0)
-            flow_state["available_banks"] = banks
             flow_state["bank_page"] = 0
+
+    elif step == FLOW_STEP_BOARDING_PASS_CHOICE:
+        await _send_boarding_pass_choice(sender_wa_id, phone_number_id, in_reply_to)
+
+    elif step == FLOW_STEP_BOARDING_PASS:
+        await send_text_message(
+            to=sender_wa_id,
+            body=(
+                "Please upload a clear image of your *boarding pass*.\n\n"
+                "Accepted formats: JPG, PNG, WebP, PDF\n"
+                "Maximum size: 20MB\n"
+                "Make sure the name, flight details, barcode and date are clearly visible."
+            ),
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
 
     elif step == FLOW_STEP_AIRPORT_INPUT:
         await send_text_message(
@@ -685,19 +719,6 @@ async def _send_step_prompt(
         await send_text_message(
             to=sender_wa_id,
             body="Please enter your *flight number* (e.g. BA1234):",
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-
-    elif step == FLOW_STEP_BOARDING_PASS:
-        await send_text_message(
-            to=sender_wa_id,
-            body=(
-                "Please upload a photo of your *boarding pass*.\n\n"
-                "Accepted formats: JPG, PNG, WebP, or PDF.\n"
-                "You can take a photo of your physical boarding pass or send a screenshot of your e-boarding pass."
-            ),
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -917,6 +938,22 @@ async def handle_policy_flow(
                 "step": FLOW_STEP_PRODUCT_SELECTED,
                 "available_products": products,
                 "product_page": page,
+                "retry_step": None,
+                "retry_data": None,
+            })
+            return
+
+        if retry_step == FLOW_STEP_BANK_NAME_INPUT:
+            await send_text_message(
+                to=sender_wa_id,
+                body="Please enter the first 3 characters of your payout bank name (e.g. Zen, Wem):",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_BANK_NAME_INPUT,
                 "retry_step": None,
                 "retry_data": None,
             })
@@ -1271,6 +1308,14 @@ async def handle_policy_flow(
             in_reply_to=in_reply_to,
             session=session,
         )
+    elif current_step == FLOW_STEP_BANK_NAME_INPUT:
+        await _handle_bank_name_input(
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
     elif current_step == FLOW_STEP_BANK_SELECTION:
         await _handle_bank_selection(
             reply_id=reply_id,
@@ -1327,8 +1372,26 @@ async def handle_policy_flow(
             in_reply_to=in_reply_to,
             session=session,
         )
+    elif current_step == FLOW_STEP_BOARDING_PASS_CHOICE:
+        await _handle_boarding_pass_choice(
+            reply_id=reply_id,
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
     elif current_step == FLOW_STEP_BOARDING_PASS:
         await _handle_boarding_pass_upload(
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
+    elif current_step == FLOW_STEP_POLICY_SUMMARY:
+        await _handle_policy_summary_response(
+            reply_id=reply_id,
             message=message,
             sender_wa_id=sender_wa_id,
             phone_number_id=phone_number_id,
@@ -2635,40 +2698,19 @@ async def _handle_account_number_input(message, sender_wa_id, phone_number_id, i
 
     await send_text_message(
         to=sender_wa_id,
-        body=f"Account number saved: *{cleaned}*\n\nNow let's select your bank.",
+        body=(
+            f"Account number saved: *{cleaned}*\n\n"
+            f"Please enter the first 3 characters of your payout bank name (e.g. Zen, Wem):"
+        ),
         phone_number_id=phone_number_id,
         in_reply_to=in_reply_to,
         source="policy_flow",
     )
 
-    country_code = flow_state.get("country_code", "NG")
-    banks = await _fetch_banks(country_code)
-    if not banks:
-        country_name = flow_state.get("country_name", country_code)
-        await _send_retry_options(
-            to=sender_wa_id,
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            error_message=f"We couldn't fetch available banks for *{country_name}*. This could be a temporary issue with the banking service.",
-            retry_label="Retry Banks",
-        )
-        await _update_flow_state(session, sender_wa_id, {
-            **flow_state,
-            "step": FLOW_STEP_PD_ACCOUNT_NUMBER,
-            "account_number": cleaned,
-            "retry_step": FLOW_STEP_BANK_SELECTION,
-        })
-        return
-
-    banks.sort(key=lambda b: b.get("name", "").lower())
-    page = 0
-    await _send_banks_page(sender_wa_id, phone_number_id, in_reply_to, banks, page)
     await _update_flow_state(session, sender_wa_id, {
         **flow_state,
-        "step": FLOW_STEP_BANK_SELECTION,
+        "step": FLOW_STEP_BANK_NAME_INPUT,
         "account_number": cleaned,
-        "available_banks": banks,
-        "bank_page": page,
     })
 
 
@@ -2999,13 +3041,241 @@ async def _finalize_channel_and_boarding_pass_prompt(
         await set_channel_info(policy_id, channel_info)
         logger.info(f"Channel info auto-set for policy {policy_id}")
 
-    await send_text_message(
-        to=sender_wa_id,
-        body=(
-            "Now please upload a photo of your *boarding pass*.\n\n"
-            "Accepted formats: JPG, PNG, WebP, or PDF.\n"
-            "You can take a photo of your physical boarding pass or send a screenshot of your e-boarding pass."
-        ),
+    await _send_boarding_pass_choice(sender_wa_id, phone_number_id, in_reply_to)
+
+    await _update_flow_state(session, sender_wa_id, {
+        **flow_state,
+        "step": FLOW_STEP_BOARDING_PASS_CHOICE,
+        "bank_details": bank_details,
+        "msisdn_info": msisdn_info,
+        "channel_info": channel_info,
+    })
+
+
+async def _handle_bank_name_input(message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+
+    text_input = _get_text_input(message)
+    if not text_input:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter the first 3 characters of your payout bank name (e.g. Zen, Wem):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    search_term = text_input.strip()
+
+    country_code = flow_state.get("country_code", "NG")
+    all_banks = await _fetch_banks(country_code)
+    if all_banks is None:
+        await _send_retry_options(
+            to=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            error_message="We couldn't fetch available banks at the moment. The banking service may be temporarily unavailable.",
+            retry_label="Retry Search",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "retry_step": FLOW_STEP_BANK_NAME_INPUT,
+            "retry_data": {"search_term": search_term},
+        })
+        return
+
+    search_lower = search_term.lower()
+    filtered_banks = [
+        b for b in all_banks
+        if search_lower in b.get("name", "").lower()
+    ]
+
+    if not filtered_banks:
+        await send_text_message(
+            to=sender_wa_id,
+            body=f"No banks found matching *\"{text_input}\"*.\n\nPlease try again with a different bank name (e.g. Zen, Wem, GTB):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    filtered_banks.sort(key=lambda b: b.get("name", "").lower())
+    page = 0
+    await _send_banks_page(sender_wa_id, phone_number_id, in_reply_to, filtered_banks, page)
+
+    await _update_flow_state(session, sender_wa_id, {
+        **flow_state,
+        "step": FLOW_STEP_BANK_SELECTION,
+        "available_banks": filtered_banks,
+        "bank_page": page,
+    })
+
+
+async def _send_boarding_pass_choice(sender_wa_id, phone_number_id, in_reply_to):
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": sender_wa_id,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {
+                "text": (
+                    "*Boarding pass upload*\n\n"
+                    "Do you have a clear image of your boarding pass to upload now?\n\n"
+                    "You can also upload it later, but please note that payouts "
+                    "cannot be processed until we receive it.\n\n"
+                    "Accepted formats: JPG, PNG, WebP, PDF\n"
+                    "Maximum size: 20MB\n"
+                    "Make sure the name, flight details, barcode and date are clearly visible.\n\n"
+                    "Would you like to upload it now?"
+                )
+            },
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": BUTTON_BP_UPLOAD_NOW, "title": "Upload now"}},
+                    {"type": "reply", "reply": {"id": BUTTON_BP_UPLOAD_LATER, "title": "Upload later"}},
+                ]
+            },
+        },
+    }
+
+    await send_whatsapp_payload(
+        payload,
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+
+async def _handle_boarding_pass_choice(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+
+    if reply_id == BUTTON_BP_UPLOAD_NOW:
+        await send_text_message(
+            to=sender_wa_id,
+            body=(
+                "Please upload a clear image of your *boarding pass*.\n\n"
+                "Accepted formats: JPG, PNG, WebP, PDF\n"
+                "Maximum size: 20MB\n"
+                "Make sure the name, flight details, barcode and date are clearly visible."
+            ),
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_BOARDING_PASS,
+        })
+    elif reply_id == BUTTON_BP_UPLOAD_LATER:
+        await _send_policy_summary_confirmation(
+            sender_wa_id, phone_number_id, in_reply_to,
+            session, flow_state, boarding_pass_uploaded=False,
+        )
+    else:
+        text_input = _get_text_input(message)
+        if text_input and text_input.lower() in ("upload now", "now", "yes", "y"):
+            await send_text_message(
+                to=sender_wa_id,
+                body=(
+                    "Please upload a clear image of your *boarding pass*.\n\n"
+                    "Accepted formats: JPG, PNG, WebP, PDF\n"
+                    "Maximum size: 20MB\n"
+                    "Make sure the name, flight details, barcode and date are clearly visible."
+                ),
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_BOARDING_PASS,
+            })
+        elif text_input and text_input.lower() in ("upload later", "later", "no", "n"):
+            await _send_policy_summary_confirmation(
+                sender_wa_id, phone_number_id, in_reply_to,
+                session, flow_state, boarding_pass_uploaded=False,
+            )
+        else:
+            await _send_boarding_pass_choice(sender_wa_id, phone_number_id, in_reply_to)
+
+
+async def _send_policy_summary_confirmation(
+    sender_wa_id, phone_number_id, in_reply_to,
+    session, flow_state, boarding_pass_uploaded=False,
+):
+    personal_details = flow_state.get("personal_details", {})
+    selected_product = flow_state.get("selected_product", {})
+    payment_method = flow_state.get("payment_method", "")
+    country_code = flow_state.get("country_code", "")
+    bank_details = flow_state.get("bank_details", {})
+    msisdn_info = flow_state.get("msisdn_info", {})
+    id_type = flow_state.get("id_type", "")
+    id_number = flow_state.get("id_number", "")
+    account_number = flow_state.get("account_number", "")
+    payment_label = PAYMENT_METHOD_LABELS.get(payment_method, payment_method)
+    itinerary = flow_state.get("itinerary", {})
+    dep = itinerary.get("departure", {})
+    arr = itinerary.get("arrival", {})
+
+    id_line = f"{id_type}: {id_number}" if id_type and id_number else ""
+    msisdn_display = msisdn_info.get("phone_number", "")
+    if msisdn_display and not msisdn_display.startswith("+"):
+        msisdn_display = f"+{msisdn_display}"
+
+    bp_status = "Uploaded ✓" if boarding_pass_uploaded else "Not uploaded (will upload later)"
+
+    itinerary_section = ""
+    if itinerary:
+        itinerary_section = (
+            f"\n*Itinerary:*\n"
+            f"Booking Ref: {itinerary.get('bookingReference', '')}\n"
+            f"Flight: {itinerary.get('flightNo', '')}\n"
+            f"Departure: {dep.get('airportName', '')} ({dep.get('airport', '')}) on {dep.get('scheduledDateLocal', '')} at {dep.get('scheduledTimeLocal', '')}\n"
+            f"Arrival: {arr.get('airportName', '')} ({arr.get('airport', '')}) on {arr.get('scheduledDateLocal', '')} at {arr.get('scheduledTimeLocal', '')}\n"
+        )
+
+    summary = (
+        f"*Policy Application Summary*\n\n"
+        f"Product: {selected_product.get('name', '')}\n"
+        f"Price: {selected_product.get('currency', '')} {selected_product.get('price', '')}\n\n"
+        f"*Personal Details:*\n"
+        f"Name: {personal_details.get('first_name', '')} {personal_details.get('last_name', '')}\n"
+        f"Email: {personal_details.get('email', '')}\n"
+        f"{id_line}\n"
+        f"Mobile number: {msisdn_display} ({country_code})\n\n"
+        f"*Payment & Payout Preference*\n"
+        f"Method: {payment_label}\n"
+        f"Payout Method: Bank Account\n"
+        f"Account Number: {account_number}\n"
+        f"Bank: {bank_details.get('bank_name', '')}\n"
+        f"{itinerary_section}\n"
+        f"Boarding Pass: {bp_status}"
+    )
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": sender_wa_id,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": summary},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": BUTTON_SUMMARY_SUBMIT, "title": "Yes, Submit"}},
+                    {"type": "reply", "reply": {"id": BUTTON_SUMMARY_CHANGE, "title": "No, Change details"}},
+                ]
+            },
+        },
+    }
+
+    await send_whatsapp_payload(
+        payload,
         phone_number_id=phone_number_id,
         in_reply_to=in_reply_to,
         source="policy_flow",
@@ -3013,11 +3283,104 @@ async def _finalize_channel_and_boarding_pass_prompt(
 
     await _update_flow_state(session, sender_wa_id, {
         **flow_state,
-        "step": FLOW_STEP_BOARDING_PASS,
-        "bank_details": bank_details,
-        "msisdn_info": msisdn_info,
-        "channel_info": channel_info,
+        "step": FLOW_STEP_POLICY_SUMMARY,
+        "boarding_pass_uploaded": boarding_pass_uploaded,
     })
+
+
+async def _handle_policy_summary_response(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+
+    if reply_id == BUTTON_SUMMARY_SUBMIT:
+        user_input = "yes"
+    elif reply_id == BUTTON_SUMMARY_CHANGE:
+        user_input = "no"
+    elif message.type == "text" and message.text:
+        user_input = message.text.body.strip().lower()
+    else:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please tap *Yes, Submit* to submit your policy or *No, Change details* to make corrections.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    if user_input in ("no", "n", "change"):
+        await send_text_message(
+            to=sender_wa_id,
+            body="No problem! Let's go back so you can make changes.\n\nPlease enter your *departure date* (DD/MM/YYYY):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_ITIN_DEP_DATE,
+        })
+        return
+
+    if user_input not in ("yes", "y", "submit", "sure", "ok", "okay"):
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please tap *Yes, Submit* to submit your policy or *No, Change details* to make corrections.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    await send_text_message(
+        to=sender_wa_id,
+        body="Submitting your policy... please wait.",
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+    boarding_pass_uploaded = flow_state.get("boarding_pass_uploaded", False)
+    boarding_pass_bytes = b""
+    boarding_pass_mime = "image/jpeg"
+
+    if boarding_pass_uploaded and policy_id:
+        policy_doc = await get_policy_by_id(policy_id)
+        boarding_pass_data = (policy_doc or {}).get("boarding_pass", {})
+        boarding_pass_bytes = boarding_pass_data.get("file_data", b"")
+        boarding_pass_mime = boarding_pass_data.get("mime_type", "image/jpeg")
+        if isinstance(boarding_pass_bytes, bytes):
+            pass
+        else:
+            boarding_pass_bytes = bytes(boarding_pass_bytes) if boarding_pass_bytes else b""
+
+    success, err_msg, resp_data = await _submit_policy_to_api(
+        flow_state, policy_id or "", boarding_pass_bytes, boarding_pass_mime,
+    )
+
+    policy_reference = ""
+    if success and policy_id:
+        policy_reference = (
+            resp_data.get("data", {}).get("policyId", "")
+            or resp_data.get("data", {}).get("id", "")
+            or resp_data.get("policyId", "")
+            or resp_data.get("id", "")
+            or ""
+        )
+        await set_policy_submitted(policy_id, resp_data)
+        logger.info(f"Policy {policy_id} submitted successfully. Reference: {policy_reference}")
+    elif not success:
+        logger.error(f"Policy {policy_id} submission failed: {err_msg}")
+
+    airport_info = flow_state.get("airport_info", {})
+    await _show_final_summary(
+        sender_wa_id, phone_number_id, in_reply_to,
+        session, flow_state, policy_id, airport_info,
+        submission_success=success,
+        policy_reference=str(policy_reference) if policy_reference else "",
+        submission_error=err_msg,
+        boarding_pass_uploaded=boarding_pass_uploaded,
+    )
 
 
 async def _fetch_airports(search_term: str) -> Optional[list]:
@@ -3808,26 +4171,30 @@ async def _submit_policy_to_api(
         },
     }
 
-    mime_to_ext = {
-        "image/jpeg": "jpg",
-        "image/png": "png",
-        "image/webp": "webp",
-        "application/pdf": "pdf",
-    }
-    ext = mime_to_ext.get(boarding_pass_mime, "jpg")
-    filename = f"boarding_pass_{policy_id}.{ext}"
-
     SUBMIT_POLICY_URL = "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies"
+
+    files_parts = [
+        ("policy", (None, _json.dumps(policy_payload), "application/json")),
+    ]
+
+    if boarding_pass_bytes:
+        mime_to_ext = {
+            "image/jpeg": "jpg",
+            "image/png": "png",
+            "image/webp": "webp",
+            "application/pdf": "pdf",
+        }
+        ext = mime_to_ext.get(boarding_pass_mime, "jpg")
+        filename = f"boarding_pass_{policy_id}.{ext}"
+        files_parts.append(("boardingPassFile", (filename, boarding_pass_bytes, boarding_pass_mime)))
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
-            logger.info(f"Submitting policy {policy_id} to API: productId={policy_payload['productId']}, channel=WHATSAPP")
+            bp_info = "with boarding pass" if boarding_pass_bytes else "without boarding pass"
+            logger.info(f"Submitting policy {policy_id} to API ({bp_info}): productId={policy_payload['productId']}, channel=WHATSAPP")
             response = await client.post(
                 SUBMIT_POLICY_URL,
-                files=[
-                    ("policy", (None, _json.dumps(policy_payload), "application/json")),
-                    ("boardingPassFile", (filename, boarding_pass_bytes, boarding_pass_mime)),
-                ],
+                files=files_parts,
             )
             logger.info(f"Policy submission response: HTTP {response.status_code}, policy_id={policy_id}")
 
@@ -3945,76 +4312,16 @@ async def _handle_boarding_pass_upload(message, sender_wa_id, phone_number_id, i
 
     await send_text_message(
         to=sender_wa_id,
-        body="Boarding pass received. Submitting your policy... please wait.",
+        body="Boarding pass received ✓",
         phone_number_id=phone_number_id,
         in_reply_to=in_reply_to,
         source="policy_flow",
     )
 
-    boarding_pass_bytes = media_data.get("bytes", b"")
-    success, err_msg, resp_data = await _submit_policy_to_api(
-        flow_state, policy_id or "", boarding_pass_bytes, mime_type or "image/jpeg",
-    )
-
-    policy_reference = ""
-    if success and policy_id:
-        policy_reference = (
-            resp_data.get("data", {}).get("policyId", "")
-            or resp_data.get("data", {}).get("id", "")
-            or resp_data.get("policyId", "")
-            or resp_data.get("id", "")
-            or ""
-        )
-        await set_policy_submitted(policy_id, resp_data)
-        logger.info(f"Policy {policy_id} submitted successfully. Reference: {policy_reference}")
-    elif not success:
-        logger.error(f"Policy {policy_id} submission failed: {err_msg}")
-
-    await _show_itinerary_summary_and_final(
+    await _send_policy_summary_confirmation(
         sender_wa_id, phone_number_id, in_reply_to,
-        session, flow_state, policy_id, itinerary,
+        session, flow_state, boarding_pass_uploaded=True,
     )
-
-    airport_info = flow_state.get("airport_info", {})
-    await _show_final_summary(
-        sender_wa_id, phone_number_id, in_reply_to,
-        session, flow_state, policy_id, airport_info,
-        submission_success=success,
-        policy_reference=str(policy_reference) if policy_reference else "",
-        submission_error=err_msg,
-    )
-
-
-async def _show_itinerary_summary_and_final(
-    sender_wa_id, phone_number_id, in_reply_to,
-    session, flow_state, policy_id, itinerary,
-):
-    dep = itinerary.get("departure", {})
-    arr = itinerary.get("arrival", {})
-
-    itin_summary = (
-        f"Itinerary details saved:\n\n"
-        f"*Booking Reference:* {itinerary.get('bookingReference', '')}\n"
-        f"*Flight:* {itinerary.get('flightNo', '')}\n\n"
-        f"*Departure:*\n"
-        f"Airport: {dep.get('airportName', '')} ({dep.get('airport', '')})\n"
-        f"Date: {dep.get('scheduledDateLocal', '')}\n"
-        f"Time: {dep.get('scheduledTimeLocal', '')}\n\n"
-        f"*Arrival:*\n"
-        f"Airport: {arr.get('airportName', '')} ({arr.get('airport', '')})\n"
-        f"Date: {arr.get('scheduledDateLocal', '')}\n"
-        f"Time: {arr.get('scheduledTimeLocal', '')}"
-    )
-
-    await send_text_message(
-        to=sender_wa_id,
-        body=itin_summary,
-        phone_number_id=phone_number_id,
-        in_reply_to=in_reply_to,
-        source="policy_flow",
-    )
-
-    flow_state["itinerary"] = itinerary
 
 
 async def _show_final_summary(
@@ -4023,12 +4330,11 @@ async def _show_final_summary(
     submission_success: bool = False,
     policy_reference: str = "",
     submission_error: str = "",
+    boarding_pass_uploaded: bool = True,
 ):
     personal_details = flow_state.get("personal_details", {})
     selected_product = flow_state.get("selected_product", {})
     payment_method = flow_state.get("payment_method", "")
-    payout_method = flow_state.get("payout_method", "BANK_ACCOUNT")
-    country_name = flow_state.get("country_name", "")
     country_code = flow_state.get("country_code", "")
     bank_details = flow_state.get("bank_details", {})
     msisdn_info = flow_state.get("msisdn_info", {})
@@ -4036,12 +4342,15 @@ async def _show_final_summary(
     id_number = flow_state.get("id_number", "")
     account_number = flow_state.get("account_number", "")
     payment_label = PAYMENT_METHOD_LABELS.get(payment_method, payment_method)
-    payout_label = "Bank Account"
 
     id_line = f"{id_type}: {id_number}" if id_type and id_number else ""
     itinerary = flow_state.get("itinerary", {})
     dep = itinerary.get("departure", {})
     arr = itinerary.get("arrival", {})
+
+    msisdn_display = msisdn_info.get("phone_number", "")
+    if msisdn_display and not msisdn_display.startswith("+"):
+        msisdn_display = f"+{msisdn_display}"
 
     itinerary_section = ""
     if itinerary:
@@ -4053,16 +4362,20 @@ async def _show_final_summary(
             f"Arrival: {arr.get('airportName', '')} ({arr.get('airport', '')}) on {arr.get('scheduledDateLocal', '')} at {arr.get('scheduledTimeLocal', '')}\n"
         )
 
+    bp_status = "Uploaded ✓" if boarding_pass_uploaded else "Not uploaded"
+
     if submission_success:
-        ref_line = f"\n*Policy Reference:* {policy_reference}" if policy_reference else ""
+        ref_line = f"\nPolicy Code: {policy_reference}" if policy_reference else ""
         status_block = (
-            f"*Status:* Policy Submitted Successfully ✓{ref_line}\n\n"
-            f"You will receive further updates on your WhatsApp number.\n\n"
+            f"Boarding Pass: {bp_status}\n\n"
+            f"Status: Policy Submitted Successfully ✓{ref_line}\n\n"
+            f"You will receive further updates via email or your WhatsApp number.\n\n"
             f"Type 'policy' anytime to start a new policy."
         )
     else:
         error_detail = f"\nReason: {submission_error}" if submission_error else ""
         status_block = (
+            f"Boarding Pass: {bp_status}\n\n"
             f"*Status:* Submission Failed{error_detail}\n\n"
             f"All your details have been saved. Please tap *Retry* to try submitting again, "
             f"or type '#back' repeatedly to correct any information.\n\n"
@@ -4071,23 +4384,19 @@ async def _show_final_summary(
 
     summary = (
         f"*Policy Application Summary*\n\n"
-        f"*Country:* {country_name} ({country_code})\n"
-        f"*Product:* {selected_product.get('name', '')}\n"
-        f"*Price:* {selected_product.get('currency', '')} {selected_product.get('price', '')}\n\n"
+        f"Product: {selected_product.get('name', '')}\n"
+        f"Price: {selected_product.get('currency', '')} {selected_product.get('price', '')}\n\n"
         f"*Personal Details:*\n"
         f"Name: {personal_details.get('first_name', '')} {personal_details.get('last_name', '')}\n"
         f"Email: {personal_details.get('email', '')}\n"
-        f"{id_line}\n\n"
-        f"*Payment:*\n"
+        f"{id_line}\n"
+        f"Mobile number: {msisdn_display} ({country_code})\n\n"
+        f"*Payment & Payout Preference*\n"
         f"Method: {payment_label}\n"
-        f"Payout Method: {payout_label}\n"
+        f"Payout Method: Bank Account\n"
         f"Account Number: {account_number}\n"
         f"Bank: {bank_details.get('bank_name', '')}\n"
-        f"MSISDN: {msisdn_info.get('phone_number', '')} ({country_code})\n\n"
-        f"*Departure Airport:*\n"
-        f"{airport_info.get('name', '')} ({airport_info.get('iata_code', '')})\n"
         f"{itinerary_section}\n"
-        f"*Boarding Pass:* Uploaded ✓\n\n"
         f"{status_block}"
     )
 
@@ -4132,7 +4441,7 @@ async def _show_final_summary(
         "id_type": id_type,
         "id_number": id_number,
         "payment_method": payment_method,
-        "payout_method": payout_method,
+        "payout_method": flow_state.get("payout_method", "BANK_TRANSFER"),
         "account_number": account_number,
         "bank_details": bank_details,
         "msisdn_info": msisdn_info,
@@ -4140,7 +4449,7 @@ async def _show_final_summary(
         "airport_info": airport_info,
         "itinerary": itinerary,
         "country_code": country_code,
-        "country_name": country_name,
+        "country_name": flow_state.get("country_name", ""),
         "submission_success": submission_success,
         "policy_reference": policy_reference,
     })
