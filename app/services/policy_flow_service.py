@@ -1678,8 +1678,7 @@ async def _handle_msisdn_confirm(message, sender_wa_id, phone_number_id, in_repl
     await send_text_message(
         to=sender_wa_id,
         body=(
-            f"Great! \U0001F44D Your WhatsApp number *[{phone_display}]* has been confirmed.\n"
-            f"Country detected: *{country_name}*\n\n"
+            f"Great! \U0001F44D Your WhatsApp number *[{phone_display}]* has been confirmed.\n\n"
             f"Please enter the first 3 characters of the *departure airport name* or *airport code* (e.g. LOS, Mur, NBO, Jom):"
         ),
         phone_number_id=phone_number_id,
@@ -3717,9 +3716,10 @@ async def _start_itinerary_flow(
 
     products = await _fetch_products(country_code)
     if not products:
+        country_label = country_name or country_code
         await send_text_message(
             to=sender_wa_id,
-            body=f"Departure airport selected: *{dep_airport_display}*",
+            body=f"Departure airport selected: *{dep_airport_display}*\nCountry: *{country_label}*",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -3728,7 +3728,7 @@ async def _start_itinerary_flow(
             to=sender_wa_id,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
-            error_message="We couldn't find any available products at the moment. This could be a temporary issue.",
+            error_message=f"We couldn't find any available products for *{country_label}* at the moment. This could be a temporary issue or there may be no products for this country yet.",
             retry_label="Retry Products",
         )
         await _update_flow_state(session, sender_wa_id, {
@@ -3742,9 +3742,10 @@ async def _start_itinerary_flow(
         })
         return
 
+    country_label = country_name or country_code
     await send_text_message(
         to=sender_wa_id,
-        body=f"Departure airport selected: *{dep_airport_display}*\n\nNow let's select a product.",
+        body=f"Departure airport selected: *{dep_airport_display}*\nCountry: *{country_label}*\n\nNow let's select a product.",
         phone_number_id=phone_number_id,
         in_reply_to=in_reply_to,
         source="policy_flow",
