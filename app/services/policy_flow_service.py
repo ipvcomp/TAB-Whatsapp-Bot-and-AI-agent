@@ -122,7 +122,15 @@ BACK_STEP_MAP = {
     FLOW_STEP_PRODUCT_LIST: FLOW_STEP_MSISDN_CONFIRM,
     FLOW_STEP_PRODUCT_SELECTED: FLOW_STEP_MSISDN_CONFIRM,
     FLOW_STEP_PRODUCT_CONFIRM: FLOW_STEP_PRODUCT_SELECTED,
-    FLOW_STEP_PD_FIRST_NAME: FLOW_STEP_PRODUCT_CONFIRM,
+    FLOW_STEP_ITIN_DEP_DATE: FLOW_STEP_PRODUCT_CONFIRM,
+    FLOW_STEP_ITIN_DEP_TIME: FLOW_STEP_ITIN_DEP_DATE,
+    FLOW_STEP_ITIN_ARR_AIRPORT_INPUT: FLOW_STEP_ITIN_DEP_TIME,
+    FLOW_STEP_ITIN_ARR_AIRPORT_SELECT: FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
+    FLOW_STEP_ITIN_ARR_DATE: FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
+    FLOW_STEP_ITIN_ARR_TIME: FLOW_STEP_ITIN_ARR_DATE,
+    FLOW_STEP_ITIN_BOOKING_REF: FLOW_STEP_ITIN_ARR_TIME,
+    FLOW_STEP_ITIN_FLIGHT_NO: FLOW_STEP_ITIN_BOOKING_REF,
+    FLOW_STEP_PD_FIRST_NAME: FLOW_STEP_ITIN_FLIGHT_NO,
     FLOW_STEP_PD_LAST_NAME: FLOW_STEP_PD_FIRST_NAME,
     FLOW_STEP_PD_EMAIL: FLOW_STEP_PD_LAST_NAME,
     FLOW_STEP_ID_TYPE: FLOW_STEP_PD_EMAIL,
@@ -132,16 +140,7 @@ BACK_STEP_MAP = {
     FLOW_STEP_BANK_SELECTION: FLOW_STEP_PD_ACCOUNT_NUMBER,
     FLOW_STEP_AIRPORT_INPUT: FLOW_STEP_BANK_SELECTION,
     FLOW_STEP_AIRPORT_SELECT: FLOW_STEP_AIRPORT_INPUT,
-    FLOW_STEP_ITIN_BOOKING_REF: FLOW_STEP_AIRPORT_INPUT,
-    FLOW_STEP_ITIN_FLIGHT_NO: FLOW_STEP_ITIN_BOOKING_REF,
-    FLOW_STEP_ITIN_CARRIER: FLOW_STEP_ITIN_FLIGHT_NO,
-    FLOW_STEP_ITIN_DEP_DATE: FLOW_STEP_ITIN_CARRIER,
-    FLOW_STEP_ITIN_DEP_TIME: FLOW_STEP_ITIN_DEP_DATE,
-    FLOW_STEP_ITIN_ARR_AIRPORT_INPUT: FLOW_STEP_ITIN_DEP_TIME,
-    FLOW_STEP_ITIN_ARR_AIRPORT_SELECT: FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
-    FLOW_STEP_ITIN_ARR_DATE: FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
-    FLOW_STEP_ITIN_ARR_TIME: FLOW_STEP_ITIN_ARR_DATE,
-    FLOW_STEP_BOARDING_PASS: FLOW_STEP_ITIN_ARR_TIME,
+    FLOW_STEP_BOARDING_PASS: FLOW_STEP_AIRPORT_INPUT,
 }
 
 PERSONAL_DETAIL_STEPS = [
@@ -621,6 +620,51 @@ async def _send_step_prompt(
             source="policy_flow",
         )
 
+    elif step == FLOW_STEP_ITIN_DEP_DATE:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter your scheduled *departure date* (e.g. 25/12/2026, 25-12-2026):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+    elif step == FLOW_STEP_ITIN_DEP_TIME:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter your scheduled *departure time* (e.g. 14:30):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+    elif step == FLOW_STEP_ITIN_ARR_AIRPORT_INPUT:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter the first 3 characters of the *arrival airport name* or *airport code* (e.g. LOS, Murt, NBO, Jom):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+    elif step == FLOW_STEP_ITIN_ARR_DATE:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter your scheduled *arrival date* (e.g. 25/12/2026 or 25-12-2026):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+    elif step == FLOW_STEP_ITIN_ARR_TIME:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter your scheduled *arrival time* (e.g. 16:30):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
     elif step == FLOW_STEP_ITIN_BOOKING_REF:
         await send_text_message(
             to=sender_wa_id,
@@ -633,61 +677,7 @@ async def _send_step_prompt(
     elif step == FLOW_STEP_ITIN_FLIGHT_NO:
         await send_text_message(
             to=sender_wa_id,
-            body="Please enter your *flight number* (e.g. BA1234, AA100):",
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-
-    elif step == FLOW_STEP_ITIN_CARRIER:
-        await send_text_message(
-            to=sender_wa_id,
-            body="Please enter the *airline/carrier name* (e.g. British Airways, Air Peace):",
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-
-    elif step == FLOW_STEP_ITIN_DEP_DATE:
-        await send_text_message(
-            to=sender_wa_id,
-            body="Please enter your *departure date* in DD/MM/YYYY format (e.g. 25/12/2026):",
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-
-    elif step == FLOW_STEP_ITIN_DEP_TIME:
-        await send_text_message(
-            to=sender_wa_id,
-            body="Please enter your *departure time* in HH:MM 24-hour format (e.g. 14:30):",
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-
-    elif step == FLOW_STEP_ITIN_ARR_AIRPORT_INPUT:
-        await send_text_message(
-            to=sender_wa_id,
-            body="Please enter your *city or state name* to search for an arrival airport (e.g. London, Dubai, Accra):",
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-
-    elif step == FLOW_STEP_ITIN_ARR_DATE:
-        await send_text_message(
-            to=sender_wa_id,
-            body="Please enter your *arrival date* in DD/MM/YYYY format (e.g. 25/12/2026):",
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-
-    elif step == FLOW_STEP_ITIN_ARR_TIME:
-        await send_text_message(
-            to=sender_wa_id,
-            body="Please enter your *arrival time* in HH:MM 24-hour format (e.g. 18:45):",
+            body="Please enter your *flight number* (e.g. BA1234):",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -1292,10 +1282,9 @@ async def handle_policy_flow(
             session=session,
         )
     elif current_step in (
+        FLOW_STEP_ITIN_DEP_DATE, FLOW_STEP_ITIN_DEP_TIME,
+        FLOW_STEP_ITIN_ARR_DATE, FLOW_STEP_ITIN_ARR_TIME,
         FLOW_STEP_ITIN_BOOKING_REF, FLOW_STEP_ITIN_FLIGHT_NO,
-        FLOW_STEP_ITIN_CARRIER, FLOW_STEP_ITIN_DEP_DATE,
-        FLOW_STEP_ITIN_DEP_TIME, FLOW_STEP_ITIN_ARR_DATE,
-        FLOW_STEP_ITIN_ARR_TIME,
     ):
         await _handle_itinerary_text_input(
             message=message,
@@ -2037,19 +2026,19 @@ async def _handle_product_confirm_response(reply_id, message, sender_wa_id, phon
     policy_id = flow_state.get("policy_id")
 
     if reply_id == BUTTON_PRODUCT_CONFIRM:
-        first_step = PERSONAL_DETAIL_STEPS[0]
+        first_itin_step = ITINERARY_STEPS[0]
         await send_text_message(
             to=sender_wa_id,
-            body=f"Product confirmed! Now let's capture your personal details.\n\n{first_step['prompt']}",
+            body=f"Product confirmed! Now let's capture the rest of your itinerary and passenger details.\n\n{first_itin_step['prompt']}",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
         )
-        existing_pd = flow_state.get("personal_details")
+        existing_itin = flow_state.get("itinerary")
         await _update_flow_state(session, sender_wa_id, {
             **flow_state,
-            "step": first_step["step"],
-            "personal_details": existing_pd if existing_pd else {},
+            "step": first_itin_step["step"],
+            "itinerary": existing_itin if existing_itin else {},
         })
         return
 
@@ -2227,56 +2216,55 @@ async def _handle_personal_detail_input(message, sender_wa_id, phone_number_id, 
     if current_idx is None:
         return
 
-    extract_result = await _extract_value(
-        sender_wa_id=sender_wa_id,
-        field_name=current_field,
-        question_asked=current_step_info["prompt"],
-        user_response=text_input,
-        expected_format=current_step_info.get("expected_format", "text"),
-    )
+    extracted_value = text_input.strip()
 
-    if extract_result.get("needs_clarification"):
-        await send_text_message(
-            to=sender_wa_id,
-            body=extract_result["clarification_prompt"],
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-        return
+    if current_field in ("first_name", "last_name"):
+        words = extracted_value.split()
+        if len(words) == 1:
+            extracted_value = extracted_value.title()
+        else:
+            settings = get_settings()
+            if settings.LLM_API_URL:
+                try:
+                    from app.services.llm_service import call_extract
+                    extract_result = await call_extract(
+                        user_id=sender_wa_id,
+                        field_name=current_field,
+                        question_asked=current_step_info["prompt"],
+                        user_response=extracted_value,
+                        expected_format="text",
+                    )
+                    if extract_result and extract_result.get("value"):
+                        extracted_value = extract_result["value"].strip().title()
+                    else:
+                        extracted_value = words[0].title()
+                except Exception as e:
+                    logger.warning(f"LLM extract failed for {current_field}, using first word: {e}")
+                    extracted_value = words[0].title()
+            else:
+                extracted_value = words[0].title()
 
-    if not extract_result.get("is_valid"):
-        error_msg = extract_result.get("validation_message", f"Please enter a valid {current_field.replace('_', ' ')}.")
-        await send_text_message(
-            to=sender_wa_id,
-            body=error_msg,
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-        return
+        if not extracted_value or not extracted_value.isalpha():
+            label = "first name" if current_field == "first_name" else "last name"
+            await send_text_message(
+                to=sender_wa_id,
+                body=f"Please enter a valid {label} (letters only, no numbers or special characters):",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            return
 
-    extracted_value = extract_result.get("value", text_input)
-
-    if current_field == "email" and not extract_result.get("fallback") and not _validate_email(extracted_value):
-        await send_text_message(
-            to=sender_wa_id,
-            body="That doesn't look like a valid email address. Please enter a valid email (e.g. name@example.com):",
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-        return
-
-    if current_field == "email" and extract_result.get("fallback") and not _validate_email(text_input):
-        await send_text_message(
-            to=sender_wa_id,
-            body="That doesn't look like a valid email address. Please enter a valid email (e.g. name@example.com):",
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-        return
+    elif current_field == "email":
+        if not _validate_email(extracted_value):
+            await send_text_message(
+                to=sender_wa_id,
+                body="That doesn't look like a valid email address. Please enter a valid email (e.g. name@example.com):",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            return
 
     personal_details[current_field] = extracted_value
 
@@ -3119,52 +3107,46 @@ async def _handle_airport_selection(reply_id, message, sender_wa_id, phone_numbe
 
 ITINERARY_STEPS = [
     {
-        "step": FLOW_STEP_ITIN_BOOKING_REF,
-        "field": "bookingReference",
-        "prompt": "Please enter your *booking reference* (e.g. ABC123):",
-        "validation": None,
-    },
-    {
-        "step": FLOW_STEP_ITIN_FLIGHT_NO,
-        "field": "flightNo",
-        "prompt": "Please enter your *flight number* (e.g. BA1234, AA100):",
-        "validation": None,
-    },
-    {
-        "step": FLOW_STEP_ITIN_CARRIER,
-        "field": "carrier",
-        "prompt": "Please enter the *airline/carrier name* (e.g. British Airways, Air Peace):",
-        "validation": None,
-    },
-    {
         "step": FLOW_STEP_ITIN_DEP_DATE,
         "field": "departure.scheduledDateLocal",
-        "prompt": "Please enter your *departure date* in DD/MM/YYYY format (e.g. 25/12/2026):",
+        "prompt": "Please enter your scheduled *departure date* (e.g. 25/12/2026, 25-12-2026):",
         "validation": "date",
     },
     {
         "step": FLOW_STEP_ITIN_DEP_TIME,
         "field": "departure.scheduledTimeLocal",
-        "prompt": "Please enter your *departure time* in HH:MM 24-hour format (e.g. 14:30):",
+        "prompt": "Please enter your scheduled *departure time* (e.g. 14:30):",
         "validation": "time",
     },
     {
         "step": FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
         "field": "arrival.airport",
-        "prompt": "Please enter your *city or state name* to search for an arrival airport (e.g. London, Dubai, Accra):",
+        "prompt": "Please enter the first 3 characters of the *arrival airport name* or *airport code* (e.g. LOS, Murt, NBO, Jom):",
         "validation": "airport_search",
     },
     {
         "step": FLOW_STEP_ITIN_ARR_DATE,
         "field": "arrival.scheduledDateLocal",
-        "prompt": "Please enter your *arrival date* in DD/MM/YYYY format (e.g. 25/12/2026):",
+        "prompt": "Please enter your scheduled *arrival date* (e.g. 25/12/2026 or 25-12-2026):",
         "validation": "date",
     },
     {
         "step": FLOW_STEP_ITIN_ARR_TIME,
         "field": "arrival.scheduledTimeLocal",
-        "prompt": "Please enter your *arrival time* in HH:MM 24-hour format (e.g. 18:45):",
+        "prompt": "Please enter your scheduled *arrival time* (e.g. 16:30):",
         "validation": "time",
+    },
+    {
+        "step": FLOW_STEP_ITIN_BOOKING_REF,
+        "field": "bookingReference",
+        "prompt": "Please enter your *booking reference* (e.g. ABC123):",
+        "validation": "text",
+    },
+    {
+        "step": FLOW_STEP_ITIN_FLIGHT_NO,
+        "field": "flightNo",
+        "prompt": "Please enter your *flight number* (e.g. BA1234):",
+        "validation": "text",
     },
 ]
 
@@ -3217,29 +3199,29 @@ async def _start_itinerary_flow(
     session, flow_state, airport_info,
 ):
     dep_airport_display = f"{airport_info.get('name', '')} ({airport_info.get('iata_code', '')})"
+
+    itinerary = flow_state.get("itinerary", {})
+    if "departure" not in itinerary:
+        itinerary["departure"] = {}
+    itinerary["departure"]["airport"] = airport_info.get("iata_code", "")
+    itinerary["departure"]["airportName"] = airport_info.get("name", "")
+
     await send_text_message(
         to=sender_wa_id,
         body=(
             f"Departure airport selected: *{dep_airport_display}*\n\n"
-            f"Now let's capture your itinerary details.\n\n"
-            f"Please enter your *booking reference* (e.g. ABC123):"
+            f"Now please upload a photo of your *boarding pass*.\n\n"
+            f"Accepted formats: JPG, PNG, WebP, or PDF.\n"
+            f"You can take a photo of your physical boarding pass or send a screenshot of your e-boarding pass."
         ),
         phone_number_id=phone_number_id,
         in_reply_to=in_reply_to,
         source="policy_flow",
     )
 
-    itinerary = {
-        "departure": {
-            "airport": airport_info.get("iata_code", ""),
-            "airportName": airport_info.get("name", ""),
-        },
-        "arrival": {},
-    }
-
     await _update_flow_state(session, sender_wa_id, {
         **flow_state,
-        "step": FLOW_STEP_ITIN_BOOKING_REF,
+        "step": FLOW_STEP_BOARDING_PASS,
         "airport_info": airport_info,
         "itinerary": itinerary,
     })
@@ -3298,58 +3280,17 @@ async def _handle_itinerary_text_input(message, sender_wa_id, phone_number_id, i
     validation = current_info.get("validation")
     value = text_input.strip()
 
-    if validation is None:
-        extract_result = await _extract_value(
-            sender_wa_id=sender_wa_id,
-            field_name=current_info["field"].split(".")[-1],
-            question_asked=current_info["prompt"],
-            user_response=text_input,
-            expected_format="text",
-        )
-        if extract_result.get("needs_clarification"):
-            await send_text_message(
-                to=sender_wa_id,
-                body=extract_result["clarification_prompt"],
-                phone_number_id=phone_number_id,
-                in_reply_to=in_reply_to,
-                source="policy_flow",
-            )
-            return
-        if not extract_result.get("is_valid") and not extract_result.get("fallback"):
-            error_msg = extract_result.get("validation_message", f"Please enter a valid {current_info['field'].split('.')[-1].replace('_', ' ')}.")
-            await send_text_message(
-                to=sender_wa_id,
-                body=error_msg,
-                phone_number_id=phone_number_id,
-                in_reply_to=in_reply_to,
-                source="policy_flow",
-            )
-            return
-        value = extract_result.get("value") or text_input.strip()
-
-    elif validation == "date":
-        extract_result = await _extract_value(
-            sender_wa_id=sender_wa_id,
-            field_name=current_info["field"].split(".")[-1],
-            question_asked=current_info["prompt"],
-            user_response=text_input,
-            expected_format="date",
-        )
-        if extract_result.get("needs_clarification"):
-            await send_text_message(
-                to=sender_wa_id,
-                body=extract_result["clarification_prompt"],
-                phone_number_id=phone_number_id,
-                in_reply_to=in_reply_to,
-                source="policy_flow",
-            )
-            return
-        raw_for_date = extract_result.get("value") or value
-        validated = _validate_date(raw_for_date)
+    if validation == "date":
+        validated = _validate_date(value)
         if not validated:
             await send_text_message(
                 to=sender_wa_id,
-                body="That doesn't look like a valid date. Please enter the date in *DD/MM/YYYY* format (e.g. 25/12/2026):",
+                body=(
+                    "Sorry, that doesn't look like a valid date.\n\n"
+                    "Please enter the date in one of these formats:\n"
+                    "\u2022 *DD/MM/YYYY* (e.g. 25/12/2026)\n"
+                    "\u2022 *DD-MM-YYYY* (e.g. 25-12-2026)"
+                ),
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
@@ -3358,34 +3299,32 @@ async def _handle_itinerary_text_input(message, sender_wa_id, phone_number_id, i
         value = validated
 
     elif validation == "time":
-        extract_result = await _extract_value(
-            sender_wa_id=sender_wa_id,
-            field_name=current_info["field"].split(".")[-1],
-            question_asked=current_info["prompt"],
-            user_response=text_input,
-            expected_format="time",
-        )
-        if extract_result.get("needs_clarification"):
-            await send_text_message(
-                to=sender_wa_id,
-                body=extract_result["clarification_prompt"],
-                phone_number_id=phone_number_id,
-                in_reply_to=in_reply_to,
-                source="policy_flow",
-            )
-            return
-        raw_for_time = extract_result.get("value") or value
-        validated = _validate_time(raw_for_time)
+        validated = _validate_time(value)
         if not validated:
             await send_text_message(
                 to=sender_wa_id,
-                body="That doesn't look like a valid time. Please enter the time in *HH:MM* 24-hour format (e.g. 14:30):",
+                body=(
+                    "Sorry, that doesn't look like a valid time.\n\n"
+                    "Please enter the time in *HH:MM* 24-hour format (e.g. 14:30, 08:15)."
+                ),
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
             )
             return
         value = validated
+
+    elif validation == "text":
+        if not value:
+            field_label = current_info["field"].split(".")[-1].replace("_", " ")
+            await send_text_message(
+                to=sender_wa_id,
+                body=f"Please enter a valid {field_label}.",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            return
 
     _set_itinerary_field(itinerary, current_info["field"], value)
 
@@ -3396,22 +3335,20 @@ async def _handle_itinerary_text_input(message, sender_wa_id, phone_number_id, i
             await set_itinerary(policy_id, itinerary)
             logger.info(f"Itinerary saved to policy {policy_id}")
 
+        first_pd_step = PERSONAL_DETAIL_STEPS[0]
         await send_text_message(
             to=sender_wa_id,
-            body=(
-                "Great! Itinerary details saved.\n\n"
-                "Finally, please upload a photo of your *boarding pass*.\n\n"
-                "Accepted formats: JPG, PNG, WebP, or PDF.\n"
-                "You can take a photo of your physical boarding pass or send a screenshot of your e-boarding pass."
-            ),
+            body=f"Itinerary details saved.\n\nNow let's capture your personal details.\n\n{first_pd_step['prompt']}",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
         )
+        existing_pd = flow_state.get("personal_details")
         await _update_flow_state(session, sender_wa_id, {
             **flow_state,
-            "step": FLOW_STEP_BOARDING_PASS,
+            "step": first_pd_step["step"],
             "itinerary": itinerary,
+            "personal_details": existing_pd if existing_pd else {},
         })
 
     elif next_step_info["step"] == FLOW_STEP_ITIN_ARR_AIRPORT_INPUT:
@@ -3451,33 +3388,15 @@ async def _handle_arr_airport_input(message, sender_wa_id, phone_number_id, in_r
     if not text_input:
         await send_text_message(
             to=sender_wa_id,
-            body="Please type a *city or state name* to search for an arrival airport (e.g. London, Dubai):",
+            body="Please enter the first 3 characters of the *arrival airport name* or *airport code* (e.g. LOS, Murt, NBO, Jom):",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
         )
         return
 
-    extract_result = await _extract_value(
-        sender_wa_id=sender_wa_id,
-        field_name="arrival_city",
-        question_asked="Please enter your city or state name to search for an arrival airport (e.g. London, Dubai, Accra):",
-        user_response=text_input,
-        expected_format="text",
-    )
-
-    if extract_result.get("needs_clarification"):
-        await send_text_message(
-            to=sender_wa_id,
-            body=extract_result["clarification_prompt"],
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-        return
-
-    cleaned_input = extract_result.get("value", text_input) if extract_result.get("is_valid") else text_input
-    search_term = cleaned_input.strip().title()
+    cleaned_input = text_input.strip()
+    search_term = cleaned_input.title()
     airports = await _fetch_airports(search_term)
 
     if airports is None:
@@ -3528,7 +3447,7 @@ async def _handle_arr_airport_input(message, sender_wa_id, phone_number_id, in_r
             to=sender_wa_id,
             body=(
                 f"Arrival airport selected: *{arr_airport_info['name']}* ({arr_airport_info['iata_code']})\n\n"
-                f"Please enter your *arrival date* in DD/MM/YYYY format (e.g. 25/12/2026):"
+                f"Please enter your scheduled *arrival date* (e.g. 25/12/2026 or 25-12-2026):"
             ),
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
@@ -3619,7 +3538,7 @@ async def _handle_arr_airport_selection(reply_id, message, sender_wa_id, phone_n
             to=sender_wa_id,
             body=(
                 f"Arrival airport selected: *{arr_airport_info['name']}* ({arr_airport_info['iata_code']})\n\n"
-                f"Please enter your *arrival date* in DD/MM/YYYY format (e.g. 25/12/2026):"
+                f"Please enter your scheduled *arrival date* (e.g. 25/12/2026 or 25-12-2026):"
             ),
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
@@ -3691,7 +3610,7 @@ async def _submit_policy_to_api(
 
     legs = [{
         "flightNo": itinerary.get("flightNo", ""),
-        "carrier": itinerary.get("carrier", ""),
+        "carrier": itinerary.get("carrier", "") if itinerary.get("carrier") else "",
         "departure": {
             "airport": dep.get("airport", ""),
             "scheduledDateLocal": _convert_date(dep.get("scheduledDateLocal", "")),
@@ -3921,7 +3840,7 @@ async def _show_itinerary_summary_and_final(
     itin_summary = (
         f"Itinerary details saved:\n\n"
         f"*Booking Reference:* {itinerary.get('bookingReference', '')}\n"
-        f"*Flight:* {itinerary.get('flightNo', '')} ({itinerary.get('carrier', '')})\n\n"
+        f"*Flight:* {itinerary.get('flightNo', '')}\n\n"
         f"*Departure:*\n"
         f"Airport: {dep.get('airportName', '')} ({dep.get('airport', '')})\n"
         f"Date: {dep.get('scheduledDateLocal', '')}\n"
@@ -3974,7 +3893,7 @@ async def _show_final_summary(
         itinerary_section = (
             f"\n*Itinerary:*\n"
             f"Booking Ref: {itinerary.get('bookingReference', '')}\n"
-            f"Flight: {itinerary.get('flightNo', '')} ({itinerary.get('carrier', '')})\n"
+            f"Flight: {itinerary.get('flightNo', '')}\n"
             f"Departure: {dep.get('airportName', '')} ({dep.get('airport', '')}) on {dep.get('scheduledDateLocal', '')} at {dep.get('scheduledTimeLocal', '')}\n"
             f"Arrival: {arr.get('airportName', '')} ({arr.get('airport', '')}) on {arr.get('scheduledDateLocal', '')} at {arr.get('scheduledTimeLocal', '')}\n"
         )
