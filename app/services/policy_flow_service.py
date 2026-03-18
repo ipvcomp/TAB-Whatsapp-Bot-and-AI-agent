@@ -696,7 +696,7 @@ async def _send_step_prompt(
     elif step == FLOW_STEP_AIRPORT_INPUT:
         await send_text_message(
             to=sender_wa_id,
-            body="Please enter the first 3 characters of the *departure airport name* or *airport code* (e.g. LOS, Mur, NBO, Jom):",
+            body="Please enter the first 3 characters of the *departure airport name* or *airport code* (e.g. LOS, Mur, KAN, Enu, PHC):",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -723,7 +723,7 @@ async def _send_step_prompt(
     elif step == FLOW_STEP_ITIN_ARR_AIRPORT_INPUT:
         await send_text_message(
             to=sender_wa_id,
-            body="Please enter the first 3 characters of the *arrival airport name* or *airport code* (e.g. LOS, Murt, NBO, Jom):",
+            body="Please enter the first 3 characters of the *arrival airport name* or *airport code* (e.g. LOS, Mur, KAN, Enu, PHC):",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -1115,7 +1115,7 @@ async def handle_policy_flow(
 
             await send_text_message(
                 to=sender_wa_id,
-                body="Please enter the first 3 characters of the *departure airport name* or *airport code* (e.g. LOS, Mur, NBO, Jom):",
+                body="Please enter the first 3 characters of the *departure airport name* or *airport code* (e.g. LOS, Mur, KAN, Enu, PHC):",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
@@ -1679,7 +1679,7 @@ async def _handle_msisdn_confirm(message, sender_wa_id, phone_number_id, in_repl
         to=sender_wa_id,
         body=(
             f"Great! \U0001F44D Your WhatsApp number *[{phone_display}]* has been confirmed.\n\n"
-            f"Please enter the first 3 characters of the *departure airport name* or *airport code* (e.g. LOS, Mur, NBO, Jom):"
+            f"Please enter the first 3 characters of the *departure airport name* or *airport code* (e.g. LOS, Mur, KAN, Enu, PHC):"
         ),
         phone_number_id=phone_number_id,
         in_reply_to=in_reply_to,
@@ -3433,7 +3433,7 @@ async def _handle_airport_input(message, sender_wa_id, phone_number_id, in_reply
     if not text_input:
         await send_text_message(
             to=sender_wa_id,
-            body="Please enter the first 3 characters of the *departure airport name* or *airport code* (e.g. LOS, Mur, NBO, Jom):",
+            body="Please enter the first 3 characters of the *departure airport name* or *airport code* (e.g. LOS, Mur, KAN, Enu, PHC):",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -3469,7 +3469,7 @@ async def _handle_airport_input(message, sender_wa_id, phone_number_id, in_reply
     if not airports:
         await send_text_message(
             to=sender_wa_id,
-            body=f"No airports found for *\"{text_input}\"*.\n\nPlease try again with a different airport name or code (e.g. LOS, Mur, NBO, Jom):",
+            body=f"No airports found for *\"{text_input}\"*.\n\nPlease try again with a different airport name or code (e.g. LOS, Mur, KAN, Enu, PHC):",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -3620,7 +3620,7 @@ ITINERARY_STEPS = [
     {
         "step": FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
         "field": "arrival.airport",
-        "prompt": "Please enter the first 3 characters of the *arrival airport name* or *airport code* (e.g. LOS, Murt, NBO, Jom):",
+        "prompt": "Please enter the first 3 characters of the *arrival airport name* or *airport code* (e.g. LOS, Mur, KAN, Enu, PHC):",
         "validation": "airport_search",
     },
     {
@@ -3926,7 +3926,7 @@ async def _handle_arr_airport_input(message, sender_wa_id, phone_number_id, in_r
     if not text_input:
         await send_text_message(
             to=sender_wa_id,
-            body="Please enter the first 3 characters of the *arrival airport name* or *airport code* (e.g. LOS, Murt, NBO, Jom):",
+            body="Please enter the first 3 characters of the *arrival airport name* or *airport code* (e.g. LOS, Mur, KAN, Enu, PHC):",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
