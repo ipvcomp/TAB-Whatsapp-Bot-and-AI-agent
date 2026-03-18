@@ -46,6 +46,7 @@ FLOW_STEP_PD_LAST_NAME = "pd_last_name"
 FLOW_STEP_PD_EMAIL = "pd_email"
 FLOW_STEP_ID_TYPE = "id_type_selection"
 FLOW_STEP_ID_NUMBER = "id_number_input"
+FLOW_STEP_DETAILS_CONFIRM = "details_confirmation"
 FLOW_STEP_PAYMENT_METHOD = "payment_method"
 FLOW_STEP_PD_ACCOUNT_NUMBER = "pd_account_number"
 FLOW_STEP_BANK_SELECTION = "bank_selection"
@@ -74,6 +75,8 @@ BUTTON_PRODUCT_CONFIRM = "product_confirm"
 BUTTON_PRODUCT_CHANGE = "product_change"
 BUTTON_ID_NIN = "id_type_nin"
 BUTTON_ID_BVN = "id_type_bvn"
+BUTTON_DETAILS_CONFIRM = "details_confirm_yes"
+BUTTON_DETAILS_CHANGE = "details_confirm_change"
 PRODUCT_ID_PREFIX = "product_"
 PAYMENT_METHOD_PREFIX = "pay_method_"
 BANK_ID_PREFIX = "bank_"
@@ -135,7 +138,8 @@ BACK_STEP_MAP = {
     FLOW_STEP_PD_EMAIL: FLOW_STEP_PD_LAST_NAME,
     FLOW_STEP_ID_TYPE: FLOW_STEP_PD_EMAIL,
     FLOW_STEP_ID_NUMBER: FLOW_STEP_ID_TYPE,
-    FLOW_STEP_PAYMENT_METHOD: FLOW_STEP_ID_NUMBER,
+    FLOW_STEP_DETAILS_CONFIRM: FLOW_STEP_ID_NUMBER,
+    FLOW_STEP_PAYMENT_METHOD: FLOW_STEP_DETAILS_CONFIRM,
     FLOW_STEP_PD_ACCOUNT_NUMBER: FLOW_STEP_PAYMENT_METHOD,
     FLOW_STEP_BANK_SELECTION: FLOW_STEP_PD_ACCOUNT_NUMBER,
     FLOW_STEP_AIRPORT_INPUT: FLOW_STEP_BANK_SELECTION,
@@ -589,6 +593,9 @@ async def _send_step_prompt(
             in_reply_to=in_reply_to,
             source="policy_flow",
         )
+
+    elif step == FLOW_STEP_DETAILS_CONFIRM:
+        await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, flow_state)
 
     elif step == FLOW_STEP_PAYMENT_METHOD:
         await _send_payment_methods(sender_wa_id, phone_number_id, in_reply_to, country_code=flow_state.get("country_code", "NG"))
@@ -1232,6 +1239,15 @@ async def handle_policy_flow(
         )
     elif current_step == FLOW_STEP_ID_NUMBER:
         await _handle_id_number_input(
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
+    elif current_step == FLOW_STEP_DETAILS_CONFIRM:
+        await _handle_details_confirm_response(
+            reply_id=reply_id,
             message=message,
             sender_wa_id=sender_wa_id,
             phone_number_id=phone_number_id,
@@ -2319,7 +2335,7 @@ async def _send_id_type_selection(to: str, phone_number_id: str, in_reply_to: st
             "type": "button",
             "body": {
                 "text": (
-                    "To continue with your policy purchase, we need a valid digital ID number "
+                    "To continue with your policy purchase, we need a valid digital id number "
                     "to verify your details.\n\n"
                     "Please choose the identification number you would like to provide for verification:"
                 )
@@ -2436,20 +2452,161 @@ async def _handle_id_number_input(message, sender_wa_id, phone_number_id, in_rep
         await set_id_verification(policy_id, id_type, cleaned)
         logger.info(f"{id_type} '***{cleaned[-4:]}' saved to policy {policy_id}")
 
-    await send_text_message(
-        to=sender_wa_id,
-        body=f"{id_type} verified: *{cleaned}*\n\nNow let's select your preferred payment method.",
+    flow_state["id_number"] = cleaned
+    await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, flow_state)
+    await _update_flow_state(session, sender_wa_id, {
+        **flow_state,
+        "step": FLOW_STEP_DETAILS_CONFIRM,
+        "id_number": cleaned,
+    })
+
+
+async def _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, flow_state):
+    itinerary = flow_state.get("itinerary", {})
+    personal_details = flow_state.get("personal_details", {})
+    selected_product = flow_state.get("selected_product", {})
+    id_type = flow_state.get("id_type", "")
+    id_number = flow_state.get("id_number", "")
+
+    dep = itinerary.get("departure", {})
+    arr = itinerary.get("arrival", {})
+
+    summary_lines = ["*Please review your itinerary and passenger details:*\n"]
+
+    product_name = selected_product.get("name", "")
+    if product_name:
+        price_str = f"{selected_product.get('currency', '')} {selected_product.get('price', '')}".strip()
+        summary_lines.append(f"*Product:* {product_name} ({price_str})")
+
+    summary_lines.append("")
+    summary_lines.append("*Itinerary:*")
+    if dep.get("airportName"):
+        summary_lines.append(f"\u2022 Departure Airport: {dep['airportName']} ({dep.get('airport', '')})")
+    elif dep.get("airport"):
+        summary_lines.append(f"\u2022 Departure Airport: {dep['airport']}")
+    if dep.get("scheduledDateLocal"):
+        summary_lines.append(f"\u2022 Departure Date: {dep['scheduledDateLocal']}")
+    if dep.get("scheduledTimeLocal"):
+        summary_lines.append(f"\u2022 Departure Time: {dep['scheduledTimeLocal']}")
+    if arr.get("airportName"):
+        summary_lines.append(f"\u2022 Arrival Airport: {arr['airportName']} ({arr.get('airport', '')})")
+    elif arr.get("airport"):
+        summary_lines.append(f"\u2022 Arrival Airport: {arr['airport']}")
+    if arr.get("scheduledDateLocal"):
+        summary_lines.append(f"\u2022 Arrival Date: {arr['scheduledDateLocal']}")
+    if arr.get("scheduledTimeLocal"):
+        summary_lines.append(f"\u2022 Arrival Time: {arr['scheduledTimeLocal']}")
+    if itinerary.get("bookingReference"):
+        summary_lines.append(f"\u2022 Booking Ref: {itinerary['bookingReference']}")
+    if itinerary.get("flightNo"):
+        summary_lines.append(f"\u2022 Flight No: {itinerary['flightNo']}")
+
+    summary_lines.append("")
+    summary_lines.append("*Passenger Details:*")
+    first_name = personal_details.get("first_name", "")
+    last_name = personal_details.get("last_name", "")
+    if first_name or last_name:
+        summary_lines.append(f"\u2022 Name: {first_name} {last_name}")
+    if personal_details.get("email"):
+        summary_lines.append(f"\u2022 Email: {personal_details['email']}")
+    if id_type and id_number:
+        masked = f"***{id_number[-4:]}" if len(id_number) >= 4 else id_number
+        summary_lines.append(f"\u2022 {id_type}: {masked}")
+
+    summary_lines.append("\nAre these details correct?")
+
+    summary_text = "\n".join(summary_lines)
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": sender_wa_id,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": summary_text},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": BUTTON_DETAILS_CONFIRM, "title": "Yes, Proceed"}},
+                    {"type": "reply", "reply": {"id": BUTTON_DETAILS_CHANGE, "title": "No, Change details"}},
+                ]
+            },
+        },
+    }
+
+    await send_whatsapp_payload(
+        payload,
         phone_number_id=phone_number_id,
         in_reply_to=in_reply_to,
         source="policy_flow",
     )
 
-    await _send_payment_methods(sender_wa_id, phone_number_id, in_reply_to, country_code=flow_state.get("country_code", "NG"))
-    await _update_flow_state(session, sender_wa_id, {
-        **flow_state,
-        "step": FLOW_STEP_PAYMENT_METHOD,
-        "id_number": cleaned,
-    })
+
+async def _handle_details_confirm_response(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+
+    if reply_id == BUTTON_DETAILS_CONFIRM:
+        await send_text_message(
+            to=sender_wa_id,
+            body=(
+                "Now let's capture a few more details so we can set up your payment and payout preferences.\n\n"
+                "We'll ask for your payment method, payout method, and bank account details to complete your purchase.\n\n"
+                "Please select your preferred payment method:"
+            ),
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _send_payment_methods(sender_wa_id, phone_number_id, in_reply_to, country_code=flow_state.get("country_code", "NG"))
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_PAYMENT_METHOD,
+        })
+        return
+
+    if reply_id == BUTTON_DETAILS_CHANGE:
+        first_itin_step = ITINERARY_STEPS[0]
+        await send_text_message(
+            to=sender_wa_id,
+            body=(
+                "No problem! Let's go through your details again.\n\n"
+                "We'll start from the departure date. You can type *#back* at any step to skip to the next field "
+                "if the current value is already correct.\n\n"
+                f"{first_itin_step['prompt']}"
+            ),
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": first_itin_step["step"],
+        })
+        return
+
+    if message.type == "text" and message.text:
+        user_text = message.text.body.strip()
+        settings = get_settings()
+        if settings.LLM_API_URL:
+            from app.services.llm_service import call_generic
+            user_session_data = session or {}
+            llm_response = await call_generic(
+                user_id=sender_wa_id,
+                phone_number=user_session_data.get("phone_number", sender_wa_id),
+                message=user_text,
+                user_name=user_session_data.get("first_name", ""),
+                current_node=user_session_data.get("current_node", "N01"),
+            )
+            if llm_response and llm_response.get("response"):
+                await send_text_message(
+                    to=sender_wa_id,
+                    body=llm_response["response"],
+                    phone_number_id=phone_number_id,
+                    in_reply_to=in_reply_to,
+                    source="llm",
+                )
+
+    await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, flow_state)
 
 
 async def _handle_account_number_input(message, sender_wa_id, phone_number_id, in_reply_to, session):
