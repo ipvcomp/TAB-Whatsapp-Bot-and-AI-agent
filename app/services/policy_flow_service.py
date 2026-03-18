@@ -20,6 +20,47 @@ from app.services.policy_service import (
 
 logger = logging.getLogger(__name__)
 
+API_RETRY_MAX_ATTEMPTS = 3
+API_RETRY_BACKOFF_SECONDS = [1, 2, 4]
+
+async def _api_call_with_retry(
+    api_name: str,
+    coro_factory,
+    max_attempts: int = API_RETRY_MAX_ATTEMPTS,
+    backoff_seconds: list = None,
+):
+    if backoff_seconds is None:
+        backoff_seconds = API_RETRY_BACKOFF_SECONDS
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = await coro_factory()
+            if result is not None:
+                return result
+            if attempt < max_attempts:
+                wait = backoff_seconds[min(attempt - 1, len(backoff_seconds) - 1)]
+                logger.warning(f"{api_name}: attempt {attempt}/{max_attempts} returned None, retrying in {wait}s...")
+                await asyncio.sleep(wait)
+            else:
+                logger.error(f"{api_name}: all {max_attempts} attempts returned None")
+        except (httpx.TimeoutException, httpx.ConnectError) as e:
+            last_error = e
+            if attempt < max_attempts:
+                wait = backoff_seconds[min(attempt - 1, len(backoff_seconds) - 1)]
+                logger.warning(f"{api_name}: attempt {attempt}/{max_attempts} failed ({type(e).__name__}), retrying in {wait}s...")
+                await asyncio.sleep(wait)
+            else:
+                logger.error(f"{api_name}: all {max_attempts} attempts failed. Last error: {type(e).__name__}: {e}")
+        except Exception as e:
+            last_error = e
+            if attempt < max_attempts:
+                wait = backoff_seconds[min(attempt - 1, len(backoff_seconds) - 1)]
+                logger.warning(f"{api_name}: attempt {attempt}/{max_attempts} unexpected error ({type(e).__name__}: {e}), retrying in {wait}s...")
+                await asyncio.sleep(wait)
+            else:
+                logger.error(f"{api_name}: all {max_attempts} attempts failed. Last error: {type(e).__name__}: {e}")
+    return None
+
 PRODUCTS_API_BASE_URL = "https://dev-ilekun-ipv.ipurvey.com/api/v1/tab-pc/products/getByCountry"
 PAYMENT_METHODS_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/payment-method/types"
 
@@ -1815,7 +1856,8 @@ async def _handle_product_list_response(reply_id, message, sender_wa_id, phone_n
 
 async def _fetch_products(country_code: str) -> Optional[list]:
     url = f"{PRODUCTS_API_BASE_URL}/{country_code}"
-    try:
+
+    async def _single_attempt():
         async with httpx.AsyncClient(timeout=30.0, verify=True) as client:
             logger.info(f"Fetching products for country_code={country_code} from {url}")
             response = await client.get(url)
@@ -1827,14 +1869,10 @@ async def _fetch_products(country_code: str) -> Optional[list]:
                     active = [p for p in products if p.get("status") == "ACTIVE"]
                     logger.info(f"Fetched {len(active)} active products for {country_code}")
                     return active
-            logger.error(f"Products API error: HTTP {response.status_code} for {country_code}, body={response.text[:500]}")
+            logger.warning(f"Products API error: HTTP {response.status_code} for {country_code}, body={response.text[:500]}")
             return None
-    except httpx.TimeoutException as e:
-        logger.error(f"Products API timeout for {country_code}: {type(e).__name__}: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"Failed to fetch products for {country_code}: {type(e).__name__}: {e}")
-        return None
+
+    return await _api_call_with_retry(f"Products({country_code})", _single_attempt)
 
 
 def _get_product_pricing(product: dict, country_code: str = None) -> dict:
@@ -2715,7 +2753,7 @@ async def _handle_account_number_input(message, sender_wa_id, phone_number_id, i
 
 
 async def _fetch_payment_methods(country_code: str) -> Optional[list]:
-    try:
+    async def _single_attempt():
         async with httpx.AsyncClient(timeout=30.0, verify=True) as client:
             url = f"{PAYMENT_METHODS_API_URL}?countryCode={country_code}"
             logger.info(f"Fetching payment methods from {url}")
@@ -2726,14 +2764,10 @@ async def _fetch_payment_methods(country_code: str) -> Optional[list]:
                 if isinstance(data, list):
                     logger.info(f"Fetched {len(data)} payment methods for country={country_code}")
                     return data
-            logger.error(f"Payment methods API error: HTTP {response.status_code}, body={response.text[:500]}")
+            logger.warning(f"Payment methods API error: HTTP {response.status_code}, body={response.text[:500]}")
             return None
-    except httpx.TimeoutException as e:
-        logger.error(f"Payment methods API timeout: {type(e).__name__}: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"Failed to fetch payment methods: {type(e).__name__}: {e}")
-        return None
+
+    return await _api_call_with_retry(f"PaymentMethods({country_code})", _single_attempt)
 
 
 PAYMENT_METHOD_LABELS = {
@@ -2844,37 +2878,26 @@ async def _handle_payment_method_selection(reply_id, message, sender_wa_id, phon
 
 
 async def _fetch_banks(country_code: str) -> Optional[list]:
-    max_attempts = 3
-    for attempt in range(1, max_attempts + 1):
-        try:
-            async with httpx.AsyncClient(timeout=60.0, verify=True) as client:
-                logger.info(f"Fetching banks for country_code={country_code} (attempt {attempt}/{max_attempts})")
-                response = await client.get(
-                    BANKS_API_URL,
-                    params={"countryCode": country_code},
-                )
-                logger.info(f"Banks API response: HTTP {response.status_code}, size={len(response.content)} bytes")
-                if response.status_code == 200:
-                    data = response.json()
-                    bank_data = data.get("data", data)
-                    if isinstance(bank_data, dict):
-                        bank_data = bank_data.get("data", [])
-                    if isinstance(bank_data, list):
-                        logger.info(f"Fetched {len(bank_data)} banks for {country_code}")
-                        return bank_data
-                logger.error(f"Banks API error: HTTP {response.status_code} for {country_code}, body={response.text[:500]}")
-        except httpx.TimeoutException as e:
-            logger.warning(f"Banks API timeout (attempt {attempt}/{max_attempts}) for {country_code}: {e}")
-        except httpx.ConnectError as e:
-            logger.warning(f"Banks API connection error (attempt {attempt}/{max_attempts}) for {country_code}: {e}")
-        except Exception as e:
-            logger.warning(f"Banks API error (attempt {attempt}/{max_attempts}) for {country_code}: {type(e).__name__}: {e}")
+    async def _single_attempt():
+        async with httpx.AsyncClient(timeout=60.0, verify=True) as client:
+            logger.info(f"Fetching banks for country_code={country_code}")
+            response = await client.get(
+                BANKS_API_URL,
+                params={"countryCode": country_code},
+            )
+            logger.info(f"Banks API response: HTTP {response.status_code}, size={len(response.content)} bytes")
+            if response.status_code == 200:
+                data = response.json()
+                bank_data = data.get("data", data)
+                if isinstance(bank_data, dict):
+                    bank_data = bank_data.get("data", [])
+                if isinstance(bank_data, list):
+                    logger.info(f"Fetched {len(bank_data)} banks for {country_code}")
+                    return bank_data
+            logger.warning(f"Banks API error: HTTP {response.status_code} for {country_code}, body={response.text[:500]}")
+            return None
 
-        if attempt < max_attempts:
-            await asyncio.sleep(1)
-
-    logger.error(f"All {max_attempts} attempts to fetch banks for {country_code} failed")
-    return None
+    return await _api_call_with_retry(f"Banks({country_code})", _single_attempt)
 
 
 async def _send_banks_page(to: str, phone_number_id: str, in_reply_to: str, banks: list, page: int) -> None:
@@ -3384,7 +3407,7 @@ async def _handle_policy_summary_response(reply_id, message, sender_wa_id, phone
 
 
 async def _fetch_airports(search_term: str) -> Optional[list]:
-    try:
+    async def _single_attempt():
         async with httpx.AsyncClient(timeout=30.0, verify=True) as client:
             logger.info(f"Searching airports for '{search_term}' from {AIRPORTS_API_URL}")
             response = await client.get(
@@ -3397,14 +3420,10 @@ async def _fetch_airports(search_term: str) -> Optional[list]:
                 if isinstance(data, list):
                     logger.info(f"Found {len(data)} airports for '{search_term}'")
                     return data
-            logger.error(f"Airports API error: HTTP {response.status_code} for '{search_term}', body={response.text[:500]}")
+            logger.warning(f"Airports API error: HTTP {response.status_code} for '{search_term}', body={response.text[:500]}")
             return None
-    except httpx.TimeoutException as e:
-        logger.error(f"Airports API timeout for '{search_term}': {type(e).__name__}: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"Failed to fetch airports for '{search_term}': {type(e).__name__}: {e}")
-        return None
+
+    return await _api_call_with_retry(f"Airports({search_term})", _single_attempt)
 
 
 async def _handle_airport_input(message, sender_wa_id, phone_number_id, in_reply_to, session):
@@ -4188,43 +4207,56 @@ async def _submit_policy_to_api(
         filename = f"boarding_pass_{policy_id}.{ext}"
         files_parts.append(("boardingPassFile", (filename, boarding_pass_bytes, boarding_pass_mime)))
 
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            bp_info = "with boarding pass" if boarding_pass_bytes else "without boarding pass"
-            logger.info(f"Submitting policy {policy_id} to API ({bp_info}): productId={policy_payload['productId']}, channel=WHATSAPP")
-            response = await client.post(
-                SUBMIT_POLICY_URL,
-                files=files_parts,
-            )
-            logger.info(f"Policy submission response: HTTP {response.status_code}, policy_id={policy_id}")
+    bp_info = "with boarding pass" if boarding_pass_bytes else "without boarding pass"
+    last_err_msg = "An unexpected error occurred. Please try again."
 
-            if response.status_code in (200, 201):
-                try:
-                    resp_data = response.json()
-                except Exception:
-                    resp_data = {}
-                return True, "", resp_data
-
-            try:
-                err_data = response.json()
-                err_msg = (
-                    err_data.get("message")
-                    or err_data.get("error")
-                    or err_data.get("detail")
-                    or response.text[:300]
+    for attempt in range(1, API_RETRY_MAX_ATTEMPTS + 1):
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                logger.info(f"Submitting policy {policy_id} to API ({bp_info}), attempt {attempt}/{API_RETRY_MAX_ATTEMPTS}")
+                response = await client.post(
+                    SUBMIT_POLICY_URL,
+                    files=files_parts,
                 )
-            except Exception:
-                err_msg = response.text[:300]
+                logger.info(f"Policy submission response: HTTP {response.status_code}, policy_id={policy_id}")
 
-            logger.error(f"Policy submission failed: HTTP {response.status_code}, body={response.text[:500]}")
-            return False, str(err_msg), {}
+                if response.status_code in (200, 201):
+                    try:
+                        resp_data = response.json()
+                    except Exception:
+                        resp_data = {}
+                    return True, "", resp_data
 
-    except httpx.TimeoutException:
-        logger.error(f"Policy submission timed out for policy {policy_id}")
-        return False, "The request timed out. Please try again.", {}
-    except Exception as e:
-        logger.error(f"Policy submission exception for policy {policy_id}: {e}")
-        return False, "An unexpected error occurred. Please try again.", {}
+                try:
+                    err_data = response.json()
+                    last_err_msg = (
+                        err_data.get("message")
+                        or err_data.get("error")
+                        or err_data.get("detail")
+                        or response.text[:300]
+                    )
+                except Exception:
+                    last_err_msg = response.text[:300]
+
+                if response.status_code in (502, 503, 504) and attempt < API_RETRY_MAX_ATTEMPTS:
+                    wait = API_RETRY_BACKOFF_SECONDS[min(attempt - 1, len(API_RETRY_BACKOFF_SECONDS) - 1)]
+                    logger.warning(f"Policy submission got gateway error HTTP {response.status_code} (attempt {attempt}), retrying in {wait}s...")
+                    await asyncio.sleep(wait)
+                    continue
+
+                logger.error(f"Policy submission failed: HTTP {response.status_code}, body={response.text[:500]}")
+                return False, str(last_err_msg), {}
+
+        except (httpx.TimeoutException, httpx.ConnectError) as e:
+            last_err_msg = "The request timed out. Please try again."
+            if attempt < API_RETRY_MAX_ATTEMPTS:
+                wait = API_RETRY_BACKOFF_SECONDS[min(attempt - 1, len(API_RETRY_BACKOFF_SECONDS) - 1)]
+                logger.warning(f"Policy submission {type(e).__name__} (attempt {attempt}), retrying in {wait}s...")
+                await asyncio.sleep(wait)
+                continue
+            logger.error(f"Policy submission failed after {API_RETRY_MAX_ATTEMPTS} attempts: {type(e).__name__}: {e}")
+
+    return False, str(last_err_msg), {}
 
 
 async def _handle_boarding_pass_upload(message, sender_wa_id, phone_number_id, in_reply_to, session):
@@ -4531,16 +4563,17 @@ async def _clear_bp_flow_state(session: dict, user_id: str) -> None:
 
 async def _fetch_policies_by_msisdn(msisdn: str) -> list:
     url = f"{POLICIES_BY_MSISDN_API_URL}/{msisdn}"
-    try:
+
+    async def _single_attempt():
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url)
             if response.status_code == 200:
                 return response.json().get("data", [])
-            logger.error(f"Policies by MSISDN API error: {response.status_code}")
-            return []
-    except Exception as e:
-        logger.error(f"Failed to fetch policies by MSISDN: {e}")
-        return []
+            logger.warning(f"Policies by MSISDN API error: {response.status_code}")
+            return None
+
+    result = await _api_call_with_retry(f"PoliciesByMSISDN({msisdn})", _single_attempt)
+    return result if result is not None else []
 
 
 def _format_policy_date(date_str: Optional[str]) -> str:
@@ -4700,23 +4733,49 @@ async def _upload_boarding_pass_to_api(
     import mimetypes
     ext = mimetypes.guess_extension(mime_type) or ".jpg"
     fname = filename or f"boarding_pass{ext}"
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                BOARDING_PASS_UPLOAD_API_URL,
-                files={"file": (fname, file_bytes, mime_type)},
-                data={"policyCode": policy_code},
-            )
-            resp_data = response.json() if response.content else {}
-            if response.status_code in (200, 201) and resp_data.get("status") == "success":
-                return True, ""
-            msg = resp_data.get("message", f"HTTP {response.status_code}")
-            return False, msg
-    except httpx.TimeoutException:
-        return False, "Upload request timed out. Please try again."
-    except Exception as e:
-        logger.error(f"Boarding pass upload failed: {e}")
-        return False, str(e)
+    last_err_msg = "Upload failed. Please try again."
+
+    for attempt in range(1, API_RETRY_MAX_ATTEMPTS + 1):
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                logger.info(f"Uploading boarding pass for policy {policy_code}, attempt {attempt}/{API_RETRY_MAX_ATTEMPTS}")
+                response = await client.post(
+                    BOARDING_PASS_UPLOAD_API_URL,
+                    files={"file": (fname, file_bytes, mime_type)},
+                    data={"policyCode": policy_code},
+                )
+                resp_data = response.json() if response.content else {}
+                if response.status_code in (200, 201) and resp_data.get("status") == "success":
+                    return True, ""
+
+                last_err_msg = resp_data.get("message", f"HTTP {response.status_code}")
+
+                if response.status_code in (502, 503, 504) and attempt < API_RETRY_MAX_ATTEMPTS:
+                    wait = API_RETRY_BACKOFF_SECONDS[min(attempt - 1, len(API_RETRY_BACKOFF_SECONDS) - 1)]
+                    logger.warning(f"Boarding pass upload got gateway error HTTP {response.status_code} (attempt {attempt}), retrying in {wait}s...")
+                    await asyncio.sleep(wait)
+                    continue
+
+                return False, last_err_msg
+
+        except (httpx.TimeoutException, httpx.ConnectError) as e:
+            last_err_msg = "Upload request timed out. Please try again."
+            if attempt < API_RETRY_MAX_ATTEMPTS:
+                wait = API_RETRY_BACKOFF_SECONDS[min(attempt - 1, len(API_RETRY_BACKOFF_SECONDS) - 1)]
+                logger.warning(f"Boarding pass upload {type(e).__name__} (attempt {attempt}), retrying in {wait}s...")
+                await asyncio.sleep(wait)
+                continue
+            logger.error(f"Boarding pass upload failed after {API_RETRY_MAX_ATTEMPTS} attempts: {e}")
+        except Exception as e:
+            last_err_msg = "Upload failed. Please try again."
+            if attempt < API_RETRY_MAX_ATTEMPTS:
+                wait = API_RETRY_BACKOFF_SECONDS[min(attempt - 1, len(API_RETRY_BACKOFF_SECONDS) - 1)]
+                logger.warning(f"Boarding pass upload error (attempt {attempt}): {e}, retrying in {wait}s...")
+                await asyncio.sleep(wait)
+                continue
+            logger.error(f"Boarding pass upload failed after {API_RETRY_MAX_ATTEMPTS} attempts: {e}")
+
+    return False, last_err_msg
 
 
 async def handle_boarding_pass_upload_flow(

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -67,49 +68,68 @@ async def send_whatsapp_payload(
 
     msg_type = whatsapp_payload.get("type", "unknown")
 
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(url, json=whatsapp_payload, headers=headers)
-            response_data = response.json()
+    for attempt in range(1, MEDIA_RETRY_MAX_ATTEMPTS + 1):
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(url, json=whatsapp_payload, headers=headers)
+                response_data = response.json()
 
-            if response.status_code == 200:
-                wamid = None
-                if "messages" in response_data and response_data["messages"]:
-                    wamid = response_data["messages"][0].get("id")
+                if response.status_code == 200:
+                    wamid = None
+                    if "messages" in response_data and response_data["messages"]:
+                        wamid = response_data["messages"][0].get("id")
 
-                content = {}
-                if msg_type == "text":
-                    content = {"text": whatsapp_payload.get("text", {}).get("body", "")}
-                elif msg_type == "interactive":
-                    content = {"interactive": whatsapp_payload.get("interactive", {})}
-                elif msg_type == "template":
-                    content = {"template": whatsapp_payload.get("template", {})}
-                else:
-                    content = {msg_type: whatsapp_payload.get(msg_type, {})}
+                    content = {}
+                    if msg_type == "text":
+                        content = {"text": whatsapp_payload.get("text", {}).get("body", "")}
+                    elif msg_type == "interactive":
+                        content = {"interactive": whatsapp_payload.get("interactive", {})}
+                    elif msg_type == "template":
+                        content = {"template": whatsapp_payload.get("template", {})}
+                    else:
+                        content = {msg_type: whatsapp_payload.get(msg_type, {})}
 
-                await _save_outbound_message(
-                    message_id=wamid,
-                    to_wa_id=whatsapp_payload.get("to", ""),
-                    phone_number_id=pid,
-                    msg_type=msg_type,
-                    content=content,
-                    in_reply_to=in_reply_to,
-                    source=source,
-                )
+                    await _save_outbound_message(
+                        message_id=wamid,
+                        to_wa_id=whatsapp_payload.get("to", ""),
+                        phone_number_id=pid,
+                        msg_type=msg_type,
+                        content=content,
+                        in_reply_to=in_reply_to,
+                        source=source,
+                    )
 
-                logger.info(f"Message sent to {to}: type={msg_type}, wamid={wamid}")
-                return {**response_data, "_wamid": wamid}
-            else:
+                    logger.info(f"Message sent to {to}: type={msg_type}, wamid={wamid}")
+                    return {**response_data, "_wamid": wamid}
+
                 error_msg = response_data.get("error", {}).get("message", "Unknown error")
                 error_code = response_data.get("error", {}).get("code", "N/A")
+
+                if response.status_code in (429, 502, 503, 504) and attempt < MEDIA_RETRY_MAX_ATTEMPTS:
+                    wait = MEDIA_RETRY_BACKOFF[min(attempt - 1, len(MEDIA_RETRY_BACKOFF) - 1)]
+                    logger.warning(f"WhatsApp API returned HTTP {response.status_code} to {to} (attempt {attempt}), retrying in {wait}s...")
+                    await asyncio.sleep(wait)
+                    continue
+
                 logger.error(f"Failed to send message to {to}: HTTP {response.status_code} | Error #{error_code}: {error_msg}")
                 return None
-    except httpx.TimeoutException:
-        logger.error(f"Timeout sending message to {to}")
-        return None
-    except Exception as e:
-        logger.error(f"Error sending message to {to}: {e}")
-        return None
+
+        except (httpx.TimeoutException, httpx.ConnectError) as e:
+            if attempt < MEDIA_RETRY_MAX_ATTEMPTS:
+                wait = MEDIA_RETRY_BACKOFF[min(attempt - 1, len(MEDIA_RETRY_BACKOFF) - 1)]
+                logger.warning(f"WhatsApp send {type(e).__name__} to {to} (attempt {attempt}), retrying in {wait}s...")
+                await asyncio.sleep(wait)
+                continue
+            logger.error(f"Failed to send message to {to} after {MEDIA_RETRY_MAX_ATTEMPTS} attempts: {e}")
+        except Exception as e:
+            if attempt < MEDIA_RETRY_MAX_ATTEMPTS:
+                wait = MEDIA_RETRY_BACKOFF[min(attempt - 1, len(MEDIA_RETRY_BACKOFF) - 1)]
+                logger.warning(f"WhatsApp send error to {to} (attempt {attempt}): {e}, retrying in {wait}s...")
+                await asyncio.sleep(wait)
+                continue
+            logger.error(f"Error sending message to {to} after {MEDIA_RETRY_MAX_ATTEMPTS} attempts: {e}")
+
+    return None
 
 
 SUPPORTED_BOARDING_PASS_TYPES = {
@@ -118,45 +138,63 @@ SUPPORTED_BOARDING_PASS_TYPES = {
 }
 
 
+MEDIA_RETRY_MAX_ATTEMPTS = 3
+MEDIA_RETRY_BACKOFF = [1, 2, 4]
+
 async def download_whatsapp_media(media_id: str) -> Optional[dict]:
     settings = get_settings()
     token = settings.WHATSAPP_API_TOKEN
     graph_url = f"https://graph.facebook.com/v22.0/{media_id}"
     headers = {"Authorization": f"Bearer {token}"}
 
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            meta_resp = await client.get(graph_url, headers=headers)
-            if meta_resp.status_code != 200:
-                logger.error(f"Failed to fetch media metadata for {media_id}: HTTP {meta_resp.status_code}")
-                return None
+    for attempt in range(1, MEDIA_RETRY_MAX_ATTEMPTS + 1):
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                meta_resp = await client.get(graph_url, headers=headers)
+                if meta_resp.status_code != 200:
+                    logger.warning(f"Failed to fetch media metadata for {media_id}: HTTP {meta_resp.status_code} (attempt {attempt})")
+                    if attempt < MEDIA_RETRY_MAX_ATTEMPTS:
+                        await asyncio.sleep(MEDIA_RETRY_BACKOFF[min(attempt - 1, len(MEDIA_RETRY_BACKOFF) - 1)])
+                        continue
+                    return None
 
-            meta = meta_resp.json()
-            download_url = meta.get("url")
-            mime_type = meta.get("mime_type", "application/octet-stream")
-            file_size = meta.get("file_size")
+                meta = meta_resp.json()
+                download_url = meta.get("url")
+                mime_type = meta.get("mime_type", "application/octet-stream")
+                file_size = meta.get("file_size")
 
-            if not download_url:
-                logger.error(f"No download URL in media metadata for {media_id}")
-                return None
+                if not download_url:
+                    logger.error(f"No download URL in media metadata for {media_id}")
+                    return None
 
-            media_resp = await client.get(download_url, headers=headers)
-            if media_resp.status_code != 200:
-                logger.error(f"Failed to download media {media_id}: HTTP {media_resp.status_code}")
-                return None
+                media_resp = await client.get(download_url, headers=headers)
+                if media_resp.status_code != 200:
+                    logger.warning(f"Failed to download media {media_id}: HTTP {media_resp.status_code} (attempt {attempt})")
+                    if attempt < MEDIA_RETRY_MAX_ATTEMPTS:
+                        await asyncio.sleep(MEDIA_RETRY_BACKOFF[min(attempt - 1, len(MEDIA_RETRY_BACKOFF) - 1)])
+                        continue
+                    return None
 
-            logger.info(f"Downloaded media {media_id}: {len(media_resp.content)} bytes, type={mime_type}")
-            return {
-                "mime_type": mime_type,
-                "file_size": file_size or len(media_resp.content),
-                "bytes": media_resp.content,
-            }
-    except httpx.TimeoutException:
-        logger.error(f"Timeout downloading media {media_id}")
-        return None
-    except Exception as e:
-        logger.error(f"Error downloading media {media_id}: {e}")
-        return None
+                logger.info(f"Downloaded media {media_id}: {len(media_resp.content)} bytes, type={mime_type}")
+                return {
+                    "mime_type": mime_type,
+                    "file_size": file_size or len(media_resp.content),
+                    "bytes": media_resp.content,
+                }
+        except (httpx.TimeoutException, httpx.ConnectError) as e:
+            logger.warning(f"Media download {type(e).__name__} for {media_id} (attempt {attempt})")
+            if attempt < MEDIA_RETRY_MAX_ATTEMPTS:
+                await asyncio.sleep(MEDIA_RETRY_BACKOFF[min(attempt - 1, len(MEDIA_RETRY_BACKOFF) - 1)])
+                continue
+            logger.error(f"Media download failed after {MEDIA_RETRY_MAX_ATTEMPTS} attempts: {e}")
+        except Exception as e:
+            logger.warning(f"Media download error for {media_id} (attempt {attempt}): {e}")
+            if attempt < MEDIA_RETRY_MAX_ATTEMPTS:
+                await asyncio.sleep(MEDIA_RETRY_BACKOFF[min(attempt - 1, len(MEDIA_RETRY_BACKOFF) - 1)])
+                continue
+            logger.error(f"Media download failed after {MEDIA_RETRY_MAX_ATTEMPTS} attempts: {e}")
+
+    return None
 
 
 async def _save_outbound_message(
