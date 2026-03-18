@@ -180,9 +180,11 @@ async def _process_change(entry_id: str, change):
                         log_event("SHORTCUTS", {"to": sender_wa_id})
                         continue
 
+                user_session = await get_session(sender_wa_id)
+
                 if message.type == "text" and message.text:
                     from app.services.auto_reply_service import is_greeting, send_welcome_message
-                    if is_greeting(message.text.body):
+                    if is_greeting(message.text.body) and not is_in_policy_flow(user_session) and not is_in_bp_upload_flow(user_session):
                         await send_welcome_message(
                             to=sender_wa_id,
                             phone_number_id=msg_phone_number_id,
@@ -191,7 +193,6 @@ async def _process_change(entry_id: str, change):
                         log_event("GREETING_WELCOME", {"to": sender_wa_id})
                         continue
 
-                user_session = await get_session(sender_wa_id)
                 if is_in_bp_upload_flow(user_session):
                     log_event("BP_UPLOAD_FLOW", {
                         "message_id": message.id,

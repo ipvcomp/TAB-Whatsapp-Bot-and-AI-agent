@@ -40,6 +40,7 @@ FLOW_STEP_MSISDN_CONFIRM = "msisdn_confirm"
 FLOW_STEP_COUNTRY = "country_input"
 FLOW_STEP_PRODUCT_LIST = "product_list"
 FLOW_STEP_PRODUCT_SELECTED = "product_selected"
+FLOW_STEP_PRODUCT_CONFIRM = "product_confirm"
 FLOW_STEP_PD_FIRST_NAME = "pd_first_name"
 FLOW_STEP_PD_LAST_NAME = "pd_last_name"
 FLOW_STEP_PD_EMAIL = "pd_email"
@@ -69,6 +70,8 @@ BUTTON_VIEW_PRODUCTS = "policy_view_products"
 BUTTON_RETRY_SUBMISSION = "policy_retry_submission"
 BUTTON_MSISDN_YES = "msisdn_confirm_yes"
 BUTTON_MSISDN_NO = "msisdn_confirm_no"
+BUTTON_PRODUCT_CONFIRM = "product_confirm"
+BUTTON_PRODUCT_CHANGE = "product_change"
 BUTTON_ID_NIN = "id_type_nin"
 BUTTON_ID_BVN = "id_type_bvn"
 PRODUCT_ID_PREFIX = "product_"
@@ -118,7 +121,8 @@ BACK_STEP_MAP = {
     FLOW_STEP_COUNTRY: FLOW_STEP_MENU,
     FLOW_STEP_PRODUCT_LIST: FLOW_STEP_MSISDN_CONFIRM,
     FLOW_STEP_PRODUCT_SELECTED: FLOW_STEP_MSISDN_CONFIRM,
-    FLOW_STEP_PD_FIRST_NAME: FLOW_STEP_PRODUCT_SELECTED,
+    FLOW_STEP_PRODUCT_CONFIRM: FLOW_STEP_PRODUCT_SELECTED,
+    FLOW_STEP_PD_FIRST_NAME: FLOW_STEP_PRODUCT_CONFIRM,
     FLOW_STEP_PD_LAST_NAME: FLOW_STEP_PD_FIRST_NAME,
     FLOW_STEP_PD_EMAIL: FLOW_STEP_PD_LAST_NAME,
     FLOW_STEP_ID_TYPE: FLOW_STEP_PD_EMAIL,
@@ -536,6 +540,43 @@ async def _send_step_prompt(
             await _send_products_page(sender_wa_id, phone_number_id, in_reply_to, products, 0, country_code)
             flow_state["available_products"] = products
             flow_state["product_page"] = 0
+
+    elif step == FLOW_STEP_PRODUCT_CONFIRM:
+        selected_product = flow_state.get("selected_product", {})
+        coverage = ", ".join(selected_product.get("coverage_types", []))
+        validity = selected_product.get("validity_days", "")
+        price_str = f"{selected_product.get('currency', '')} {selected_product.get('price', '')}".strip()
+        confirm_text = (
+            f"You've selected *{selected_product.get('name', '')}*\n\n"
+            f"*Product details*\n"
+            f"\u2022 Product: {selected_product.get('name', '')}\n"
+            f"\u2022 Coverage: {coverage}\n"
+            f"\u2022 Price: {price_str}\n"
+            f"\u2022 Validity: {validity} day{'s' if validity != 1 else ''}\n"
+            f"\u2022 Provider: {selected_product.get('provider_name', '')}\n\n"
+            f"Please confirm if this selection is correct or choose to change it."
+        )
+        await send_whatsapp_payload(
+            {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": sender_wa_id,
+                "type": "interactive",
+                "interactive": {
+                    "type": "button",
+                    "body": {"text": confirm_text},
+                    "action": {
+                        "buttons": [
+                            {"type": "reply", "reply": {"id": BUTTON_PRODUCT_CONFIRM, "title": "Confirm"}},
+                            {"type": "reply", "reply": {"id": BUTTON_PRODUCT_CHANGE, "title": "Change Product"}},
+                        ]
+                    },
+                },
+            },
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
 
     elif step == FLOW_STEP_ID_TYPE:
         await _send_id_type_selection(sender_wa_id, phone_number_id, in_reply_to)
@@ -1165,6 +1206,15 @@ async def handle_policy_flow(
         )
     elif current_step == FLOW_STEP_PRODUCT_SELECTED:
         await _handle_product_selected_response(
+            reply_id=reply_id,
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
+    elif current_step == FLOW_STEP_PRODUCT_CONFIRM:
+        await _handle_product_confirm_response(
             reply_id=reply_id,
             message=message,
             sender_wa_id=sender_wa_id,
@@ -1926,26 +1976,32 @@ async def _handle_product_selected_response(reply_id, message, sender_wa_id, pho
         confirm_text = (
             f"You've selected *{selected_product.get('name', '')}*\n\n"
             f"_{selected_product.get('description', '')}_\n\n"
-            f"Product Name: {selected_product.get('name', '')}\n"
-            f"Coverage: {coverage}\n"
-            f"Price: {price_display}\n"
-            f"Validity: {validity} day{'s' if validity != 1 else ''}\n"
-            f"Provider: {selected_product.get('providerName', '')}\n\n"
-            f"Now let's capture your personal details."
+            f"*Product details*\n"
+            f"\u2022 Product: {selected_product.get('name', '')}\n"
+            f"\u2022 Coverage: {coverage}\n"
+            f"\u2022 Price: {price_display}\n"
+            f"\u2022 Validity: {validity} day{'s' if validity != 1 else ''}\n"
+            f"\u2022 Provider: {selected_product.get('providerName', '')}\n\n"
+            f"Please confirm if this selection is correct or choose to change it."
         )
 
-        await send_text_message(
-            to=sender_wa_id,
-            body=confirm_text,
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-
-        first_step = PERSONAL_DETAIL_STEPS[0]
-        await send_text_message(
-            to=sender_wa_id,
-            body=first_step["prompt"],
+        await send_whatsapp_payload(
+            {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": sender_wa_id,
+                "type": "interactive",
+                "interactive": {
+                    "type": "button",
+                    "body": {"text": confirm_text},
+                    "action": {
+                        "buttons": [
+                            {"type": "reply", "reply": {"id": BUTTON_PRODUCT_CONFIRM, "title": "Confirm"}},
+                            {"type": "reply", "reply": {"id": BUTTON_PRODUCT_CHANGE, "title": "Change Product"}},
+                        ]
+                    },
+                },
+            },
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -1954,13 +2010,17 @@ async def _handle_product_selected_response(reply_id, message, sender_wa_id, pho
         session["active_policy_id"] = policy_id
         await _update_flow_state(session, sender_wa_id, {
             "active": True,
-            "step": first_step["step"],
+            "step": FLOW_STEP_PRODUCT_CONFIRM,
             "action": "create_new",
             "selected_product": product_data,
+            "available_products": products,
+            "product_page": current_page,
             "policy_id": policy_id,
             "country_code": flow_state.get("country_code"),
             "country_name": flow_state.get("country_name"),
-            "personal_details": {},
+            "msisdn_confirmed": flow_state.get("msisdn_confirmed"),
+            "msisdn_info": flow_state.get("msisdn_info", {}),
+            "channel_info": flow_state.get("channel_info", {}),
         })
     else:
         await send_text_message(
@@ -1970,6 +2030,111 @@ async def _handle_product_selected_response(reply_id, message, sender_wa_id, pho
             in_reply_to=in_reply_to,
             source="policy_flow",
         )
+
+
+async def _handle_product_confirm_response(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+
+    if reply_id == BUTTON_PRODUCT_CONFIRM:
+        first_step = PERSONAL_DETAIL_STEPS[0]
+        await send_text_message(
+            to=sender_wa_id,
+            body=f"Product confirmed! Now let's capture your personal details.\n\n{first_step['prompt']}",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        existing_pd = flow_state.get("personal_details")
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": first_step["step"],
+            "personal_details": existing_pd if existing_pd else {},
+        })
+        return
+
+    if reply_id == BUTTON_PRODUCT_CHANGE:
+        country_code = flow_state.get("country_code", "NG")
+        products = flow_state.get("available_products") or await _fetch_products(country_code)
+        if products:
+            await _send_products_page(sender_wa_id, phone_number_id, in_reply_to, products, 0, country_code)
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_PRODUCT_SELECTED,
+                "available_products": products,
+                "product_page": 0,
+            })
+        else:
+            await _send_retry_options(
+                to=sender_wa_id,
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                error_message="Couldn't fetch products. Please try again.",
+                retry_label="Retry Products",
+            )
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "retry_step": FLOW_STEP_PRODUCT_LIST,
+            })
+        return
+
+    if message.type == "text" and message.text:
+        user_text = message.text.body.strip()
+        settings = get_settings()
+        if settings.LLM_API_URL:
+            from app.services.llm_service import call_generic
+            user_session_data = session or {}
+            llm_response = await call_generic(
+                user_id=sender_wa_id,
+                phone_number=user_session_data.get("phone_number", sender_wa_id),
+                message=user_text,
+                user_name=user_session_data.get("first_name", ""),
+                current_node=user_session_data.get("current_node", "N01"),
+            )
+            if llm_response and llm_response.get("response"):
+                await send_text_message(
+                    to=sender_wa_id,
+                    body=llm_response["response"],
+                    phone_number_id=phone_number_id,
+                    in_reply_to=in_reply_to,
+                    source="llm",
+                )
+
+    selected_product = flow_state.get("selected_product", {})
+    coverage = ", ".join(selected_product.get("coverage_types", []))
+    validity = selected_product.get("validity_days", "")
+    price_str = f"{selected_product.get('currency', '')} {selected_product.get('price', '')}".strip()
+    confirm_text = (
+        f"You've selected *{selected_product.get('name', '')}*\n\n"
+        f"*Product details*\n"
+        f"\u2022 Product: {selected_product.get('name', '')}\n"
+        f"\u2022 Coverage: {coverage}\n"
+        f"\u2022 Price: {price_str}\n"
+        f"\u2022 Validity: {validity} day{'s' if validity != 1 else ''}\n"
+        f"\u2022 Provider: {selected_product.get('provider_name', '')}\n\n"
+        f"Please confirm if this selection is correct or choose to change it."
+    )
+    await send_whatsapp_payload(
+        {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": sender_wa_id,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": confirm_text},
+                "action": {
+                    "buttons": [
+                        {"type": "reply", "reply": {"id": BUTTON_PRODUCT_CONFIRM, "title": "Confirm"}},
+                        {"type": "reply", "reply": {"id": BUTTON_PRODUCT_CHANGE, "title": "Change Product"}},
+                    ]
+                },
+            },
+        },
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
 
 
 def _get_text_input(message: WhatsAppMessage) -> Optional[str]:
