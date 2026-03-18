@@ -108,6 +108,7 @@ FLOW_STEP_ITIN_ARR_TIME = "itin_arr_time"
 FLOW_STEP_BOARDING_PASS = "boarding_pass"
 FLOW_STEP_BOARDING_PASS_CHOICE = "boarding_pass_choice"
 FLOW_STEP_POLICY_SUMMARY = "policy_summary"
+FLOW_STEP_EXIT_CONFIRM = "exit_confirmation"
 
 ARR_AIRPORT_ID_PREFIX = "arr_airport_"
 
@@ -127,6 +128,8 @@ BUTTON_BP_UPLOAD_NOW = "bp_upload_now"
 BUTTON_BP_UPLOAD_LATER = "bp_upload_later"
 BUTTON_SUMMARY_SUBMIT = "policy_summary_submit"
 BUTTON_SUMMARY_CHANGE = "policy_summary_change"
+BUTTON_EXIT_YES = "exit_confirm_yes"
+BUTTON_EXIT_NO = "exit_confirm_no"
 PRODUCT_ID_PREFIX = "product_"
 PAYMENT_METHOD_PREFIX = "pay_method_"
 BANK_ID_PREFIX = "bank_"
@@ -452,17 +455,47 @@ async def _handle_shortcut(
             await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, new_state)
             await _update_flow_state(session, sender_wa_id, new_state)
             return True
-        if policy_id:
-            await cancel_policy(policy_id)
-        session["active_policy_id"] = None
-        await send_text_message(
-            to=sender_wa_id,
-            body="Policy flow cancelled. \U0001F44B\n\nType *policy* to start again or *hi* for the main menu.",
+        if current_step == FLOW_STEP_EXIT_CONFIRM:
+            await send_text_message(
+                to=sender_wa_id,
+                body="Please tap one of the buttons: *Yes, Cancel* or *No, Let's Resume*.",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            return True
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": sender_wa_id,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {
+                    "text": (
+                        "Are you sure you want to cancel? All your current progress will be lost.\n\n"
+                        "You can always start a new policy later by typing *policy*."
+                    )
+                },
+                "action": {
+                    "buttons": [
+                        {"type": "reply", "reply": {"id": BUTTON_EXIT_YES, "title": "Yes, Cancel"}},
+                        {"type": "reply", "reply": {"id": BUTTON_EXIT_NO, "title": "No, Let's Resume"}},
+                    ]
+                },
+            },
+        }
+        await send_whatsapp_payload(
+            payload,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
         )
-        await _clear_flow_state(session, sender_wa_id)
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_EXIT_CONFIRM,
+            "pre_exit_step": current_step,
+        })
         return True
 
     if shortcut == "restart":
@@ -794,6 +827,88 @@ async def _send_step_prompt(
             source="policy_flow",
         )
 
+    elif step == FLOW_STEP_POLICY_SUMMARY:
+        await _send_policy_summary_confirmation(sender_wa_id, phone_number_id, in_reply_to, flow_state)
+
+    elif step == FLOW_STEP_DETAILS_EDIT_SELECT:
+        await _send_edit_field_menu(sender_wa_id, phone_number_id, in_reply_to, flow_state)
+
+    elif step == FLOW_STEP_AIRPORT_SELECT:
+        airports = flow_state.get("available_airports", [])
+        if airports:
+            rows = []
+            for idx, airport in enumerate(airports[:10]):
+                iata = airport.get("iata_code", "")
+                name = airport.get("name", "Unknown")
+                country = airport.get("country_name", "") or airport.get("country", "")
+                rows.append({
+                    "id": f"{AIRPORT_ID_PREFIX}{idx}",
+                    "title": str(name)[:24],
+                    "description": f"{iata} - {country}"[:72],
+                })
+            payload = {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": sender_wa_id,
+                "type": "interactive",
+                "interactive": {
+                    "type": "list",
+                    "header": {"type": "text", "text": "Select Airport"},
+                    "body": {"text": "Please select your departure airport:"},
+                    "action": {
+                        "button": "View Airports",
+                        "sections": [{"title": "Airports", "rows": rows}]
+                    }
+                }
+            }
+            await send_whatsapp_payload(payload, phone_number_id=phone_number_id, in_reply_to=in_reply_to, source="policy_flow")
+        else:
+            await send_text_message(
+                to=sender_wa_id,
+                body="Please enter the first 3 characters of the *departure airport name* or *airport code* (e.g. LOS, Mur, KAN, Enu, PHC):",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+
+    elif step == FLOW_STEP_ITIN_ARR_AIRPORT_SELECT:
+        airports = flow_state.get("available_arr_airports", [])
+        if airports:
+            rows = []
+            for idx, airport in enumerate(airports[:10]):
+                iata = airport.get("iata_code", "")
+                name = airport.get("name", "Unknown")
+                country = airport.get("country", "")
+                rows.append({
+                    "id": f"{ARR_AIRPORT_ID_PREFIX}{idx}",
+                    "title": str(name)[:24],
+                    "description": f"{iata} - {country}"[:72],
+                })
+            payload = {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": sender_wa_id,
+                "type": "interactive",
+                "interactive": {
+                    "type": "list",
+                    "header": {"type": "text", "text": "Select Arrival Airport"},
+                    "body": {"text": "Please select your arrival airport:"},
+                    "action": {
+                        "button": "View Airports",
+                        "sections": [{"title": "Airports", "rows": rows}]
+                    }
+                }
+            }
+            await send_whatsapp_payload(payload, phone_number_id=phone_number_id, in_reply_to=in_reply_to, source="policy_flow")
+        else:
+            await send_text_message(
+                to=sender_wa_id,
+                body="Please enter the first 3 characters of the *arrival airport name* or *airport code* (e.g. LOS, Mur, KAN, Enu, PHC):",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+
     else:
         for pd_step in PERSONAL_DETAIL_STEPS:
             if pd_step["step"] == step:
@@ -838,19 +953,49 @@ async def handle_policy_flow(
 
     if _is_cancel_command(message):
         flow_state = _get_flow_state(session)
-        active_policy_id = flow_state.get("policy_id")
-        if active_policy_id:
-            await cancel_policy(active_policy_id)
-        session["active_policy_id"] = None
-        await send_text_message(
-            to=sender_wa_id,
-            body="Policy flow cancelled. Send any message to continue or type 'policy' to start again.",
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-        await _clear_flow_state(session, sender_wa_id)
-        return
+        current_step = flow_state.get("step")
+        if current_step == FLOW_STEP_EXIT_CONFIRM:
+            pass
+        elif current_step == FLOW_STEP_DETAILS_EDIT_SELECT or flow_state.get("editing_field"):
+            new_state = {**flow_state, "step": FLOW_STEP_DETAILS_CONFIRM}
+            new_state.pop("editing_field", None)
+            await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, new_state)
+            await _update_flow_state(session, sender_wa_id, new_state)
+            return
+        else:
+            payload = {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": sender_wa_id,
+                "type": "interactive",
+                "interactive": {
+                    "type": "button",
+                    "body": {
+                        "text": (
+                            "Are you sure you want to cancel? All your current progress will be lost.\n\n"
+                            "You can always start a new policy later by typing *policy*."
+                        )
+                    },
+                    "action": {
+                        "buttons": [
+                            {"type": "reply", "reply": {"id": BUTTON_EXIT_YES, "title": "Yes, Cancel"}},
+                            {"type": "reply", "reply": {"id": BUTTON_EXIT_NO, "title": "No, Let's Resume"}},
+                        ]
+                    },
+                },
+            }
+            await send_whatsapp_payload(
+                payload,
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_EXIT_CONFIRM,
+                "pre_exit_step": current_step,
+            })
+            return
 
     if is_policy_trigger(message):
         flow_state = _get_flow_state(session)
@@ -1346,6 +1491,15 @@ async def handle_policy_flow(
         )
     elif current_step == FLOW_STEP_ID_NUMBER:
         await _handle_id_number_input(
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
+    elif current_step == FLOW_STEP_EXIT_CONFIRM:
+        await _handle_exit_confirm_response(
+            reply_id=reply_id,
             message=message,
             sender_wa_id=sender_wa_id,
             phone_number_id=phone_number_id,
@@ -2714,6 +2868,49 @@ async def _handle_details_confirm_response(reply_id, message, sender_wa_id, phon
                 )
 
     await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, flow_state)
+
+
+async def _handle_exit_confirm_response(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+    pre_exit_step = flow_state.get("pre_exit_step")
+
+    if reply_id == BUTTON_EXIT_YES:
+        if policy_id:
+            await cancel_policy(policy_id)
+        session["active_policy_id"] = None
+        await send_text_message(
+            to=sender_wa_id,
+            body="Policy flow cancelled. No worries!\n\nType *policy* to start a new one or *hi* for the main menu.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _clear_flow_state(session, sender_wa_id)
+        return
+
+    if reply_id == BUTTON_EXIT_NO:
+        resume_step = pre_exit_step or FLOW_STEP_MENU
+        new_state = {**flow_state, "step": resume_step}
+        new_state.pop("pre_exit_step", None)
+        await send_text_message(
+            to=sender_wa_id,
+            body="Great, let's continue where you left off!",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _send_step_prompt(resume_step, sender_wa_id, phone_number_id, in_reply_to, session, new_state)
+        await _update_flow_state(session, sender_wa_id, new_state)
+        return
+
+    await send_text_message(
+        to=sender_wa_id,
+        body="Please tap one of the buttons: *Yes, Cancel* or *No, Let's Resume*.",
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
 
 
 async def _send_edit_field_menu(sender_wa_id, phone_number_id, in_reply_to, flow_state):
