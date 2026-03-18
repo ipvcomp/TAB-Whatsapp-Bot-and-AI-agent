@@ -88,6 +88,8 @@ FLOW_STEP_PD_EMAIL = "pd_email"
 FLOW_STEP_ID_TYPE = "id_type_selection"
 FLOW_STEP_ID_NUMBER = "id_number_input"
 FLOW_STEP_DETAILS_CONFIRM = "details_confirmation"
+FLOW_STEP_DETAILS_EDIT_SELECT = "details_edit_select"
+FLOW_STEP_DETAILS_EDIT_INPUT = "details_edit_input"
 FLOW_STEP_PAYMENT_METHOD = "payment_method"
 FLOW_STEP_PD_ACCOUNT_NUMBER = "pd_account_number"
 FLOW_STEP_BANK_NAME_INPUT = "bank_name_input"
@@ -189,6 +191,7 @@ BACK_STEP_MAP = {
     FLOW_STEP_ID_TYPE: FLOW_STEP_PD_EMAIL,
     FLOW_STEP_ID_NUMBER: FLOW_STEP_ID_TYPE,
     FLOW_STEP_DETAILS_CONFIRM: FLOW_STEP_ID_NUMBER,
+    FLOW_STEP_DETAILS_EDIT_SELECT: FLOW_STEP_DETAILS_CONFIRM,
     FLOW_STEP_PAYMENT_METHOD: FLOW_STEP_DETAILS_CONFIRM,
     FLOW_STEP_PD_ACCOUNT_NUMBER: FLOW_STEP_PAYMENT_METHOD,
     FLOW_STEP_BANK_NAME_INPUT: FLOW_STEP_PD_ACCOUNT_NUMBER,
@@ -202,6 +205,20 @@ PERSONAL_DETAIL_STEPS = [
     {"step": FLOW_STEP_PD_FIRST_NAME, "field": "first_name", "prompt": "Please enter your *first name*:", "expected_format": "text"},
     {"step": FLOW_STEP_PD_LAST_NAME, "field": "last_name", "prompt": "Please enter your *last name*:", "expected_format": "text"},
     {"step": FLOW_STEP_PD_EMAIL, "field": "email", "prompt": "Please enter your *email address*:", "expected_format": "email"},
+]
+
+DETAILS_EDITABLE_FIELDS = [
+    {"num": 1, "label": "Departure Date", "field": "itin_dep_date", "step": FLOW_STEP_ITIN_DEP_DATE},
+    {"num": 2, "label": "Departure Time", "field": "itin_dep_time", "step": FLOW_STEP_ITIN_DEP_TIME},
+    {"num": 3, "label": "Arrival Airport", "field": "itin_arr_airport", "step": FLOW_STEP_ITIN_ARR_AIRPORT_INPUT},
+    {"num": 4, "label": "Arrival Date", "field": "itin_arr_date", "step": FLOW_STEP_ITIN_ARR_DATE},
+    {"num": 5, "label": "Arrival Time", "field": "itin_arr_time", "step": FLOW_STEP_ITIN_ARR_TIME},
+    {"num": 6, "label": "Booking Reference", "field": "itin_booking_ref", "step": FLOW_STEP_ITIN_BOOKING_REF},
+    {"num": 7, "label": "Flight Number", "field": "itin_flight_no", "step": FLOW_STEP_ITIN_FLIGHT_NO},
+    {"num": 8, "label": "First Name", "field": "pd_first_name", "step": FLOW_STEP_PD_FIRST_NAME},
+    {"num": 9, "label": "Last Name", "field": "pd_last_name", "step": FLOW_STEP_PD_LAST_NAME},
+    {"num": 10, "label": "Email", "field": "pd_email", "step": FLOW_STEP_PD_EMAIL},
+    {"num": 11, "label": "ID Type & Number", "field": "id_type_number", "step": FLOW_STEP_ID_TYPE},
 ]
 
 COUNTRY_MAP = {
@@ -429,6 +446,12 @@ async def _handle_shortcut(
         return True
 
     if shortcut == "exit":
+        if current_step == FLOW_STEP_DETAILS_EDIT_SELECT or flow_state.get("editing_field"):
+            new_state = {**flow_state, "step": FLOW_STEP_DETAILS_CONFIRM}
+            new_state.pop("editing_field", None)
+            await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, new_state)
+            await _update_flow_state(session, sender_wa_id, new_state)
+            return True
         if policy_id:
             await cancel_policy(policy_id)
         session["active_policy_id"] = None
@@ -524,6 +547,12 @@ async def _handle_shortcut(
         return True
 
     if shortcut == "back":
+        if current_step == FLOW_STEP_DETAILS_EDIT_SELECT or flow_state.get("editing_field"):
+            new_state = {**flow_state, "step": FLOW_STEP_DETAILS_CONFIRM}
+            new_state.pop("editing_field", None)
+            await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, new_state)
+            await _update_flow_state(session, sender_wa_id, new_state)
+            return True
         if not current_step or current_step == FLOW_STEP_MENU:
             await send_text_message(
                 to=sender_wa_id,
@@ -1317,6 +1346,14 @@ async def handle_policy_flow(
         )
     elif current_step == FLOW_STEP_ID_NUMBER:
         await _handle_id_number_input(
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
+    elif current_step == FLOW_STEP_DETAILS_EDIT_SELECT:
+        await _handle_details_edit_select(
             message=message,
             sender_wa_id=sender_wa_id,
             phone_number_id=phone_number_id,
@@ -2358,6 +2395,15 @@ async def _handle_personal_detail_input(message, sender_wa_id, phone_number_id, 
 
     personal_details[current_field] = extracted_value
 
+    if flow_state.get("editing_field"):
+        if policy_id:
+            await set_personal_details(policy_id, personal_details)
+        new_state = {**flow_state, "step": FLOW_STEP_DETAILS_CONFIRM, "personal_details": personal_details}
+        new_state.pop("editing_field", None)
+        await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, new_state)
+        await _update_flow_state(session, sender_wa_id, new_state)
+        return
+
     next_idx = current_idx + 1
     if next_idx < len(PERSONAL_DETAIL_STEPS):
         next_step = PERSONAL_DETAIL_STEPS[next_idx]
@@ -2527,12 +2573,11 @@ async def _handle_id_number_input(message, sender_wa_id, phone_number_id, in_rep
         logger.info(f"{id_type} '***{cleaned[-4:]}' saved to policy {policy_id}")
 
     flow_state["id_number"] = cleaned
+    flow_state.pop("editing_field", None)
     await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, flow_state)
-    await _update_flow_state(session, sender_wa_id, {
-        **flow_state,
-        "step": FLOW_STEP_DETAILS_CONFIRM,
-        "id_number": cleaned,
-    })
+    new_state = {**flow_state, "step": FLOW_STEP_DETAILS_CONFIRM, "id_number": cleaned}
+    new_state.pop("editing_field", None)
+    await _update_flow_state(session, sender_wa_id, new_state)
 
 
 async def _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, flow_state):
@@ -2639,22 +2684,10 @@ async def _handle_details_confirm_response(reply_id, message, sender_wa_id, phon
         return
 
     if reply_id == BUTTON_DETAILS_CHANGE:
-        first_itin_step = ITINERARY_STEPS[0]
-        await send_text_message(
-            to=sender_wa_id,
-            body=(
-                "No problem! Let's go through your details again.\n\n"
-                "We'll start from the departure date. You can type *#back* at any step to skip to the next field "
-                "if the current value is already correct.\n\n"
-                f"{first_itin_step['prompt']}"
-            ),
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
+        await _send_edit_field_menu(sender_wa_id, phone_number_id, in_reply_to, flow_state)
         await _update_flow_state(session, sender_wa_id, {
             **flow_state,
-            "step": first_itin_step["step"],
+            "step": FLOW_STEP_DETAILS_EDIT_SELECT,
         })
         return
 
@@ -2681,6 +2714,140 @@ async def _handle_details_confirm_response(reply_id, message, sender_wa_id, phon
                 )
 
     await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, flow_state)
+
+
+async def _send_edit_field_menu(sender_wa_id, phone_number_id, in_reply_to, flow_state):
+    itinerary = flow_state.get("itinerary", {})
+    personal_details = flow_state.get("personal_details", {})
+    dep = itinerary.get("departure", {})
+    arr = itinerary.get("arrival", {})
+
+    current_values = {
+        1: dep.get("scheduledDateLocal", "—"),
+        2: dep.get("scheduledTimeLocal", "—"),
+        3: f"{arr.get('airportName', '')} ({arr.get('airport', '')})".strip(" ()") or "—",
+        4: arr.get("scheduledDateLocal", "—"),
+        5: arr.get("scheduledTimeLocal", "—"),
+        6: itinerary.get("bookingReference", "—"),
+        7: itinerary.get("flightNo", "—"),
+        8: personal_details.get("first_name", "—"),
+        9: personal_details.get("last_name", "—"),
+        10: personal_details.get("email", "—"),
+        11: f"{flow_state.get('id_type', '')} ***{flow_state.get('id_number', '')[-4:]}" if flow_state.get("id_number") and len(flow_state.get("id_number", "")) >= 4 else flow_state.get("id_type", "—"),
+    }
+
+    lines = ["Which detail would you like to change? Reply with the *number*:\n"]
+    for ef in DETAILS_EDITABLE_FIELDS:
+        lines.append(f"*{ef['num']}.* {ef['label']}: {current_values.get(ef['num'], '—')}")
+
+    lines.append("\nReply with a number (1-11) or type *#back* to go back.")
+
+    await send_text_message(
+        to=sender_wa_id,
+        body="\n".join(lines),
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+
+async def _handle_details_edit_select(message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    text_input = _get_text_input(message)
+
+    if not text_input:
+        await _send_edit_field_menu(sender_wa_id, phone_number_id, in_reply_to, flow_state)
+        return
+
+    cleaned = text_input.strip()
+
+    if cleaned.lower() in ("#cancel", "#back"):
+        await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, flow_state)
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_DETAILS_CONFIRM,
+        })
+        return
+
+    try:
+        choice = int(cleaned)
+    except ValueError:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please reply with a number between *1* and *11* to select which detail to change.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    selected = None
+    for ef in DETAILS_EDITABLE_FIELDS:
+        if ef["num"] == choice:
+            selected = ef
+            break
+
+    if not selected:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Invalid choice. Please reply with a number between *1* and *11*.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    target_step = selected["step"]
+
+    if target_step == FLOW_STEP_ID_TYPE:
+        await _send_id_type_selection(sender_wa_id, phone_number_id, in_reply_to)
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_ID_TYPE,
+            "editing_field": True,
+        })
+        return
+
+    if target_step == FLOW_STEP_ITIN_ARR_AIRPORT_INPUT:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter the first 3 characters of the *arrival airport name* or *airport code* (e.g. LOS, Mur, KAN, Enu, PHC):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
+            "editing_field": True,
+        })
+        return
+
+    prompt_map = {
+        FLOW_STEP_ITIN_DEP_DATE: "Please enter your scheduled *departure date* (e.g. 25/12/2026, 25-12-2026):",
+        FLOW_STEP_ITIN_DEP_TIME: "Please enter your scheduled *departure time* (e.g. 14:30):",
+        FLOW_STEP_ITIN_ARR_DATE: "Please enter your scheduled *arrival date* (e.g. 25/12/2026 or 25-12-2026):",
+        FLOW_STEP_ITIN_ARR_TIME: "Please enter your scheduled *arrival time* (e.g. 16:30):",
+        FLOW_STEP_ITIN_BOOKING_REF: "Please enter your *booking reference* (e.g. ABC123):",
+        FLOW_STEP_ITIN_FLIGHT_NO: "Please enter your *flight number* (e.g. BA1234):",
+        FLOW_STEP_PD_FIRST_NAME: "Please enter your *first name*:",
+        FLOW_STEP_PD_LAST_NAME: "Please enter your *last name*:",
+        FLOW_STEP_PD_EMAIL: "Please enter your *email address*:",
+    }
+
+    prompt = prompt_map.get(target_step, "Please enter the new value:")
+    await send_text_message(
+        to=sender_wa_id,
+        body=prompt,
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+    await _update_flow_state(session, sender_wa_id, {
+        **flow_state,
+        "step": target_step,
+        "editing_field": True,
+    })
 
 
 async def _handle_account_number_input(message, sender_wa_id, phone_number_id, in_reply_to, session):
@@ -3866,6 +4033,15 @@ async def _handle_itinerary_text_input(message, sender_wa_id, phone_number_id, i
 
     _set_itinerary_field(itinerary, current_info["field"], value)
 
+    if flow_state.get("editing_field"):
+        if policy_id:
+            await set_itinerary(policy_id, itinerary)
+        new_state = {**flow_state, "step": FLOW_STEP_DETAILS_CONFIRM, "itinerary": itinerary}
+        new_state.pop("editing_field", None)
+        await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, new_state)
+        await _update_flow_state(session, sender_wa_id, new_state)
+        return
+
     next_step_info = _get_next_itinerary_step(current_step)
 
     if next_step_info is None:
@@ -3981,21 +4157,36 @@ async def _handle_arr_airport_input(message, sender_wa_id, phone_number_id, in_r
         itinerary["arrival"]["airport"] = arr_airport_info.get("iata_code", "")
         itinerary["arrival"]["airportName"] = arr_airport_info.get("name", "")
 
-        await send_text_message(
-            to=sender_wa_id,
-            body=(
-                f"Arrival airport selected: *{arr_airport_info['name']}* ({arr_airport_info['iata_code']})\n\n"
-                f"Please enter your scheduled *arrival date* (e.g. 25/12/2026 or 25-12-2026):"
-            ),
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-        await _update_flow_state(session, sender_wa_id, {
-            **flow_state,
-            "step": FLOW_STEP_ITIN_ARR_DATE,
-            "itinerary": itinerary,
-        })
+        if flow_state.get("editing_field"):
+            if policy_id:
+                await set_itinerary(policy_id, itinerary)
+            await send_text_message(
+                to=sender_wa_id,
+                body=f"Arrival airport updated to: *{arr_airport_info['name']}* ({arr_airport_info['iata_code']})",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            new_state = {**flow_state, "step": FLOW_STEP_DETAILS_CONFIRM, "itinerary": itinerary}
+            new_state.pop("editing_field", None)
+            await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, new_state)
+            await _update_flow_state(session, sender_wa_id, new_state)
+        else:
+            await send_text_message(
+                to=sender_wa_id,
+                body=(
+                    f"Arrival airport selected: *{arr_airport_info['name']}* ({arr_airport_info['iata_code']})\n\n"
+                    f"Please enter your scheduled *arrival date* (e.g. 25/12/2026 or 25-12-2026):"
+                ),
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_ITIN_ARR_DATE,
+                "itinerary": itinerary,
+            })
     else:
         rows = []
         for idx, airport in enumerate(airports[:10]):
@@ -4072,21 +4263,37 @@ async def _handle_arr_airport_selection(reply_id, message, sender_wa_id, phone_n
         itinerary["arrival"]["airport"] = arr_airport_info.get("iata_code", "")
         itinerary["arrival"]["airportName"] = arr_airport_info.get("name", "")
 
-        await send_text_message(
-            to=sender_wa_id,
-            body=(
-                f"Arrival airport selected: *{arr_airport_info['name']}* ({arr_airport_info['iata_code']})\n\n"
-                f"Please enter your scheduled *arrival date* (e.g. 25/12/2026 or 25-12-2026):"
-            ),
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-        await _update_flow_state(session, sender_wa_id, {
-            **flow_state,
-            "step": FLOW_STEP_ITIN_ARR_DATE,
-            "itinerary": itinerary,
-        })
+        policy_id = flow_state.get("policy_id")
+        if flow_state.get("editing_field"):
+            if policy_id:
+                await set_itinerary(policy_id, itinerary)
+            await send_text_message(
+                to=sender_wa_id,
+                body=f"Arrival airport updated to: *{arr_airport_info['name']}* ({arr_airport_info['iata_code']})",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            new_state = {**flow_state, "step": FLOW_STEP_DETAILS_CONFIRM, "itinerary": itinerary}
+            new_state.pop("editing_field", None)
+            await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, new_state)
+            await _update_flow_state(session, sender_wa_id, new_state)
+        else:
+            await send_text_message(
+                to=sender_wa_id,
+                body=(
+                    f"Arrival airport selected: *{arr_airport_info['name']}* ({arr_airport_info['iata_code']})\n\n"
+                    f"Please enter your scheduled *arrival date* (e.g. 25/12/2026 or 25-12-2026):"
+                ),
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_ITIN_ARR_DATE,
+                "itinerary": itinerary,
+            })
     else:
         text_input = _get_text_input(message)
         if text_input:
