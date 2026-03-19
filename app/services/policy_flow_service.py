@@ -143,7 +143,12 @@ BUTTON_START_OVER = "policy_start_over"
 BANKS_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/payout-method/banks"
 AIRPORTS_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/v2/airports/search"
 BANKS_PER_PAGE = 8
+AIRPORTS_PER_PAGE = 8
 AIRPORT_ID_PREFIX = "airport_"
+AIRPORT_NAV_NEXT = "airport_nav_next"
+AIRPORT_NAV_PREV = "airport_nav_prev"
+ARR_AIRPORT_NAV_NEXT = "arr_airport_nav_next"
+ARR_AIRPORT_NAV_PREV = "arr_airport_nav_prev"
 
 SHORTCUT_COMMANDS = {
     "#shortcuts": "shortcuts",
@@ -836,32 +841,9 @@ async def _send_step_prompt(
     elif step == FLOW_STEP_AIRPORT_SELECT:
         airports = flow_state.get("available_airports", [])
         if airports:
-            rows = []
-            for idx, airport in enumerate(airports[:10]):
-                iata = airport.get("iata_code", "")
-                name = airport.get("name", "Unknown")
-                country = airport.get("country_name", "") or airport.get("country", "")
-                rows.append({
-                    "id": f"{AIRPORT_ID_PREFIX}{idx}",
-                    "title": str(name)[:24],
-                    "description": f"{iata} - {country}"[:72],
-                })
-            payload = {
-                "messaging_product": "whatsapp",
-                "recipient_type": "individual",
-                "to": sender_wa_id,
-                "type": "interactive",
-                "interactive": {
-                    "type": "list",
-                    "header": {"type": "text", "text": "Select Airport"},
-                    "body": {"text": "Please select your departure airport:"},
-                    "action": {
-                        "button": "View Airports",
-                        "sections": [{"title": "Airports", "rows": rows}]
-                    }
-                }
-            }
-            await send_whatsapp_payload(payload, phone_number_id=phone_number_id, in_reply_to=in_reply_to, source="policy_flow")
+            page = flow_state.get("airport_page", 0)
+            search_term = flow_state.get("airport_search_term", "")
+            await _send_dep_airports_page(sender_wa_id, phone_number_id, in_reply_to, airports, page, search_term)
         else:
             await send_text_message(
                 to=sender_wa_id,
@@ -874,32 +856,9 @@ async def _send_step_prompt(
     elif step == FLOW_STEP_ITIN_ARR_AIRPORT_SELECT:
         airports = flow_state.get("available_arr_airports", [])
         if airports:
-            rows = []
-            for idx, airport in enumerate(airports[:10]):
-                iata = airport.get("iata_code", "")
-                name = airport.get("name", "Unknown")
-                country = airport.get("country", "")
-                rows.append({
-                    "id": f"{ARR_AIRPORT_ID_PREFIX}{idx}",
-                    "title": str(name)[:24],
-                    "description": f"{iata} - {country}"[:72],
-                })
-            payload = {
-                "messaging_product": "whatsapp",
-                "recipient_type": "individual",
-                "to": sender_wa_id,
-                "type": "interactive",
-                "interactive": {
-                    "type": "list",
-                    "header": {"type": "text", "text": "Select Arrival Airport"},
-                    "body": {"text": "Please select your arrival airport:"},
-                    "action": {
-                        "button": "View Airports",
-                        "sections": [{"title": "Airports", "rows": rows}]
-                    }
-                }
-            }
-            await send_whatsapp_payload(payload, phone_number_id=phone_number_id, in_reply_to=in_reply_to, source="policy_flow")
+            page = flow_state.get("arr_airport_page", 0)
+            search_term = flow_state.get("arr_airport_search_term", "")
+            await _send_arr_airports_page(sender_wa_id, phone_number_id, in_reply_to, airports, page, search_term)
         else:
             await send_text_message(
                 to=sender_wa_id,
@@ -1252,36 +1211,13 @@ async def handle_policy_flow(
                         session, flow_state, airport_info,
                     )
                 else:
-                    rows = []
-                    for idx, airport in enumerate(airports[:10]):
-                        iata = airport.get("iata_code", "")
-                        name = airport.get("name", "Unknown")
-                        country = airport.get("country", "")
-                        rows.append({
-                            "id": f"{AIRPORT_ID_PREFIX}{idx}",
-                            "title": str(name)[:24],
-                            "description": f"{iata} - {country}"[:72],
-                        })
-                    payload = {
-                        "messaging_product": "whatsapp",
-                        "recipient_type": "individual",
-                        "to": sender_wa_id,
-                        "type": "interactive",
-                        "interactive": {
-                            "type": "list",
-                            "header": {"type": "text", "text": "Select Airport"},
-                            "body": {"text": f"Multiple airports found for *\"{saved_search}\"*. Please select one:"},
-                            "action": {
-                                "button": "View Airports",
-                                "sections": [{"title": "Airports", "rows": rows}]
-                            }
-                        }
-                    }
-                    await send_whatsapp_payload(payload, phone_number_id=phone_number_id, in_reply_to=in_reply_to, source="policy_flow")
+                    await _send_dep_airports_page(sender_wa_id, phone_number_id, in_reply_to, airports, 0, saved_search)
                     await _update_flow_state(session, sender_wa_id, {
                         **flow_state,
                         "step": FLOW_STEP_AIRPORT_SELECT,
-                        "available_airports": airports[:10],
+                        "available_airports": airports,
+                        "airport_page": 0,
+                        "airport_search_term": saved_search,
                         "retry_step": None,
                         "retry_data": None,
                     })
@@ -1360,37 +1296,14 @@ async def handle_policy_flow(
                         "retry_data": None,
                     })
                 else:
-                    rows = []
-                    for idx, airport in enumerate(airports[:10]):
-                        iata = airport.get("iata_code", "")
-                        name = airport.get("name", "Unknown")
-                        country = airport.get("country", "")
-                        rows.append({
-                            "id": f"{ARR_AIRPORT_ID_PREFIX}{idx}",
-                            "title": str(name)[:24],
-                            "description": f"{iata} - {country}"[:72],
-                        })
-                    payload = {
-                        "messaging_product": "whatsapp",
-                        "recipient_type": "individual",
-                        "to": sender_wa_id,
-                        "type": "interactive",
-                        "interactive": {
-                            "type": "list",
-                            "header": {"type": "text", "text": "Arrival Airports"},
-                            "body": {"text": f"Found {len(airports)} airports. Select your arrival airport:"},
-                            "action": {
-                                "button": "View Airports",
-                                "sections": [{"title": "Airports", "rows": rows}]
-                            }
-                        }
-                    }
-                    await send_whatsapp_payload(payload, phone_number_id=phone_number_id, in_reply_to=in_reply_to, source="policy_flow")
+                    await _send_arr_airports_page(sender_wa_id, phone_number_id, in_reply_to, airports, 0, saved_search)
                     await _update_flow_state(session, sender_wa_id, {
                         **flow_state,
                         "step": FLOW_STEP_ITIN_ARR_AIRPORT_SELECT,
                         "itinerary": itinerary,
-                        "available_arr_airports": airports[:10],
+                        "available_arr_airports": airports,
+                        "arr_airport_page": 0,
+                        "arr_airport_search_term": saved_search,
                         "retry_step": None,
                         "retry_data": None,
                     })
@@ -3789,6 +3702,130 @@ async def _fetch_airports(search_term: str) -> Optional[list]:
     return await _api_call_with_retry(f"Airports({search_term})", _single_attempt)
 
 
+async def _send_dep_airports_page(to: str, phone_number_id: str, in_reply_to: str, airports: list, page: int, search_term: str) -> None:
+    total = len(airports)
+    total_pages = (total + AIRPORTS_PER_PAGE - 1) // AIRPORTS_PER_PAGE
+    start = page * AIRPORTS_PER_PAGE
+    end = min(start + AIRPORTS_PER_PAGE, total)
+    page_airports = airports[start:end]
+
+    rows = []
+    for idx, airport in enumerate(page_airports):
+        iata = airport.get("iata_code", "")
+        name = airport.get("name", "Unknown")
+        country = airport.get("country_name", "") or airport.get("country", "")
+        rows.append({
+            "id": f"{AIRPORT_ID_PREFIX}{start + idx}",
+            "title": str(name)[:24],
+            "description": f"{iata} - {country}"[:72],
+        })
+
+    if total_pages > 1:
+        if page < total_pages - 1:
+            rows.append({
+                "id": AIRPORT_NAV_NEXT,
+                "title": "Next \u25b6",
+                "description": f"View more airports (page {page + 2} of {total_pages})",
+            })
+        if page > 0:
+            rows.append({
+                "id": AIRPORT_NAV_PREV,
+                "title": "\u25c0 Previous",
+                "description": f"Go back (page {page} of {total_pages})",
+            })
+
+    page_info = f" (Page {page + 1}/{total_pages})" if total_pages > 1 else ""
+    body_text = (
+        f"Found {total} airports for *\"{search_term}\"*{page_info}.\n"
+        f"Showing {start + 1}-{end} of {total}. Please select one:"
+    )
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "header": {"type": "text", "text": f"Select Airport{page_info}"},
+            "body": {"text": body_text},
+            "action": {
+                "button": "View Airports",
+                "sections": [{"title": "Airports", "rows": rows}]
+            }
+        }
+    }
+
+    await send_whatsapp_payload(
+        payload,
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+
+async def _send_arr_airports_page(to: str, phone_number_id: str, in_reply_to: str, airports: list, page: int, search_term: str) -> None:
+    total = len(airports)
+    total_pages = (total + AIRPORTS_PER_PAGE - 1) // AIRPORTS_PER_PAGE
+    start = page * AIRPORTS_PER_PAGE
+    end = min(start + AIRPORTS_PER_PAGE, total)
+    page_airports = airports[start:end]
+
+    rows = []
+    for idx, airport in enumerate(page_airports):
+        iata = airport.get("iata_code", "")
+        name = airport.get("name", "Unknown")
+        country = airport.get("country_name", "") or airport.get("country", "")
+        rows.append({
+            "id": f"{ARR_AIRPORT_ID_PREFIX}{start + idx}",
+            "title": str(name)[:24],
+            "description": f"{iata} - {country}"[:72],
+        })
+
+    if total_pages > 1:
+        if page < total_pages - 1:
+            rows.append({
+                "id": ARR_AIRPORT_NAV_NEXT,
+                "title": "Next \u25b6",
+                "description": f"View more airports (page {page + 2} of {total_pages})",
+            })
+        if page > 0:
+            rows.append({
+                "id": ARR_AIRPORT_NAV_PREV,
+                "title": "\u25c0 Previous",
+                "description": f"Go back (page {page} of {total_pages})",
+            })
+
+    page_info = f" (Page {page + 1}/{total_pages})" if total_pages > 1 else ""
+    body_text = (
+        f"Found {total} airports for *\"{search_term}\"*{page_info}.\n"
+        f"Showing {start + 1}-{end} of {total}. Please select one:"
+    )
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "header": {"type": "text", "text": f"Select Arrival Airport{page_info}"},
+            "body": {"text": body_text},
+            "action": {
+                "button": "View Airports",
+                "sections": [{"title": "Airports", "rows": rows}]
+            }
+        }
+    }
+
+    await send_whatsapp_payload(
+        payload,
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+
+
 async def _handle_airport_input(message, sender_wa_id, phone_number_id, in_reply_to, session):
     flow_state = _get_flow_state(session)
     policy_id = flow_state.get("policy_id")
@@ -3858,54 +3895,13 @@ async def _handle_airport_input(message, sender_wa_id, phone_number_id, in_reply
             session, flow_state, airport_info,
         )
     else:
-        rows = []
-        for idx, airport in enumerate(airports[:10]):
-            iata = airport.get("iata_code", "")
-            name = airport.get("name", "Unknown")
-            country = airport.get("country_name", "") or airport.get("country", "")
-            rows.append({
-                "id": f"{AIRPORT_ID_PREFIX}{idx}",
-                "title": str(name)[:24],
-                "description": f"{iata} - {country}"[:72],
-            })
-
-        payload = {
-            "messaging_product": "whatsapp",
-            "recipient_type": "individual",
-            "to": sender_wa_id,
-            "type": "interactive",
-            "interactive": {
-                "type": "list",
-                "header": {
-                    "type": "text",
-                    "text": "Select Airport"
-                },
-                "body": {
-                    "text": f"Multiple airports found for *\"{text_input}\"*. Please select one:"
-                },
-                "action": {
-                    "button": "View Airports",
-                    "sections": [
-                        {
-                            "title": "Airports",
-                            "rows": rows,
-                        }
-                    ]
-                }
-            }
-        }
-
-        await send_whatsapp_payload(
-            payload,
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-
+        await _send_dep_airports_page(sender_wa_id, phone_number_id, in_reply_to, airports, 0, text_input)
         await _update_flow_state(session, sender_wa_id, {
             **flow_state,
             "step": FLOW_STEP_AIRPORT_SELECT,
-            "available_airports": airports[:10],
+            "available_airports": airports,
+            "airport_page": 0,
+            "airport_search_term": text_input,
         })
 
 
@@ -3913,6 +3909,21 @@ async def _handle_airport_selection(reply_id, message, sender_wa_id, phone_numbe
     flow_state = _get_flow_state(session)
     policy_id = flow_state.get("policy_id")
     airports = flow_state.get("available_airports", [])
+    current_page = flow_state.get("airport_page", 0)
+    search_term = flow_state.get("airport_search_term", "")
+
+    if reply_id == AIRPORT_NAV_NEXT:
+        total_pages = (len(airports) + AIRPORTS_PER_PAGE - 1) // AIRPORTS_PER_PAGE
+        new_page = min(current_page + 1, total_pages - 1)
+        await _send_dep_airports_page(sender_wa_id, phone_number_id, in_reply_to, airports, new_page, search_term)
+        await _update_flow_state(session, sender_wa_id, {**flow_state, "airport_page": new_page})
+        return
+
+    if reply_id == AIRPORT_NAV_PREV:
+        new_page = max(current_page - 1, 0)
+        await _send_dep_airports_page(sender_wa_id, phone_number_id, in_reply_to, airports, new_page, search_term)
+        await _update_flow_state(session, sender_wa_id, {**flow_state, "airport_page": new_page})
+        return
 
     if reply_id and reply_id.startswith(AIRPORT_ID_PREFIX):
         idx_str = reply_id[len(AIRPORT_ID_PREFIX):]
@@ -4385,44 +4396,14 @@ async def _handle_arr_airport_input(message, sender_wa_id, phone_number_id, in_r
                 "itinerary": itinerary,
             })
     else:
-        rows = []
-        for idx, airport in enumerate(airports[:10]):
-            iata = airport.get("iata_code", "")
-            name = airport.get("name", "Unknown")
-            country = airport.get("country", "")
-            rows.append({
-                "id": f"{ARR_AIRPORT_ID_PREFIX}{idx}",
-                "title": str(name)[:24],
-                "description": f"{iata} - {country}"[:72],
-            })
-
-        payload = {
-            "messaging_product": "whatsapp",
-            "recipient_type": "individual",
-            "to": sender_wa_id,
-            "type": "interactive",
-            "interactive": {
-                "type": "list",
-                "header": {"type": "text", "text": "Arrival Airports"},
-                "body": {"text": f"Found {len(airports)} airports. Select your arrival airport:"},
-                "action": {
-                    "button": "View Airports",
-                    "sections": [{"title": "Airports", "rows": rows}]
-                }
-            }
-        }
-
-        await send_whatsapp_payload(
-            payload,
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
+        await _send_arr_airports_page(sender_wa_id, phone_number_id, in_reply_to, airports, 0, cleaned_input)
         await _update_flow_state(session, sender_wa_id, {
             **flow_state,
             "step": FLOW_STEP_ITIN_ARR_AIRPORT_SELECT,
             "itinerary": itinerary,
-            "available_arr_airports": airports[:10],
+            "available_arr_airports": airports,
+            "arr_airport_page": 0,
+            "arr_airport_search_term": cleaned_input,
         })
 
 
@@ -4430,6 +4411,21 @@ async def _handle_arr_airport_selection(reply_id, message, sender_wa_id, phone_n
     flow_state = _get_flow_state(session)
     itinerary = flow_state.get("itinerary", {})
     airports = flow_state.get("available_arr_airports", [])
+    current_page = flow_state.get("arr_airport_page", 0)
+    search_term = flow_state.get("arr_airport_search_term", "")
+
+    if reply_id == ARR_AIRPORT_NAV_NEXT:
+        total_pages = (len(airports) + AIRPORTS_PER_PAGE - 1) // AIRPORTS_PER_PAGE
+        new_page = min(current_page + 1, total_pages - 1)
+        await _send_arr_airports_page(sender_wa_id, phone_number_id, in_reply_to, airports, new_page, search_term)
+        await _update_flow_state(session, sender_wa_id, {**flow_state, "arr_airport_page": new_page})
+        return
+
+    if reply_id == ARR_AIRPORT_NAV_PREV:
+        new_page = max(current_page - 1, 0)
+        await _send_arr_airports_page(sender_wa_id, phone_number_id, in_reply_to, airports, new_page, search_term)
+        await _update_flow_state(session, sender_wa_id, {**flow_state, "arr_airport_page": new_page})
+        return
 
     if reply_id and reply_id.startswith(ARR_AIRPORT_ID_PREFIX):
         idx_str = reply_id[len(ARR_AIRPORT_ID_PREFIX):]
