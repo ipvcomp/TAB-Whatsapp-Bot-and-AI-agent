@@ -4600,29 +4600,33 @@ async def _submit_policy_to_api(
         },
     }]
 
+    user_request = {
+        "msisdn": msisdn,
+        "countryCode": country_code,
+        "firstName": personal_details.get("first_name", ""),
+        "lastName": personal_details.get("last_name", ""),
+        "email": personal_details.get("email", ""),
+        "marketingConsent": True,
+        "policyUpdatesConsent": True,
+        "payoutAlertsConsent": True,
+        "kycConsent": True,
+        "payoutMethod": {
+            "type": "BANK_ACCOUNT",
+            "accountNumber": account_number,
+            "accountName": account_name,
+            "config": payout_config,
+        },
+    }
+    if bvn:
+        user_request["bvn"] = bvn
+    if nin:
+        user_request["nin"] = nin
+
     policy_payload = {
         "productId": selected_product.get("product_id", ""),
         "channel": "WHATSAPP",
         "preferredPaymentMethod": PAYMENT_METHOD_SUBMISSION_MAP.get(payment_method, payment_method),
-        "userRequestDto": {
-            "msisdn": msisdn,
-            "countryCode": country_code,
-            "firstName": personal_details.get("first_name", ""),
-            "lastName": personal_details.get("last_name", ""),
-            "email": personal_details.get("email", ""),
-            "bvn": bvn,
-            "nin": nin,
-            "marketingConsent": True,
-            "policyUpdatesConsent": True,
-            "payoutAlertsConsent": True,
-            "kycConsent": True,
-            "payoutMethod": {
-                "type": "BANK_ACCOUNT",
-                "accountNumber": account_number,
-                "accountName": account_name,
-                "config": payout_config,
-            },
-        },
+        "userRequestDto": user_request,
         "itineraryRequest": {
             "bookingReference": itinerary.get("bookingReference", ""),
             "source": "OTA",
