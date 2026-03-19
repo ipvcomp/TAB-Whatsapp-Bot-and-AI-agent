@@ -2979,26 +2979,7 @@ async def _handle_account_number_input(message, sender_wa_id, phone_number_id, i
         )
         return
 
-    extract_result = await _extract_value(
-        sender_wa_id=sender_wa_id,
-        field_name="account_number",
-        question_asked="Please enter your 10-digit bank account number.",
-        user_response=text_input,
-        expected_format="number",
-    )
-
-    if extract_result.get("needs_clarification"):
-        await send_text_message(
-            to=sender_wa_id,
-            body=extract_result["clarification_prompt"],
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-        return
-
-    extracted_raw = extract_result.get("value") or text_input
-    cleaned = re.sub(r"[^0-9]", "", extracted_raw.strip())
+    cleaned = re.sub(r"[^0-9]", "", text_input.strip())
 
     if len(cleaned) != 10:
         await send_text_message(
