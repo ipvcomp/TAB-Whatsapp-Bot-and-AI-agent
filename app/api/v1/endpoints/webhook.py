@@ -431,6 +431,7 @@ async def _handle_welcome_button(
             profile_name=profile_name,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
+            skip_menu=True,
         )
     elif reply_id == "welcome_submit_boarding":
         log_event("WELCOME_BUTTON", {"action": "submit_boarding", "from": sender_wa_id})

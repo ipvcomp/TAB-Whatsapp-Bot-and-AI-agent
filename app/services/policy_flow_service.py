@@ -889,6 +889,7 @@ async def handle_policy_flow(
     profile_name: str,
     phone_number_id: str,
     in_reply_to: str,
+    skip_menu: bool = False,
 ) -> None:
     session = await get_session(sender_wa_id)
     if not session:
@@ -1062,6 +1063,30 @@ async def handle_policy_flow(
             policy_id = policy.get("policy_id") if policy else None
 
         session["active_policy_id"] = policy_id
+
+        if skip_menu:
+            phone_display = _format_phone_display(sender_wa_id)
+            confirm_text = (
+                f"To create your customer profile, we will use your WhatsApp number "
+                f"*[{phone_display}]* as your unique customer identifier.\n\n"
+                f"For security reasons, you can only proceed using this WhatsApp number "
+                f"and it cannot be changed during this process.\n\n"
+                f"Please confirm that you understand and wish to continue."
+            )
+            await _send_msisdn_confirm_buttons(
+                to=sender_wa_id,
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                body=confirm_text,
+            )
+            await _update_flow_state(session, sender_wa_id, {
+                "active": True,
+                "step": FLOW_STEP_MSISDN_CONFIRM,
+                "action": "create_new",
+                "policy_id": policy_id,
+            })
+            return
+
         await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
         await _update_flow_state(session, sender_wa_id, {
             "active": True,
