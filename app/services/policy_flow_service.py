@@ -2639,6 +2639,10 @@ async def _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to,
     dep = itinerary.get("departure", {})
     arr = itinerary.get("arrival", {})
 
+    airport_info = flow_state.get("airport_info", {})
+    dep_airport_code = dep.get("airport", "") or airport_info.get("iata_code", "")
+    dep_airport_name = dep.get("airportName", "") or airport_info.get("name", "")
+
     summary_lines = ["*Please review your itinerary and passenger details:*\n"]
 
     product_name = selected_product.get("name", "")
@@ -2648,10 +2652,10 @@ async def _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to,
 
     summary_lines.append("")
     summary_lines.append("*Itinerary:*")
-    if dep.get("airportName"):
-        summary_lines.append(f"\u2022 Departure Airport: {dep['airportName']} ({dep.get('airport', '')})")
-    elif dep.get("airport"):
-        summary_lines.append(f"\u2022 Departure Airport: {dep['airport']}")
+    if dep_airport_name:
+        summary_lines.append(f"\u2022 Departure Airport: {dep_airport_name} ({dep_airport_code})")
+    elif dep_airport_code:
+        summary_lines.append(f"\u2022 Departure Airport: {dep_airport_code}")
     if dep.get("scheduledDateLocal"):
         summary_lines.append(f"\u2022 Departure Date: {dep['scheduledDateLocal']}")
     if dep.get("scheduledTimeLocal"):
@@ -3550,10 +3554,14 @@ async def _send_policy_summary_confirmation(
     dep = itinerary.get("departure", {})
     arr = itinerary.get("arrival", {})
 
+    airport_info = flow_state.get("airport_info", {})
     id_line = f"{id_type}: {id_number}" if id_type and id_number else ""
     msisdn_display = msisdn_info.get("phone_number", "")
     if msisdn_display and not msisdn_display.startswith("+"):
         msisdn_display = f"+{msisdn_display}"
+
+    dep_airport_code = dep.get("airport", "") or airport_info.get("iata_code", "")
+    dep_airport_name = dep.get("airportName", "") or airport_info.get("name", "")
 
     bp_status = "Uploaded ✓" if boarding_pass_uploaded else "Not uploaded (will upload later)"
 
@@ -3563,7 +3571,7 @@ async def _send_policy_summary_confirmation(
             f"\n*Itinerary:*\n"
             f"Booking Ref: {itinerary.get('bookingReference', '')}\n"
             f"Flight: {itinerary.get('flightNo', '')}\n"
-            f"Departure: {dep.get('airportName', '')} ({dep.get('airport', '')}) on {dep.get('scheduledDateLocal', '')} at {dep.get('scheduledTimeLocal', '')}\n"
+            f"Departure: {dep_airport_name} ({dep_airport_code}) on {dep.get('scheduledDateLocal', '')} at {dep.get('scheduledTimeLocal', '')}\n"
             f"Arrival: {arr.get('airportName', '')} ({arr.get('airport', '')}) on {arr.get('scheduledDateLocal', '')} at {arr.get('scheduledTimeLocal', '')}\n"
         )
 
@@ -4108,6 +4116,7 @@ async def _start_itinerary_flow(
         itinerary["departure"] = {}
     itinerary["departure"]["airport"] = airport_info.get("iata_code", "")
     itinerary["departure"]["airportName"] = airport_info.get("name", "")
+    logger.info(f"_start_itinerary_flow: Set departure airport={itinerary['departure']['airport']}, airportName={itinerary['departure']['airportName']}")
 
     airport_iso2 = airport_info.get("country_iso2", "")
     country_code = airport_iso2 if len(airport_iso2) == 2 else flow_state.get("country_code", "NG")
@@ -4192,6 +4201,8 @@ async def _handle_itinerary_text_input(message, sender_wa_id, phone_number_id, i
     flow_state = _get_flow_state(session)
     policy_id = flow_state.get("policy_id")
     itinerary = flow_state.get("itinerary", {})
+    dep_debug = itinerary.get("departure", {})
+    logger.info(f"_handle_itinerary_text_input step={current_step}: departure.airport={dep_debug.get('airport', 'MISSING')}, airportName={dep_debug.get('airportName', 'MISSING')}")
 
     text_input = _get_text_input(message)
     if not text_input:
@@ -4575,11 +4586,20 @@ async def _submit_policy_to_api(
     dep = itinerary.get("departure", {})
     arr = itinerary.get("arrival", {})
 
+    airport_info = flow_state.get("airport_info", {})
+    dep_airport_code = dep.get("airport", "") or airport_info.get("iata_code", "")
+    dep_airport_name = dep.get("airportName", "") or airport_info.get("name", "")
+
+    if dep_airport_code and not dep.get("airport"):
+        dep["airport"] = dep_airport_code
+        dep["airportName"] = dep_airport_name
+        logger.info(f"Departure airport recovered from airport_info: {dep_airport_code} ({dep_airport_name})")
+
     legs = [{
         "flightNo": itinerary.get("flightNo", ""),
         "carrier": itinerary.get("carrier", "") if itinerary.get("carrier") else "",
         "departure": {
-            "airport": dep.get("airport", ""),
+            "airport": dep_airport_code,
             "scheduledDateLocal": _convert_date(dep.get("scheduledDateLocal", "")),
             "scheduledTimeLocal": dep.get("scheduledTimeLocal", ""),
         },
@@ -4810,6 +4830,9 @@ async def _show_final_summary(
     dep = itinerary.get("departure", {})
     arr = itinerary.get("arrival", {})
 
+    dep_airport_code = dep.get("airport", "") or airport_info.get("iata_code", "")
+    dep_airport_name = dep.get("airportName", "") or airport_info.get("name", "")
+
     msisdn_display = msisdn_info.get("phone_number", "")
     if msisdn_display and not msisdn_display.startswith("+"):
         msisdn_display = f"+{msisdn_display}"
@@ -4820,7 +4843,7 @@ async def _show_final_summary(
             f"\n*Itinerary:*\n"
             f"Booking Ref: {itinerary.get('bookingReference', '')}\n"
             f"Flight: {itinerary.get('flightNo', '')}\n"
-            f"Departure: {dep.get('airportName', '')} ({dep.get('airport', '')}) on {dep.get('scheduledDateLocal', '')} at {dep.get('scheduledTimeLocal', '')}\n"
+            f"Departure: {dep_airport_name} ({dep_airport_code}) on {dep.get('scheduledDateLocal', '')} at {dep.get('scheduledTimeLocal', '')}\n"
             f"Arrival: {arr.get('airportName', '')} ({arr.get('airport', '')}) on {arr.get('scheduledDateLocal', '')} at {arr.get('scheduledTimeLocal', '')}\n"
         )
 
