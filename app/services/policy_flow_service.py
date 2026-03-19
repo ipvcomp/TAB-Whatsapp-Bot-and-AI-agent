@@ -2438,11 +2438,11 @@ async def _handle_personal_detail_input(message, sender_wa_id, phone_number_id, 
             else:
                 extracted_value = words[0].title()
 
-        if not extracted_value or not extracted_value.isalpha():
+        if not extracted_value or not extracted_value.strip():
             label = "first name" if current_field == "first_name" else "last name"
             await send_text_message(
                 to=sender_wa_id,
-                body=f"Please enter a valid {label} (letters only, no numbers or special characters):",
+                body=f"Please enter a valid {label}:",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
