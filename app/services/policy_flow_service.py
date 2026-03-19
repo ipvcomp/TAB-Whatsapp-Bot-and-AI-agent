@@ -135,6 +135,7 @@ PAYMENT_METHOD_PREFIX = "pay_method_"
 BANK_ID_PREFIX = "bank_"
 BANK_NAV_NEXT = "bank_nav_next"
 BANK_NAV_PREV = "bank_nav_prev"
+BANK_SEARCH_AGAIN = "bank_search_again"
 NAV_NEXT = "policy_nav_next"
 NAV_PREV = "policy_nav_prev"
 BUTTON_RETRY = "policy_retry"
@@ -3186,10 +3187,17 @@ async def _send_banks_page(to: str, phone_number_id: str, in_reply_to: str, bank
                 "description": f"Go back (page {page} of {total_pages})",
             })
 
+    rows.append({
+        "id": BANK_SEARCH_AGAIN,
+        "title": "\U0001f50d Search Again",
+        "description": "Search for a different bank",
+    })
+
     page_info = f" (Page {page + 1}/{total_pages})" if total_pages > 1 else ""
     body_text = (
         f"Please select your bank{page_info}.\n"
-        f"Showing {start + 1}-{end} of {total} banks."
+        f"Showing {start + 1}-{end} of {total} banks.\n"
+        f"Banks sorted alphabetically"
     )
 
     payload = {
@@ -3205,9 +3213,6 @@ async def _send_banks_page(to: str, phone_number_id: str, in_reply_to: str, bank
             },
             "body": {
                 "text": body_text
-            },
-            "footer": {
-                "text": "Banks sorted alphabetically"
             },
             "action": {
                 "button": "View Banks",
@@ -3248,6 +3253,20 @@ async def _handle_bank_selection(reply_id, message, sender_wa_id, phone_number_i
         await _send_banks_page(sender_wa_id, phone_number_id, in_reply_to, banks, new_page)
         flow_state["bank_page"] = new_page
         await _update_flow_state(session, sender_wa_id, flow_state)
+        return
+
+    if reply_id == BANK_SEARCH_AGAIN:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter the first 3 characters of your payout bank name (e.g. Zen, Wem, GTB):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_BANK_NAME_INPUT,
+        })
         return
 
     if reply_id and reply_id.startswith(BANK_ID_PREFIX):
@@ -3296,14 +3315,28 @@ async def _handle_bank_selection(reply_id, message, sender_wa_id, phone_number_i
             bank_details, msisdn_info,
         )
     else:
-        await send_text_message(
-            to=sender_wa_id,
-            body="Please select a bank from the list. Tap the 'View Banks' button to see the options.",
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-        await _send_banks_page(sender_wa_id, phone_number_id, in_reply_to, banks, current_page)
+        text_input = _get_text_input(message)
+        if text_input and len(text_input.strip()) >= 3:
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_BANK_NAME_INPUT,
+            })
+            await _handle_bank_name_input(
+                message=message,
+                sender_wa_id=sender_wa_id,
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                session=session,
+            )
+        else:
+            await send_text_message(
+                to=sender_wa_id,
+                body="Please select a bank from the list, or type at least 3 characters to search for a different bank.",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            await _send_banks_page(sender_wa_id, phone_number_id, in_reply_to, banks, current_page)
 
 
 async def _finalize_channel_and_boarding_pass_prompt(
