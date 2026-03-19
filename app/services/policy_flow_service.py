@@ -4895,6 +4895,12 @@ async def _show_final_summary(
     )
 
     if not submission_success:
+        fail_buttons = [
+            {"type": "reply", "reply": {"id": BUTTON_RETRY_SUBMISSION, "title": "Retry Submission"}},
+            {"type": "reply", "reply": {"id": BUTTON_CREATE_NEW, "title": "Start New Policy"}},
+        ]
+        if not boarding_pass_uploaded:
+            fail_buttons.append({"type": "reply", "reply": {"id": "welcome_submit_boarding", "title": "Upload Boarding Pass"}})
         await send_whatsapp_payload(
             {
                 "messaging_product": "whatsapp",
@@ -4905,8 +4911,26 @@ async def _show_final_summary(
                     "type": "button",
                     "body": {"text": "Would you like to retry the submission?"},
                     "action": {
+                        "buttons": fail_buttons
+                    },
+                },
+            },
+            phone_number_id=phone_number_id,
+            source="policy_flow",
+        )
+    elif not boarding_pass_uploaded:
+        await send_whatsapp_payload(
+            {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": sender_wa_id,
+                "type": "interactive",
+                "interactive": {
+                    "type": "button",
+                    "body": {"text": "You can upload your boarding pass now or do it later from the main menu."},
+                    "action": {
                         "buttons": [
-                            {"type": "reply", "reply": {"id": BUTTON_RETRY_SUBMISSION, "title": "Retry Submission"}},
+                            {"type": "reply", "reply": {"id": "welcome_submit_boarding", "title": "Upload Boarding Pass"}},
                             {"type": "reply", "reply": {"id": BUTTON_CREATE_NEW, "title": "Start New Policy"}},
                         ]
                     },
