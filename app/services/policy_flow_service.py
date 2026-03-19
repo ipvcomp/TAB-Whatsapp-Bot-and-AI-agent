@@ -3452,9 +3452,24 @@ async def _handle_boarding_pass_choice(reply_id, message, sender_wa_id, phone_nu
             "step": FLOW_STEP_BOARDING_PASS,
         })
     elif reply_id == BUTTON_BP_UPLOAD_LATER:
+        logger.info(f"User {sender_wa_id} chose 'Upload later', proceeding to policy summary")
         await _send_policy_summary_confirmation(
             sender_wa_id, phone_number_id, in_reply_to,
             session, flow_state, boarding_pass_uploaded=False,
+        )
+        logger.info(f"Policy summary sent to {sender_wa_id} after 'Upload later'")
+    elif reply_id is None and message.type in ("image", "document"):
+        logger.info(f"User {sender_wa_id} sent media at boarding pass choice step, treating as direct upload")
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_BOARDING_PASS,
+        })
+        await _handle_boarding_pass_upload(
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
         )
     else:
         text_input = _get_text_input(message)
