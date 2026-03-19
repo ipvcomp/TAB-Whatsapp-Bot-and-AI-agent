@@ -2193,18 +2193,11 @@ async def _handle_product_selected_response(reply_id, message, sender_wa_id, pho
 
         session["active_policy_id"] = policy_id
         await _update_flow_state(session, sender_wa_id, {
-            "active": True,
+            **flow_state,
             "step": FLOW_STEP_PRODUCT_CONFIRM,
-            "action": "create_new",
             "selected_product": product_data,
             "available_products": products,
             "product_page": current_page,
-            "policy_id": policy_id,
-            "country_code": flow_state.get("country_code"),
-            "country_name": flow_state.get("country_name"),
-            "msisdn_confirmed": flow_state.get("msisdn_confirmed"),
-            "msisdn_info": flow_state.get("msisdn_info", {}),
-            "channel_info": flow_state.get("channel_info", {}),
         })
     else:
         await send_text_message(
