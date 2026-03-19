@@ -2604,26 +2604,7 @@ async def _handle_id_number_input(message, sender_wa_id, phone_number_id, in_rep
         )
         return
 
-    extract_result = await _extract_value(
-        sender_wa_id=sender_wa_id,
-        field_name=id_type.lower(),
-        question_asked=f"Please enter your 11-digit {id_type} number.",
-        user_response=text_input,
-        expected_format="number",
-    )
-
-    if extract_result.get("needs_clarification"):
-        await send_text_message(
-            to=sender_wa_id,
-            body=extract_result["clarification_prompt"],
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-        return
-
-    extracted_raw = extract_result.get("value") or text_input
-    cleaned = re.sub(r"[^0-9]", "", extracted_raw.strip())
+    cleaned = re.sub(r"[^0-9]", "", text_input.strip())
 
     if len(cleaned) != 11:
         await send_text_message(
