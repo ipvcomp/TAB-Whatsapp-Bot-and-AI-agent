@@ -750,7 +750,7 @@ async def _send_step_prompt(
         await send_text_message(
             to=sender_wa_id,
             body=(
-                "Please upload a clear image of your *boarding pass*.\n\n"
+                "Please upload your *boarding pass* as an image or document.\n\n"
                 "Accepted formats: JPG, PNG, WebP, PDF\n"
                 "Maximum size: 20MB\n"
                 "Make sure the name, flight details, barcode and date are clearly visible."
@@ -3405,7 +3405,7 @@ async def _send_boarding_pass_choice(sender_wa_id, phone_number_id, in_reply_to)
             "body": {
                 "text": (
                     "*Boarding pass upload*\n\n"
-                    "Do you have a clear image of your boarding pass to upload now?\n\n"
+                    "Do you have your boarding pass ready to upload now?\n\n"
                     "You can also upload it later, but please note that payouts "
                     "cannot be processed until we receive it.\n\n"
                     "Accepted formats: JPG, PNG, WebP, PDF\n"
@@ -3438,7 +3438,7 @@ async def _handle_boarding_pass_choice(reply_id, message, sender_wa_id, phone_nu
         await send_text_message(
             to=sender_wa_id,
             body=(
-                "Please upload a clear image of your *boarding pass*.\n\n"
+                "Please upload your *boarding pass* as an image or document.\n\n"
                 "Accepted formats: JPG, PNG, WebP, PDF\n"
                 "Maximum size: 20MB\n"
                 "Make sure the name, flight details, barcode and date are clearly visible."
@@ -4665,8 +4665,9 @@ async def _handle_boarding_pass_upload(message, sender_wa_id, phone_number_id, i
         await send_text_message(
             to=sender_wa_id,
             body=(
-                "Please send your boarding pass as an *image* (JPG, PNG, WebP) or *PDF*.\n\n"
-                "You can take a photo of your physical boarding pass or send a screenshot of your e-boarding pass."
+                "Please send your boarding pass as an *image* or *document*.\n\n"
+                "Accepted formats: JPG, PNG, WebP, PDF.\n"
+                "You can take a photo, send a screenshot, or upload a PDF document."
             ),
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
@@ -4679,7 +4680,7 @@ async def _handle_boarding_pass_upload(message, sender_wa_id, phone_number_id, i
             to=sender_wa_id,
             body=(
                 f"File type *{mime_type}* is not supported.\n\n"
-                "Please upload your boarding pass as JPG, PNG, WebP, or PDF."
+                "Please upload your boarding pass as an image (JPG, PNG, WebP) or PDF document."
             ),
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
