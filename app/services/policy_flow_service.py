@@ -2646,12 +2646,16 @@ async def _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to,
         price_str = f"{selected_product.get('currency', '')} {selected_product.get('price', '')}".strip()
         summary_lines.append(f"*Product:* {product_name} ({price_str})")
 
+    airport_info = flow_state.get("airport_info", {})
+    dep_airport_name = dep.get("airportName", "") or airport_info.get("name", "")
+    dep_airport_code = dep.get("airport", "") or airport_info.get("iata_code", "")
+
     summary_lines.append("")
     summary_lines.append("*Itinerary:*")
-    if dep.get("airportName"):
-        summary_lines.append(f"\u2022 Departure Airport: {dep['airportName']} ({dep.get('airport', '')})")
-    elif dep.get("airport"):
-        summary_lines.append(f"\u2022 Departure Airport: {dep['airport']}")
+    if dep_airport_name:
+        summary_lines.append(f"\u2022 Departure Airport: {dep_airport_name} ({dep_airport_code})")
+    elif dep_airport_code:
+        summary_lines.append(f"\u2022 Departure Airport: {dep_airport_code}")
     if dep.get("scheduledDateLocal"):
         summary_lines.append(f"\u2022 Departure Date: {dep['scheduledDateLocal']}")
     if dep.get("scheduledTimeLocal"):
@@ -3557,13 +3561,17 @@ async def _send_policy_summary_confirmation(
 
     bp_status = "Uploaded ✓" if boarding_pass_uploaded else "Not uploaded (will upload later)"
 
+    airport_info = flow_state.get("airport_info", {})
+    dep_airport_name = dep.get("airportName", "") or airport_info.get("name", "")
+    dep_airport_code = dep.get("airport", "") or airport_info.get("iata_code", "")
+
     itinerary_section = ""
     if itinerary:
         itinerary_section = (
             f"\n*Itinerary:*\n"
             f"Booking Ref: {itinerary.get('bookingReference', '')}\n"
             f"Flight: {itinerary.get('flightNo', '')}\n"
-            f"Departure: {dep.get('airportName', '')} ({dep.get('airport', '')}) on {dep.get('scheduledDateLocal', '')} at {dep.get('scheduledTimeLocal', '')}\n"
+            f"Departure: {dep_airport_name} ({dep_airport_code}) on {dep.get('scheduledDateLocal', '')} at {dep.get('scheduledTimeLocal', '')}\n"
             f"Arrival: {arr.get('airportName', '')} ({arr.get('airport', '')}) on {arr.get('scheduledDateLocal', '')} at {arr.get('scheduledTimeLocal', '')}\n"
         )
 
@@ -4575,11 +4583,20 @@ async def _submit_policy_to_api(
     dep = itinerary.get("departure", {})
     arr = itinerary.get("arrival", {})
 
+    airport_info = flow_state.get("airport_info", {})
+    dep_airport_code = dep.get("airport", "") or airport_info.get("iata_code", "")
+    dep_airport_name = dep.get("airportName", "") or airport_info.get("name", "")
+
+    if dep_airport_code and not dep.get("airport"):
+        dep["airport"] = dep_airport_code
+    if dep_airport_name and not dep.get("airportName"):
+        dep["airportName"] = dep_airport_name
+
     legs = [{
         "flightNo": itinerary.get("flightNo", ""),
         "carrier": itinerary.get("carrier", "") if itinerary.get("carrier") else "",
         "departure": {
-            "airport": dep.get("airport", ""),
+            "airport": dep_airport_code,
             "scheduledDateLocal": _convert_date(dep.get("scheduledDateLocal", "")),
             "scheduledTimeLocal": dep.get("scheduledTimeLocal", ""),
         },
@@ -4814,13 +4831,17 @@ async def _show_final_summary(
     if msisdn_display and not msisdn_display.startswith("+"):
         msisdn_display = f"+{msisdn_display}"
 
+    airport_info = flow_state.get("airport_info", {})
+    dep_airport_name = dep.get("airportName", "") or airport_info.get("name", "")
+    dep_airport_code = dep.get("airport", "") or airport_info.get("iata_code", "")
+
     itinerary_section = ""
     if itinerary:
         itinerary_section = (
             f"\n*Itinerary:*\n"
             f"Booking Ref: {itinerary.get('bookingReference', '')}\n"
             f"Flight: {itinerary.get('flightNo', '')}\n"
-            f"Departure: {dep.get('airportName', '')} ({dep.get('airport', '')}) on {dep.get('scheduledDateLocal', '')} at {dep.get('scheduledTimeLocal', '')}\n"
+            f"Departure: {dep_airport_name} ({dep_airport_code}) on {dep.get('scheduledDateLocal', '')} at {dep.get('scheduledTimeLocal', '')}\n"
             f"Arrival: {arr.get('airportName', '')} ({arr.get('airport', '')}) on {arr.get('scheduledDateLocal', '')} at {arr.get('scheduledTimeLocal', '')}\n"
         )
 
