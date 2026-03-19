@@ -12,13 +12,12 @@ THANKS_PATTERNS = [r"\b(thank|thanks|shukria|shukriya)\b"]
 BYE_PATTERNS = [r"\b(bye|goodbye|see you|khuda hafiz)\b"]
 
 WELCOME_BODY = (
-    "Hi, Welcome to *iPurvey!*\n"
+    "Hi, My name is *Travel Assistant*\n"
     "\U0001F44B Your Trusted Partner for Travel Disruption Compensation!\n"
     "My name is *TravelAssist*.\n"
     "Please select an option below so I can assist you!\n"
     "\U0001F447\n\n"
-    "Please type *#shortcuts*, for navigation menu\n"
-    "iPurvey.com"
+    "Please type *#shortcuts*, for navigation menu"
 )
 
 HELP_REPLY = (
