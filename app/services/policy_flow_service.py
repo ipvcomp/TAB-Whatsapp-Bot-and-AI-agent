@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+import time
 from typing import Optional
 
 import httpx
@@ -143,6 +144,8 @@ BUTTON_START_OVER = "policy_start_over"
 
 BANKS_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/payout-method/banks"
 AIRPORTS_API_URL = "https://dev-ilekun-ipv.ipurvey.com/api/v2/airports/search"
+BANKS_CACHE_TTL = 3600
+_banks_cache: dict[str, tuple[float, list]] = {}
 BANKS_PER_PAGE = 8
 AIRPORTS_PER_PAGE = 8
 AIRPORT_ID_PREFIX = "airport_"
@@ -3139,6 +3142,14 @@ async def _handle_payment_method_selection(reply_id, message, sender_wa_id, phon
 
 
 async def _fetch_banks(country_code: str) -> Optional[list]:
+    cache_key = country_code.upper()
+    cached = _banks_cache.get(cache_key)
+    if cached:
+        cached_time, cached_data = cached
+        if time.time() - cached_time < BANKS_CACHE_TTL:
+            logger.info(f"Banks cache hit for {cache_key}: {len(cached_data)} banks")
+            return cached_data
+
     async def _single_attempt():
         async with httpx.AsyncClient(timeout=60.0, verify=True) as client:
             logger.info(f"Fetching banks for country_code={country_code}")
@@ -3158,7 +3169,10 @@ async def _fetch_banks(country_code: str) -> Optional[list]:
             logger.warning(f"Banks API error: HTTP {response.status_code} for {country_code}, body={response.text[:500]}")
             return None
 
-    return await _api_call_with_retry(f"Banks({country_code})", _single_attempt)
+    result = await _api_call_with_retry(f"Banks({country_code})", _single_attempt)
+    if result is not None:
+        _banks_cache[cache_key] = (time.time(), result)
+    return result
 
 
 async def _send_banks_page(to: str, phone_number_id: str, in_reply_to: str, banks: list, page: int) -> None:
@@ -3386,7 +3400,7 @@ async def _handle_bank_name_input(message, sender_wa_id, phone_number_id, in_rep
     search_term = text_input.strip()
 
     country_code = flow_state.get("country_code", "NG")
-    all_banks = await _fetch_banks(country_code)
+    all_banks = flow_state.get("all_banks_cache") or await _fetch_banks(country_code)
     if all_banks is None:
         await _send_retry_options(
             to=sender_wa_id,
@@ -3426,6 +3440,7 @@ async def _handle_bank_name_input(message, sender_wa_id, phone_number_id, in_rep
         **flow_state,
         "step": FLOW_STEP_BANK_SELECTION,
         "available_banks": filtered_banks,
+        "all_banks_cache": all_banks,
         "bank_page": page,
     })
 
