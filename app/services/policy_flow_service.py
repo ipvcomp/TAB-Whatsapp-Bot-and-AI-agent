@@ -4776,6 +4776,16 @@ async def _handle_boarding_pass_upload(message, sender_wa_id, phone_number_id, i
     policy_id = flow_state.get("policy_id")
     itinerary = flow_state.get("itinerary", {})
 
+    if flow_state.get("bp_uploading"):
+        await send_text_message(
+            to=sender_wa_id,
+            body="Your boarding pass is still being uploaded. Please wait for it to finish before sending another file.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
     media_id = None
     mime_type = None
     sha256 = None
@@ -4804,6 +4814,17 @@ async def _handle_boarding_pass_upload(message, sender_wa_id, phone_number_id, i
         )
         return
 
+    prev_sha256 = flow_state.get("bp_sha256")
+    if sha256 and prev_sha256 and sha256 == prev_sha256:
+        await send_text_message(
+            to=sender_wa_id,
+            body="This boarding pass has already been uploaded. Please send a different file or continue with the current one.",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
     if mime_type and mime_type not in SUPPORTED_BOARDING_PASS_TYPES:
         await send_text_message(
             to=sender_wa_id,
@@ -4817,6 +4838,8 @@ async def _handle_boarding_pass_upload(message, sender_wa_id, phone_number_id, i
         )
         return
 
+    await _update_flow_state(session, sender_wa_id, {**flow_state, "bp_uploading": True})
+
     await send_text_message(
         to=sender_wa_id,
         body="Uploading your boarding pass... please wait.",
@@ -4828,6 +4851,7 @@ async def _handle_boarding_pass_upload(message, sender_wa_id, phone_number_id, i
     media_data = await download_whatsapp_media(media_id)
 
     if not media_data:
+        await _update_flow_state(session, sender_wa_id, {**flow_state, "bp_uploading": False})
         await send_text_message(
             to=sender_wa_id,
             body=(
@@ -4854,9 +4878,14 @@ async def _handle_boarding_pass_upload(message, sender_wa_id, phone_number_id, i
             f"type={mime_type}, size={media_data.get('file_size')} bytes"
         )
 
+    flow_state = _get_flow_state(session)
+    flow_state["bp_uploading"] = False
+    flow_state["bp_sha256"] = sha256
+    await _update_flow_state(session, sender_wa_id, flow_state)
+
     await send_text_message(
         to=sender_wa_id,
-        body="Boarding pass received ✓",
+        body="Boarding pass received successfully ✅",
         phone_number_id=phone_number_id,
         in_reply_to=in_reply_to,
         source="policy_flow",
@@ -5534,6 +5563,16 @@ async def handle_boarding_pass_upload_flow(
     if current_step == BP_STEP_UPLOAD:
         policy_code = bp_state.get("selected_policy_code", "")
 
+        if bp_state.get("bp_uploading"):
+            await send_text_message(
+                to=sender_wa_id,
+                body="Your boarding pass is still being uploaded. Please wait for it to finish before sending another file.",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="bp_upload_flow",
+            )
+            return
+
         if message.type not in ("image", "document"):
             await send_text_message(
                 to=sender_wa_id,
@@ -5565,7 +5604,19 @@ async def handle_boarding_pass_upload_flow(
 
         media_id = getattr(media, "id", None)
         mime_type = getattr(media, "mime_type", "image/jpeg") or "image/jpeg"
+        sha256 = getattr(media, "sha256", None)
         filename = getattr(media, "filename", None) or "boarding_pass.jpg"
+
+        prev_sha256 = bp_state.get("bp_sha256")
+        if sha256 and prev_sha256 and sha256 == prev_sha256:
+            await send_text_message(
+                to=sender_wa_id,
+                body="This boarding pass has already been uploaded. Please send a different file or type *cancel* to go back.",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="bp_upload_flow",
+            )
+            return
 
         if mime_type not in SUPPORTED_BOARDING_PASS_TYPES:
             await send_text_message(
@@ -5590,9 +5641,11 @@ async def handle_boarding_pass_upload_flow(
             )
             return
 
+        await _update_bp_flow_state(session, sender_wa_id, {**bp_state, "bp_uploading": True})
+
         await send_text_message(
             to=sender_wa_id,
-            body="📤 Uploading your boarding pass... please wait.",
+            body="Uploading your boarding pass... please wait.",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="bp_upload_flow",
@@ -5600,6 +5653,7 @@ async def handle_boarding_pass_upload_flow(
 
         media_data = await download_whatsapp_media(media_id, mime_type)
         if not media_data or not media_data.get("bytes"):
+            await _update_bp_flow_state(session, sender_wa_id, {**bp_state, "bp_uploading": False})
             await send_text_message(
                 to=sender_wa_id,
                 body="Failed to download your file from WhatsApp. Please try uploading again.",
@@ -5626,6 +5680,7 @@ async def handle_boarding_pass_upload_flow(
                 source="bp_upload_flow",
             )
         else:
+            await _update_bp_flow_state(session, sender_wa_id, {**bp_state, "bp_uploading": False, "bp_sha256": None})
             await send_text_message(
                 to=sender_wa_id,
                 body=(
@@ -5638,6 +5693,7 @@ async def handle_boarding_pass_upload_flow(
                 in_reply_to=in_reply_to,
                 source="bp_upload_flow",
             )
+            return
 
         await _clear_bp_flow_state(session, sender_wa_id)
         return
