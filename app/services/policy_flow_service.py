@@ -3400,7 +3400,20 @@ async def _handle_bank_name_input(message, sender_wa_id, phone_number_id, in_rep
     search_term = text_input.strip()
 
     country_code = flow_state.get("country_code", "NG")
-    all_banks = flow_state.get("all_banks_cache") or await _fetch_banks(country_code)
+    all_banks = flow_state.get("all_banks_cache")
+    if not all_banks:
+        cache_key = country_code.upper()
+        cached = _banks_cache.get(cache_key)
+        has_cache = cached and (time.time() - cached[0] < BANKS_CACHE_TTL)
+        if not has_cache:
+            await send_text_message(
+                to=sender_wa_id,
+                body="Searching for your bank... \U0001F50D",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+        all_banks = await _fetch_banks(country_code)
     if all_banks is None:
         await _send_retry_options(
             to=sender_wa_id,
