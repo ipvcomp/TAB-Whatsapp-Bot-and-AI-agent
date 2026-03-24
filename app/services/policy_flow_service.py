@@ -4061,8 +4061,8 @@ ITINERARY_STEPS = [
 ]
 
 
-def _validate_date(text: str) -> Optional[str]:
-    from datetime import datetime as _dt
+def _validate_date(text: str, allow_past: bool = False) -> Optional[str]:
+    from datetime import datetime as _dt, date as _date
 
     cleaned = text.strip()
     date_patterns = [
@@ -4080,12 +4080,22 @@ def _validate_date(text: str) -> Optional[str]:
             else:
                 year, month, day = int(groups[0]), int(groups[1]), int(groups[2])
             try:
-                _dt(year, month, day)
+                parsed = _date(year, month, day)
             except ValueError:
                 return None
             if year < 2024:
                 return None
+            if not allow_past and parsed < _date.today():
+                return "past_date"
             return f"{day:02d}/{month:02d}/{year}"
+    return None
+
+
+def _parse_date_str(date_str: str):
+    from datetime import date as _date
+    parts = date_str.split("/")
+    if len(parts) == 3:
+        return _date(int(parts[2]), int(parts[1]), int(parts[0]))
     return None
 
 
@@ -4231,6 +4241,15 @@ async def _handle_itinerary_text_input(message, sender_wa_id, phone_number_id, i
 
     if validation == "date":
         validated = _validate_date(value)
+        if validated == "past_date":
+            await send_text_message(
+                to=sender_wa_id,
+                body="Please enter today's date or a future travel date.",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            return
         if not validated:
             await send_text_message(
                 to=sender_wa_id,
@@ -4246,6 +4265,21 @@ async def _handle_itinerary_text_input(message, sender_wa_id, phone_number_id, i
             )
             return
         value = validated
+
+        if current_step == FLOW_STEP_ITIN_ARR_DATE:
+            dep_date_str = itinerary.get("departure", {}).get("scheduledDateLocal", "")
+            if dep_date_str:
+                dep_date = _parse_date_str(dep_date_str)
+                arr_date = _parse_date_str(validated)
+                if dep_date and arr_date and arr_date < dep_date:
+                    await send_text_message(
+                        to=sender_wa_id,
+                        body="Arrival date must be after departure date.\n\nPlease enter a valid *arrival date*:",
+                        phone_number_id=phone_number_id,
+                        in_reply_to=in_reply_to,
+                        source="policy_flow",
+                    )
+                    return
 
     elif validation == "time":
         validated = _validate_time(value)
