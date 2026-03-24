@@ -564,6 +564,13 @@ async def _handle_shortcut(
                 country_name = "Nigeria"
             flow_state["country_code"] = country_code
             flow_state["country_name"] = country_name
+        await send_text_message(
+            to=sender_wa_id,
+            body="Fetching available products for your country...",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
         products = await _fetch_products(country_code)
         if not products:
             await _send_retry_options(
@@ -1028,6 +1035,13 @@ async def handle_policy_flow(
             })
             return
 
+        await send_text_message(
+            to=sender_wa_id,
+            body="Resubmitting your policy, please wait...",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
         success, err_msg, resp_data = await _submit_policy_to_api(
             flow_state, policy_id, bytes(boarding_pass_bytes), boarding_pass_mime,
         )
@@ -1124,6 +1138,13 @@ async def handle_policy_flow(
 
         if retry_step == FLOW_STEP_PRODUCT_LIST:
             country_code = flow_state.get("country_code", "NG")
+            await send_text_message(
+                to=sender_wa_id,
+                body="Fetching available products...",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
             products = await _fetch_products(country_code)
             if not products:
                 await _send_retry_options(
@@ -1948,6 +1969,13 @@ async def _handle_product_list_response(reply_id, message, sender_wa_id, phone_n
     country_code = flow_state.get("country_code", "NG")
 
     if reply_id == BUTTON_VIEW_PRODUCTS:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Fetching available products...",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
         products = await _fetch_products(country_code)
         if not products:
             country_name = flow_state.get("country_name", country_code)
@@ -3064,6 +3092,13 @@ PAYMENT_METHOD_SUBMISSION_MAP = {
 
 
 async def _send_payment_methods(to: str, phone_number_id: str, in_reply_to: str, country_code: str = "NG") -> None:
+    await send_text_message(
+        to=to,
+        body="Loading payment options...",
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
     methods = await _fetch_payment_methods(country_code)
     if not methods:
         methods = ["CARD", "BANK_TRANSFER", "USSD"]
@@ -3716,6 +3751,13 @@ async def _handle_policy_summary_response(reply_id, message, sender_wa_id, phone
         else:
             boarding_pass_bytes = bytes(boarding_pass_bytes) if boarding_pass_bytes else b""
 
+    await send_text_message(
+        to=sender_wa_id,
+        body="Submitting your policy, please wait...",
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
     success, err_msg, resp_data = await _submit_policy_to_api(
         flow_state, policy_id or "", boarding_pass_bytes, boarding_pass_mime,
     )
@@ -3906,6 +3948,13 @@ async def _handle_airport_input(message, sender_wa_id, phone_number_id, in_reply
 
     search_term = text_input.strip()
 
+    await send_text_message(
+        to=sender_wa_id,
+        body="Searching for airports...",
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
     airports = await _fetch_airports(search_term)
 
     if airports is None:
@@ -4162,6 +4211,13 @@ async def _start_itinerary_flow(
         await set_country(policy_id, country_code, country_name)
         logger.info(f"Country updated to {country_code} ({country_name}) from departure airport for policy {policy_id}")
 
+    await send_text_message(
+        to=sender_wa_id,
+        body="Fetching available products for your country...",
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
     products = await _fetch_products(country_code)
     if not products:
         country_label = country_name or country_code
@@ -4442,6 +4498,13 @@ async def _handle_arr_airport_input(message, sender_wa_id, phone_number_id, in_r
 
     cleaned_input = text_input.strip()
     search_term = cleaned_input.title()
+    await send_text_message(
+        to=sender_wa_id,
+        body="Searching for airports...",
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
     airports = await _fetch_airports(search_term)
 
     if airports is None:
