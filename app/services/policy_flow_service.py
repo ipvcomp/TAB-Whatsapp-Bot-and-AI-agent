@@ -4078,13 +4078,13 @@ ITINERARY_STEPS = [
         "step": FLOW_STEP_ITIN_BOOKING_REF,
         "field": "bookingReference",
         "prompt": "Please enter your *booking reference* (e.g. ABC123):",
-        "validation": "text",
+        "validation": "booking_ref",
     },
     {
         "step": FLOW_STEP_ITIN_FLIGHT_NO,
         "field": "flightNo",
         "prompt": "Please enter your *flight number* (e.g. BA1234):",
-        "validation": "text",
+        "validation": "flight_no",
     },
 ]
 
@@ -4324,6 +4324,32 @@ async def _handle_itinerary_text_input(message, sender_wa_id, phone_number_id, i
             )
             return
         value = validated
+
+    elif validation == "booking_ref":
+        cleaned = re.sub(r"[\s\-]", "", value).upper()
+        if not cleaned or not re.fullmatch(r"[A-Z0-9]{4,8}", cleaned):
+            await send_text_message(
+                to=sender_wa_id,
+                body="Enter a valid booking reference (e.g. ABC123).\n\nIt should be 4-8 alphanumeric characters.",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            return
+        value = cleaned
+
+    elif validation == "flight_no":
+        cleaned = re.sub(r"[\s\-]", "", value).upper()
+        if not cleaned or not re.fullmatch(r"[A-Z]{2}\d{1,4}[A-Z]?", cleaned):
+            await send_text_message(
+                to=sender_wa_id,
+                body="Enter a valid flight number (e.g. BA1234).\n\nIt should be 2 letters followed by 1-4 digits.",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            return
+        value = cleaned
 
     elif validation == "text":
         if not value:
