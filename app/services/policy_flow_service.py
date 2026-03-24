@@ -225,7 +225,7 @@ DETAILS_EDITABLE_FIELDS = [
     {"num": 3, "label": "Arrival Airport", "field": "itin_arr_airport", "step": FLOW_STEP_ITIN_ARR_AIRPORT_INPUT},
     {"num": 4, "label": "Arrival Date", "field": "itin_arr_date", "step": FLOW_STEP_ITIN_ARR_DATE},
     {"num": 5, "label": "Arrival Time", "field": "itin_arr_time", "step": FLOW_STEP_ITIN_ARR_TIME},
-    {"num": 6, "label": "Booking Reference", "field": "itin_booking_ref", "step": FLOW_STEP_ITIN_BOOKING_REF},
+    {"num": 6, "label": "Booking Reference (PNR)", "field": "itin_booking_ref", "step": FLOW_STEP_ITIN_BOOKING_REF},
     {"num": 7, "label": "Flight Number", "field": "itin_flight_no", "step": FLOW_STEP_ITIN_FLIGHT_NO},
     {"num": 8, "label": "First Name", "field": "pd_first_name", "step": FLOW_STEP_PD_FIRST_NAME},
     {"num": 9, "label": "Last Name", "field": "pd_last_name", "step": FLOW_STEP_PD_LAST_NAME},
@@ -725,7 +725,7 @@ async def _send_step_prompt(
     elif step == FLOW_STEP_PD_ACCOUNT_NUMBER:
         await send_text_message(
             to=sender_wa_id,
-            body="Please enter your *10-digit account number* for future payouts:",
+            body="Please enter your *10-digit bank account number* (this is where your money will be sent if your claim is approved):",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -734,7 +734,7 @@ async def _send_step_prompt(
     elif step == FLOW_STEP_BANK_NAME_INPUT:
         await send_text_message(
             to=sender_wa_id,
-            body="Please enter the first 3 characters of your payout bank name (e.g. Zen, Wem):",
+            body="Please enter the first 3 characters of your bank name (e.g. Zen, Wem):",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -821,7 +821,7 @@ async def _send_step_prompt(
     elif step == FLOW_STEP_ITIN_BOOKING_REF:
         await send_text_message(
             to=sender_wa_id,
-            body="Please enter your *booking reference* (e.g. ABC123):",
+            body="Please enter your *booking reference (PNR)* (e.g. ABC123):",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -1149,7 +1149,7 @@ async def handle_policy_flow(
         if retry_step == FLOW_STEP_BANK_NAME_INPUT:
             await send_text_message(
                 to=sender_wa_id,
-                body="Please enter the first 3 characters of your payout bank name (e.g. Zen, Wem):",
+                body="Please enter the first 3 characters of your bank name (e.g. Zen, Wem):",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
@@ -2742,8 +2742,8 @@ async def _handle_details_confirm_response(reply_id, message, sender_wa_id, phon
         await send_text_message(
             to=sender_wa_id,
             body=(
-                "Now let's capture a few more details so we can set up your payment and payout preferences.\n\n"
-                "We'll ask for your payment method, payout method, and bank account details to complete your purchase.\n\n"
+                "Now let's set up how you'd like to pay and receive your money if your claim is approved.\n\n"
+                "We'll ask for your payment method and bank account details to complete your purchase.\n\n"
                 "Please select your preferred payment method:"
             ),
             phone_number_id=phone_number_id,
@@ -2945,7 +2945,7 @@ async def _handle_details_edit_select(message, sender_wa_id, phone_number_id, in
         FLOW_STEP_ITIN_DEP_TIME: "Please enter your scheduled *departure time* (e.g. 14:30):",
         FLOW_STEP_ITIN_ARR_DATE: "Please enter your scheduled *arrival date* (e.g. 25/12/2026 or 25-12-2026):",
         FLOW_STEP_ITIN_ARR_TIME: "Please enter your scheduled *arrival time* (e.g. 16:30):",
-        FLOW_STEP_ITIN_BOOKING_REF: "Please enter your *booking reference* (e.g. ABC123):",
+        FLOW_STEP_ITIN_BOOKING_REF: "Please enter your *booking reference (PNR)* (e.g. ABC123):",
         FLOW_STEP_ITIN_FLIGHT_NO: "Please enter your *flight number* (e.g. BA1234):",
         FLOW_STEP_PD_FIRST_NAME: "Please enter your *first name*:",
         FLOW_STEP_PD_LAST_NAME: "Please enter your *last name*:",
@@ -3002,7 +3002,7 @@ async def _handle_account_number_input(message, sender_wa_id, phone_number_id, i
         to=sender_wa_id,
         body=(
             f"Account number saved: *{cleaned}*\n\n"
-            f"Please enter the first 3 characters of your payout bank name (e.g. Zen, Wem):"
+            f"Please enter the first 3 characters of your bank name (e.g. Zen, Wem):"
         ),
         phone_number_id=phone_number_id,
         in_reply_to=in_reply_to,
@@ -3119,7 +3119,7 @@ async def _handle_payment_method_selection(reply_id, message, sender_wa_id, phon
 
         await send_text_message(
             to=sender_wa_id,
-            body=f"Payment method selected: *{label}*\n\nPlease enter your *10-digit account number* for future payouts:",
+            body=f"Payment method selected: *{label}*\n\nPlease enter your *10-digit bank account number* (this is where your money will be sent if your claim is approved):",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -3275,7 +3275,7 @@ async def _handle_bank_selection(reply_id, message, sender_wa_id, phone_number_i
     if reply_id == BANK_SEARCH_AGAIN:
         await send_text_message(
             to=sender_wa_id,
-            body="Please enter the first 3 characters of your payout bank name (e.g. Zen, Wem, GTB):",
+            body="Please enter the first 3 characters of your bank name (e.g. Zen, Wem, GTB):",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -3390,7 +3390,7 @@ async def _handle_bank_name_input(message, sender_wa_id, phone_number_id, in_rep
     if not text_input:
         await send_text_message(
             to=sender_wa_id,
-            body="Please enter the first 3 characters of your payout bank name (e.g. Zen, Wem):",
+            body="Please enter the first 3 characters of your bank name (e.g. Zen, Wem):",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -3470,7 +3470,7 @@ async def _send_boarding_pass_choice(sender_wa_id, phone_number_id, in_reply_to)
                 "text": (
                     "*Boarding pass upload*\n\n"
                     "Do you have a clear image of your boarding pass to upload now?\n\n"
-                    "You can also upload it later, but please note that payouts "
+                    "You can also upload it later, but please note that claims "
                     "cannot be processed until we receive it.\n\n"
                     "Accepted formats: JPG, PNG, WebP, PDF\n"
                     "Maximum size: 20MB\n"
@@ -3611,10 +3611,9 @@ async def _send_policy_summary_confirmation(
         f"Email: {personal_details.get('email', '')}\n"
         f"{id_line}\n"
         f"Mobile number: {msisdn_display} ({country_code})\n\n"
-        f"*Payment & Payout Preference*\n"
-        f"Method: {payment_label}\n"
-        f"Payout Method: Bank Account\n"
-        f"Account Number: {account_number}\n"
+        f"*Payment & Bank Details*\n"
+        f"Payment Method: {payment_label}\n"
+        f"Bank Account: {account_number}\n"
         f"Bank: {bank_details.get('bank_name', '')}\n"
         f"{itinerary_section}\n"
         f"Boarding Pass: {bp_status}"
@@ -4077,7 +4076,7 @@ ITINERARY_STEPS = [
     {
         "step": FLOW_STEP_ITIN_BOOKING_REF,
         "field": "bookingReference",
-        "prompt": "Please enter your *booking reference* (e.g. ABC123):",
+        "prompt": "Please enter your *booking reference (PNR)* (e.g. ABC123):",
         "validation": "booking_ref",
     },
     {
@@ -4994,10 +4993,9 @@ async def _show_final_summary(
         f"Email: {personal_details.get('email', '')}\n"
         f"{id_line}\n"
         f"Mobile number: {msisdn_display} ({country_code})\n\n"
-        f"*Payment & Payout Preference*\n"
-        f"Method: {payment_label}\n"
-        f"Payout Method: Bank Account\n"
-        f"Account Number: {account_number}\n"
+        f"*Payment & Bank Details*\n"
+        f"Payment Method: {payment_label}\n"
+        f"Bank Account: {account_number}\n"
         f"Bank: {bank_details.get('bank_name', '')}\n"
         f"{itinerary_section}\n"
         f"{status_block}"
@@ -5211,7 +5209,7 @@ def _format_policy_summary(policy: dict) -> str:
     legs = itinerary.get("legs", [])
     booking_ref = itinerary.get("bookingReference", "")
     if booking_ref:
-        lines.append(f"\n*Booking Reference:* {booking_ref}")
+        lines.append(f"\n*Booking Reference (PNR):* {booking_ref}")
     if legs:
         leg = legs[0]
         dep = leg.get("departureAirport", "")
