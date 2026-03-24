@@ -4382,10 +4382,12 @@ async def _handle_itinerary_text_input(message, sender_wa_id, phone_number_id, i
 
     elif validation == "booking_ref":
         cleaned = re.sub(r"[\s\-]", "", value).upper()
-        if not cleaned or not re.fullmatch(r"[A-Z0-9]{4,8}", cleaned):
+        has_letter = any(c.isalpha() for c in cleaned)
+        has_digit = any(c.isdigit() for c in cleaned)
+        if not cleaned or not re.fullmatch(r"[A-Z0-9]{4,8}", cleaned) or not has_letter or not has_digit:
             await send_text_message(
                 to=sender_wa_id,
-                body="Enter a valid booking reference (e.g. ABC123).\n\nIt should be 4-8 alphanumeric characters.",
+                body="Enter a valid booking reference (e.g. ABC123).\n\nIt must be 4-8 characters and contain both letters and numbers.",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
