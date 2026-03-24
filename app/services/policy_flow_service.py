@@ -5029,22 +5029,27 @@ async def _show_final_summary(
 
     bp_status = "Uploaded ✓" if boarding_pass_uploaded else "Not uploaded"
 
+    product_name = selected_product.get("name", "travel insurance")
+    insurer_name = selected_product.get("insurer", "") or selected_product.get("provider", "")
+    cover_label = f"{product_name} from {insurer_name}" if insurer_name else product_name
+
     if submission_success:
-        ref_line = f"\nPolicy Code: {policy_reference}" if policy_reference else ""
+        ref_line = f"\n*Policy Code:* {policy_reference}" if policy_reference else ""
         status_block = (
             f"Boarding Pass: {bp_status}\n\n"
-            f"Status: Policy Submitted Successfully ✓{ref_line}\n\n"
-            f"You will receive further updates via email or your WhatsApp number.\n\n"
-            f"Type 'policy' anytime to start a new policy."
+            f"*Status:* Policy Submitted Successfully ✅{ref_line}\n\n"
+            f"You're all set! Your *{cover_label}* cover is now active.\n"
+            f"We'll notify you automatically if your flight is delayed or cancelled.\n\n"
+            f"Type *hi* for the main menu or *policy* to purchase a new policy."
         )
     else:
         error_detail = f"\nReason: {submission_error}" if submission_error else ""
         status_block = (
             f"Boarding Pass: {bp_status}\n\n"
             f"*Status:* Submission Failed{error_detail}\n\n"
-            f"All your details have been saved. Please tap *Retry* to try submitting again, "
-            f"or type '#back' repeatedly to correct any information.\n\n"
-            f"Type 'policy' anytime to start a new policy."
+            f"Thanks, we're processing your request. Your details have been saved.\n"
+            f"Please tap *Retry Submission* to try again, or type *#back* to correct any information.\n\n"
+            f"Type *hi* for the main menu or *policy* to start a new policy."
         )
 
     summary = (
