@@ -17,7 +17,7 @@ WELCOME_BODY = (
     "My name is *TravelAssist*.\n"
     "Please select an option below so I can assist you!\n"
     "\U0001F447\n\n"
-    "Please type *#shortcuts*, for navigation menu"
+    "Type *help* if you need assistance."
 )
 
 HELP_REPLY = (
@@ -25,7 +25,7 @@ HELP_REPLY = (
     "You can:\n"
     "\u2022 Type *policy* to create a new travel policy\n"
     "\u2022 Ask any question about travel insurance\n"
-    "\u2022 Type *#shortcuts* for the full navigation menu\n\n"
+    "\u2022 Type *hi* for the main menu\n\n"
     "How can we assist you today?"
 )
 

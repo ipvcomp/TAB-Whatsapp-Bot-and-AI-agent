@@ -165,22 +165,22 @@ SHORTCUT_COMMANDS = {
     "#cancel": "exit",
     "#restart": "restart",
     "#products": "products",
+    "shortcuts": "shortcuts",
+    "menu": "menu",
+    "back": "back",
+    "restart": "restart",
+    "products": "products",
 }
 
 SHORTCUTS_TEXT = (
-    "*Navigation Shortcuts* \u2328\uFE0F\n\n"
-    "Type any of these commands anytime:\n\n"
-    "*#menu* \u2014 Go to main policy menu\n"
-    "*#back* \u2014 Go back one step\n"
-    "*#products* \u2014 Change product selection\n"
-    "*#restart* \u2014 Start a new policy from scratch\n"
-    "*#exit* or *#cancel* \u2014 Exit policy flow\n"
-    "*#shortcuts* \u2014 Show this menu\n\n"
-    "*Trigger Words:*\n"
-    "\u2022 _hi, hello, hey, start, menu_ \u2014 Welcome message\n"
-    "\u2022 _policy, purchase policy, /policy_ \u2014 Start policy flow\n"
-    "\u2022 _help, support_ \u2014 Get help\n"
-    "\u2022 _cancel, exit, stop_ \u2014 Exit current flow"
+    "*Quick Guide* \u2328\uFE0F\n\n"
+    "Here's how to navigate:\n\n"
+    "\u2022 Type *menu* \u2014 Go to main policy menu\n"
+    "\u2022 Type *back* \u2014 Go back one step\n"
+    "\u2022 Type *cancel* or *exit* \u2014 Exit current flow\n"
+    "\u2022 Type *policy* \u2014 Start a new policy\n"
+    "\u2022 Type *hi* \u2014 Go to welcome screen\n"
+    "\u2022 Type *help* \u2014 Get assistance"
 )
 
 BACK_STEP_MAP = {
@@ -2950,8 +2950,9 @@ async def _handle_details_confirm_response(reply_id, message, sender_wa_id, phon
         await send_text_message(
             to=sender_wa_id,
             body=(
-                "Now let's set up how you'd like to pay and receive your money if your claim is approved.\n\n"
-                "We'll ask for your payment method and bank account details to complete your purchase.\n\n"
+                "Now let's set up your bank details.\n\n"
+                "We'll only use your bank details to send you money if your claim is approved. "
+                "You are *not* being charged at this step.\n\n"
                 "Please select your preferred payment method:"
             ),
             phone_number_id=phone_number_id,
@@ -3065,7 +3066,7 @@ async def _send_edit_field_menu(sender_wa_id, phone_number_id, in_reply_to, flow
     for ef in DETAILS_EDITABLE_FIELDS:
         lines.append(f"*{ef['num']}.* {ef['label']}: {current_values.get(ef['num'], '—')}")
 
-    lines.append("\nReply with a number (1-11) or type *#back* to go back.")
+    lines.append("\nReply with a number (1-11) or type *back* to go back.")
 
     await send_text_message(
         to=sender_wa_id,
@@ -3086,7 +3087,7 @@ async def _handle_details_edit_select(message, sender_wa_id, phone_number_id, in
 
     cleaned = text_input.strip()
 
-    if cleaned.lower() in ("#cancel", "#back"):
+    if cleaned.lower() in ("#cancel", "#back", "cancel", "back"):
         await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, flow_state)
         await _update_flow_state(session, sender_wa_id, {
             **flow_state,
@@ -5226,7 +5227,7 @@ async def _show_final_summary(
             f"Boarding Pass: {bp_status}\n\n"
             f"*Status:* Submission Failed{error_detail}\n\n"
             f"Thanks, we're processing your request. Your details have been saved.\n"
-            f"Please tap *Retry Submission* to try again, or type *#back* to correct any information.\n\n"
+            f"Please tap *Retry Submission* to try again, or type *back* to correct any information.\n\n"
             f"Type *hi* for the main menu or *policy* to start a new policy."
         )
 
