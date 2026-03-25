@@ -1878,6 +1878,7 @@ async def _handle_msisdn_confirm(message, sender_wa_id, phone_number_id, in_repl
         to=sender_wa_id,
         body=(
             f"Great! \U0001F44D Your WhatsApp number *[{phone_display}]* has been confirmed.\n\n"
+            f"_Step 1 of 6 \u2014 Verification_\n\n"
             f"Please enter your *nationality* (e.g. Nigeria, Kenya, Ghana):"
         ),
         phone_number_id=phone_number_id,
@@ -1909,6 +1910,7 @@ async def _handle_nationality_confirm(reply_id, message, sender_wa_id, phone_num
         await send_text_message(
             to=sender_wa_id,
             body=(
+                f"_Step 2 of 6 \u2014 Flight & Product_\n\n"
                 f"Please enter the first 3 characters of the *departure airport name* or *airport code* (e.g. LOS, Mur, KAN, Enu, PHC):"
             ),
             phone_number_id=phone_number_id,
@@ -2453,7 +2455,7 @@ async def _handle_product_confirm_response(reply_id, message, sender_wa_id, phon
         first_itin_step = ITINERARY_STEPS[0]
         await send_text_message(
             to=sender_wa_id,
-            body=f"Product confirmed! Now let's capture the rest of your itinerary and passenger details.\n\n{first_itin_step['prompt']}",
+            body=f"Product confirmed!\n\n_Step 3 of 6 \u2014 Travel Details_\n\n{first_itin_step['prompt']}",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -2950,7 +2952,7 @@ async def _handle_details_confirm_response(reply_id, message, sender_wa_id, phon
         await send_text_message(
             to=sender_wa_id,
             body=(
-                "Now let's set up your bank details.\n\n"
+                "_Step 5 of 6 \u2014 Payment & Bank Details_\n\n"
                 "We'll only use your bank details to send you money if your claim is approved. "
                 "You are *not* being charged at this step.\n\n"
                 "Please select your preferred payment method:"
@@ -3684,7 +3686,8 @@ async def _send_boarding_pass_choice(sender_wa_id, phone_number_id, in_reply_to)
             "type": "button",
             "body": {
                 "text": (
-                    "*Boarding pass upload*\n\n"
+                    "_Step 6 of 6 \u2014 Almost done!_ \U0001F389\n\n"
+                    "*Boarding pass upload*\n"
                     "This helps us verify your trip and speed up any claim.\n\n"
                     "Do you have a clear image of your boarding pass to upload now?\n\n"
                     "You can also upload it later, but please note that claims "
@@ -4619,7 +4622,7 @@ async def _handle_itinerary_text_input(message, sender_wa_id, phone_number_id, i
         first_pd_step = PERSONAL_DETAIL_STEPS[0]
         await send_text_message(
             to=sender_wa_id,
-            body=f"Itinerary details saved.\n\nNow let's capture your personal details.\nYour information is securely stored and used only for your policy.\n\n{first_pd_step['prompt']}",
+            body=f"Itinerary details saved.\n\n_Step 4 of 6 \u2014 Personal Details_\nYour information is securely stored and used only for your policy.\n\n{first_pd_step['prompt']}",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
