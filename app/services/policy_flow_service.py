@@ -3685,6 +3685,7 @@ async def _send_boarding_pass_choice(sender_wa_id, phone_number_id, in_reply_to)
             "body": {
                 "text": (
                     "*Boarding pass upload*\n\n"
+                    "This helps us verify your trip and speed up any claim.\n\n"
                     "Do you have a clear image of your boarding pass to upload now?\n\n"
                     "You can also upload it later, but please note that claims "
                     "cannot be processed until we receive it.\n\n"
@@ -4618,7 +4619,7 @@ async def _handle_itinerary_text_input(message, sender_wa_id, phone_number_id, i
         first_pd_step = PERSONAL_DETAIL_STEPS[0]
         await send_text_message(
             to=sender_wa_id,
-            body=f"Itinerary details saved.\n\nNow let's capture your personal details.\n\n{first_pd_step['prompt']}",
+            body=f"Itinerary details saved.\n\nNow let's capture your personal details.\nYour information is securely stored and used only for your policy.\n\n{first_pd_step['prompt']}",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
