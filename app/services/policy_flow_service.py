@@ -3687,12 +3687,11 @@ async def _send_boarding_pass_choice(sender_wa_id, phone_number_id, in_reply_to)
             "body": {
                 "text": (
                     "_Step 6 of 6 \u2014 Almost done!_ \U0001F389\n\n"
-                    "*Boarding pass upload*\n"
-                    "This helps us verify your trip and speed up any claim.\n\n"
+                    "*Boarding pass upload*\n\n"
                     "Do you have a clear image of your boarding pass to upload now?\n\n"
                     "You can also upload it later, but please note that claims "
                     "cannot be processed until we receive it.\n\n"
-                    "Accepted formats: JPG, PNG, WebP, PDF\n"
+                    "Accepted formats: JPEG, PDF, GIF, TIFF, PNG\n"
                     "Maximum size: 20MB\n"
                     "Make sure the name, flight details, barcode and date are clearly visible.\n\n"
                     "Would you like to upload it now?"
