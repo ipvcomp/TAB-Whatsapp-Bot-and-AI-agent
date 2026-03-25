@@ -186,7 +186,7 @@ SHORTCUTS_TEXT = (
 BACK_STEP_MAP = {
     FLOW_STEP_MSISDN_CONFIRM: FLOW_STEP_MENU,
     FLOW_STEP_NATIONALITY: FLOW_STEP_MSISDN_CONFIRM,
-    FLOW_STEP_NATIONALITY_CONFIRM: FLOW_STEP_MSISDN_CONFIRM,
+    FLOW_STEP_NATIONALITY_CONFIRM: FLOW_STEP_NATIONALITY,
     FLOW_STEP_COUNTRY: FLOW_STEP_MENU,
     FLOW_STEP_AIRPORT_INPUT: FLOW_STEP_NATIONALITY,
     FLOW_STEP_AIRPORT_SELECT: FLOW_STEP_AIRPORT_INPUT,
@@ -660,39 +660,40 @@ async def _send_step_prompt(
             body=confirm_text,
         )
 
-    elif step in (FLOW_STEP_NATIONALITY, FLOW_STEP_NATIONALITY_CONFIRM):
-        suggested_name = flow_state.get("suggested_country_name", "")
-        if suggested_name:
-            await send_whatsapp_payload(
-                {
-                    "messaging_product": "whatsapp",
-                    "recipient_type": "individual",
-                    "to": sender_wa_id,
-                    "type": "interactive",
-                    "interactive": {
-                        "type": "button",
-                        "body": {"text": f"Is your nationality *{suggested_name}*?"},
-                        "action": {
-                            "buttons": [
-                                {"type": "reply", "reply": {"id": "nationality_yes", "title": f"Yes, {suggested_name[:20]}"}},
-                                {"type": "reply", "reply": {"id": "nationality_no", "title": "No, Change"}},
-                            ]
-                        },
+    elif step == FLOW_STEP_NATIONALITY:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter your *nationality* (e.g. Nigeria, Kenya, Ghana):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+    elif step == FLOW_STEP_NATIONALITY_CONFIRM:
+        country_name = flow_state.get("resolved_country_name", "")
+        country_code = flow_state.get("resolved_country_code", "")
+        await send_whatsapp_payload(
+            {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": sender_wa_id,
+                "type": "interactive",
+                "interactive": {
+                    "type": "button",
+                    "body": {
+                        "text": f"Your nationality: *{country_name}* ({country_code})\n\nPlease confirm or change."
+                    },
+                    "action": {
+                        "buttons": [
+                            {"type": "reply", "reply": {"id": "nationality_confirm", "title": "Confirm"}},
+                            {"type": "reply", "reply": {"id": "nationality_change", "title": "Change"}},
+                        ]
                     },
                 },
-                phone_number_id=phone_number_id,
-                source="policy_flow",
-            )
-            flow_state["step"] = FLOW_STEP_NATIONALITY_CONFIRM
-        else:
-            await send_text_message(
-                to=sender_wa_id,
-                body="Please enter your *nationality* (e.g. Nigeria, Kenya, Ghana):",
-                phone_number_id=phone_number_id,
-                in_reply_to=in_reply_to,
-                source="policy_flow",
-            )
-            flow_state["step"] = FLOW_STEP_NATIONALITY
+            },
+            phone_number_id=phone_number_id,
+            source="policy_flow",
+        )
 
     elif step == FLOW_STEP_COUNTRY:
         await send_text_message(
@@ -1873,73 +1874,33 @@ async def _handle_msisdn_confirm(message, sender_wa_id, phone_number_id, in_repl
 
     phone_display = _format_phone_display(sender_wa_id)
 
-    suggested_code, suggested_name = _derive_country_from_phone(sender_wa_id)
-
-    if suggested_code and suggested_name:
-        await send_whatsapp_payload(
-            {
-                "messaging_product": "whatsapp",
-                "recipient_type": "individual",
-                "to": sender_wa_id,
-                "type": "interactive",
-                "interactive": {
-                    "type": "button",
-                    "body": {
-                        "text": (
-                            f"Great! \U0001F44D Your WhatsApp number *[{phone_display}]* has been confirmed.\n\n"
-                            f"Based on your phone number, your nationality appears to be *{suggested_name}*.\n\n"
-                            f"Is this correct?"
-                        )
-                    },
-                    "action": {
-                        "buttons": [
-                            {"type": "reply", "reply": {"id": "nationality_yes", "title": f"Yes, {suggested_name}"}},
-                            {"type": "reply", "reply": {"id": "nationality_no", "title": "No, Change"}},
-                        ]
-                    },
-                },
-            },
-            phone_number_id=phone_number_id,
-            source="policy_flow",
-        )
-        await _update_flow_state(session, sender_wa_id, {
-            "active": True,
-            "step": FLOW_STEP_NATIONALITY_CONFIRM,
-            "action": "create_new",
-            "policy_id": policy_id,
-            "suggested_country_code": suggested_code,
-            "suggested_country_name": suggested_name,
-            "msisdn_info": msisdn_info,
-            "msisdn_confirmed": True,
-        })
-    else:
-        await send_text_message(
-            to=sender_wa_id,
-            body=(
-                f"Great! \U0001F44D Your WhatsApp number *[{phone_display}]* has been confirmed.\n\n"
-                f"Please enter your *nationality* (e.g. Nigeria, Kenya, Ghana):"
-            ),
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
-        await _update_flow_state(session, sender_wa_id, {
-            "active": True,
-            "step": FLOW_STEP_NATIONALITY,
-            "action": "create_new",
-            "policy_id": policy_id,
-            "msisdn_info": msisdn_info,
-            "msisdn_confirmed": True,
-        })
+    await send_text_message(
+        to=sender_wa_id,
+        body=(
+            f"Great! \U0001F44D Your WhatsApp number *[{phone_display}]* has been confirmed.\n\n"
+            f"Please enter your *nationality* (e.g. Nigeria, Kenya, Ghana):"
+        ),
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+        source="policy_flow",
+    )
+    await _update_flow_state(session, sender_wa_id, {
+        "active": True,
+        "step": FLOW_STEP_NATIONALITY,
+        "action": "create_new",
+        "policy_id": policy_id,
+        "msisdn_info": msisdn_info,
+        "msisdn_confirmed": True,
+    })
 
 
 async def _handle_nationality_confirm(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
     flow_state = _get_flow_state(session)
     policy_id = flow_state.get("policy_id")
 
-    if reply_id == "nationality_yes":
-        country_code = flow_state.get("suggested_country_code")
-        country_name = flow_state.get("suggested_country_name")
+    if reply_id == "nationality_confirm":
+        country_code = flow_state.get("resolved_country_code")
+        country_name = flow_state.get("resolved_country_name")
 
         if policy_id:
             await set_country(policy_id, country_code, country_name)
@@ -1948,7 +1909,6 @@ async def _handle_nationality_confirm(reply_id, message, sender_wa_id, phone_num
         await send_text_message(
             to=sender_wa_id,
             body=(
-                f"Nationality confirmed: *{country_name}* \U0001F3F3\uFE0F\n\n"
                 f"Please enter the first 3 characters of the *departure airport name* or *airport code* (e.g. LOS, Mur, KAN, Enu, PHC):"
             ),
             phone_number_id=phone_number_id,
@@ -1964,10 +1924,10 @@ async def _handle_nationality_confirm(reply_id, message, sender_wa_id, phone_num
         })
         return
 
-    if reply_id == "nationality_no":
+    if reply_id == "nationality_change":
         await send_text_message(
             to=sender_wa_id,
-            body="No problem! Please enter your *nationality* (e.g. Nigeria, Kenya, Ghana):",
+            body="Please enter your *nationality* (e.g. Nigeria, Kenya, Ghana):",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -1978,6 +1938,8 @@ async def _handle_nationality_confirm(reply_id, message, sender_wa_id, phone_num
         })
         return
 
+    country_name = flow_state.get("resolved_country_name", "")
+    country_code = flow_state.get("resolved_country_code", "")
     await send_whatsapp_payload(
         {
             "messaging_product": "whatsapp",
@@ -1987,12 +1949,12 @@ async def _handle_nationality_confirm(reply_id, message, sender_wa_id, phone_num
             "interactive": {
                 "type": "button",
                 "body": {
-                    "text": f"Is your nationality *{flow_state.get('suggested_country_name', '')}*?"
+                    "text": f"Your nationality: *{country_name}* ({country_code})\n\nPlease confirm or change."
                 },
                 "action": {
                     "buttons": [
-                        {"type": "reply", "reply": {"id": "nationality_yes", "title": f"Yes, {flow_state.get('suggested_country_name', '')[:20]}"}},
-                        {"type": "reply", "reply": {"id": "nationality_no", "title": "No, Change"}},
+                        {"type": "reply", "reply": {"id": "nationality_confirm", "title": "Confirm"}},
+                        {"type": "reply", "reply": {"id": "nationality_change", "title": "Change"}},
                     ]
                 },
             },
@@ -2039,26 +2001,34 @@ async def _handle_nationality_input(message, sender_wa_id, phone_number_id, in_r
             country_name = name.title()
             break
 
-    if policy_id:
-        await set_country(policy_id, country_code, country_name)
-        logger.info(f"Nationality set: {country_code} ({country_name}) for policy {policy_id}")
-
-    await send_text_message(
-        to=sender_wa_id,
-        body=(
-            f"Nationality confirmed: *{country_name}* \U0001F3F3\uFE0F\n\n"
-            f"Please enter the first 3 characters of the *departure airport name* or *airport code* (e.g. LOS, Mur, KAN, Enu, PHC):"
-        ),
+    await send_whatsapp_payload(
+        {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": sender_wa_id,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {
+                    "text": f"Your nationality: *{country_name}* ({country_code})\n\nPlease confirm or change."
+                },
+                "action": {
+                    "buttons": [
+                        {"type": "reply", "reply": {"id": "nationality_confirm", "title": "Confirm"}},
+                        {"type": "reply", "reply": {"id": "nationality_change", "title": "Change"}},
+                    ]
+                },
+            },
+        },
         phone_number_id=phone_number_id,
-        in_reply_to=in_reply_to,
         source="policy_flow",
     )
 
     await _update_flow_state(session, sender_wa_id, {
         **flow_state,
-        "step": FLOW_STEP_AIRPORT_INPUT,
-        "country_code": country_code,
-        "country_name": country_name,
+        "step": FLOW_STEP_NATIONALITY_CONFIRM,
+        "resolved_country_code": country_code,
+        "resolved_country_name": country_name,
     })
 
 
