@@ -801,7 +801,7 @@ async def _send_step_prompt(
             to=sender_wa_id,
             body=(
                 "Please upload a clear image of your *boarding pass*.\n\n"
-                "Accepted formats: JPG, PNG, WebP, PDF\n"
+                "Accepted formats: JPEG, PDF, GIF, TIFF, PNG\n"
                 "Maximum size: 20MB\n"
                 "Make sure the name, flight details, barcode and date are clearly visible."
             ),
@@ -3722,7 +3722,7 @@ async def _handle_boarding_pass_choice(reply_id, message, sender_wa_id, phone_nu
             to=sender_wa_id,
             body=(
                 "Please upload a clear image of your *boarding pass*.\n\n"
-                "Accepted formats: JPG, PNG, WebP, PDF\n"
+                "Accepted formats: JPEG, PDF, GIF, TIFF, PNG\n"
                 "Maximum size: 20MB\n"
                 "Make sure the name, flight details, barcode and date are clearly visible."
             ),
@@ -3761,7 +3761,7 @@ async def _handle_boarding_pass_choice(reply_id, message, sender_wa_id, phone_nu
                 to=sender_wa_id,
                 body=(
                     "Please upload a clear image of your *boarding pass*.\n\n"
-                    "Accepted formats: JPG, PNG, WebP, PDF\n"
+                    "Accepted formats: JPEG, PDF, GIF, TIFF, PNG\n"
                     "Maximum size: 20MB\n"
                     "Make sure the name, flight details, barcode and date are clearly visible."
                 ),
@@ -4982,7 +4982,8 @@ async def _submit_policy_to_api(
         mime_to_ext = {
             "image/jpeg": "jpg",
             "image/png": "png",
-            "image/webp": "webp",
+            "image/gif": "gif",
+            "image/tiff": "tiff",
             "application/pdf": "pdf",
         }
         ext = mime_to_ext.get(boarding_pass_mime, "jpg")
@@ -5075,7 +5076,7 @@ async def _handle_boarding_pass_upload(message, sender_wa_id, phone_number_id, i
         await send_text_message(
             to=sender_wa_id,
             body=(
-                "Please send your boarding pass as an *image* (JPG, PNG, WebP) or *PDF*.\n\n"
+                "Please send your boarding pass as an *image* (JPEG, PNG, GIF, TIFF) or *PDF*.\n\n"
                 "You can take a photo of your physical boarding pass or send a screenshot of your e-boarding pass."
             ),
             phone_number_id=phone_number_id,
@@ -5100,7 +5101,7 @@ async def _handle_boarding_pass_upload(message, sender_wa_id, phone_number_id, i
             to=sender_wa_id,
             body=(
                 f"File type *{mime_type}* is not supported.\n\n"
-                "Please upload your boarding pass as JPG, PNG, WebP, or PDF."
+                "Please upload your boarding pass as JPEG, PNG, GIF, TIFF, or PDF."
             ),
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
@@ -5792,7 +5793,7 @@ async def handle_boarding_pass_upload_flow(
                     to=sender_wa_id,
                     body=(
                         "Please upload your *boarding pass* for this policy. 📎\n\n"
-                        "Accepted formats: JPG, PNG, WebP, or PDF.\n"
+                        "Accepted formats: JPEG, PDF, GIF, TIFF, PNG\n"
                         "You can take a photo or send a screenshot of your e-boarding pass.\n\n"
                         "Type *cancel* at any time to go back."
                     ),
@@ -5818,7 +5819,7 @@ async def handle_boarding_pass_upload_flow(
                 to=sender_wa_id,
                 body=(
                     "Please upload your *new boarding pass*. 📎\n\n"
-                    "Accepted formats: JPG, PNG, WebP, or PDF.\n\n"
+                    "Accepted formats: JPEG, PDF, GIF, TIFF, PNG\n\n"
                     "Type *cancel* at any time to go back."
                 ),
                 phone_number_id=phone_number_id,
@@ -5852,7 +5853,7 @@ async def handle_boarding_pass_upload_flow(
                 to=sender_wa_id,
                 body=(
                     "Please send your boarding pass as an *image or document*. 📎\n\n"
-                    "Accepted: JPG, PNG, WebP, or PDF.\n"
+                    "Accepted formats: JPEG, PDF, GIF, TIFF, PNG\n"
                     "Type *cancel* to go back."
                 ),
                 phone_number_id=phone_number_id,
@@ -5897,7 +5898,7 @@ async def handle_boarding_pass_upload_flow(
                 to=sender_wa_id,
                 body=(
                     f"Unsupported file type (*{mime_type}*).\n\n"
-                    "Please upload a JPG, PNG, WebP, or PDF file."
+                    "Please upload a JPEG, PNG, GIF, TIFF, or PDF file."
                 ),
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,

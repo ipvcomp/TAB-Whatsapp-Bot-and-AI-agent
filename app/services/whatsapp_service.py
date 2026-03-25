@@ -133,8 +133,8 @@ async def send_whatsapp_payload(
 
 
 SUPPORTED_BOARDING_PASS_TYPES = {
-    "image/jpeg", "image/png", "image/webp",
-    "application/pdf",
+    "image/jpeg", "image/png", "image/gif",
+    "image/tiff", "application/pdf",
 }
 
 
