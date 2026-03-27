@@ -1363,15 +1363,11 @@ async def handle_policy_flow(
                         "name": airport.get("name", ""),
                         "iata_code": airport.get("iata_code", ""),
                         "country": airport.get("country", ""),
-                        "gmt": airport.get("gmt"),
-                        "timezone": airport.get("timezone"),
                     }
                     if "arrival" not in itinerary:
                         itinerary["arrival"] = {}
                     itinerary["arrival"]["airport"] = arr_airport_info.get("iata_code", "")
                     itinerary["arrival"]["airportName"] = arr_airport_info.get("name", "")
-                    itinerary["arrival"]["gmt"] = arr_airport_info.get("gmt")
-                    itinerary["arrival"]["timezone"] = arr_airport_info.get("timezone")
                     await send_text_message(
                         to=sender_wa_id,
                         body=(
@@ -4148,8 +4144,6 @@ async def _handle_airport_selection(reply_id, message, sender_wa_id, phone_numbe
             "iata_code": airport.get("iata_code", ""),
             "country": airport.get("country_name", "") or airport.get("country", ""),
             "country_iso2": airport.get("country_iso2", ""),
-            "gmt": airport.get("gmt"),
-            "timezone": airport.get("timezone"),
         }
 
         await send_whatsapp_payload(
@@ -4284,7 +4278,7 @@ def _parse_date_str(date_str: str):
 
 
 def _is_arrival_before_departure(itinerary: dict, arr_date_str: str, arr_time_str: str = None) -> bool:
-    from datetime import datetime as _dt, timedelta
+    from datetime import datetime as _dt
 
     dep = itinerary.get("departure", {})
     dep_date_str = dep.get("scheduledDateLocal", "")
@@ -4295,25 +4289,18 @@ def _is_arrival_before_departure(itinerary: dict, arr_date_str: str, arr_time_st
     if not dep_date or not arr_date:
         return False
 
-    dep_gmt = dep.get("gmt")
-    arr_data = itinerary.get("arrival", {})
-    arr_gmt = arr_data.get("gmt")
-    dep_tz = dep.get("timezone")
-    arr_tz = arr_data.get("timezone")
-
-    if arr_date > dep_date and not dep_time_str:
-        return False
     if arr_date < dep_date:
         return True
+
+    if arr_date > dep_date:
+        return False
 
     if not dep_time_str:
         return False
 
-    effective_arr_time = arr_time_str or arr_data.get("scheduledTimeLocal", "")
+    effective_arr_time = arr_time_str or itinerary.get("arrival", {}).get("scheduledTimeLocal", "")
     if not effective_arr_time:
-        if arr_date == dep_date:
-            return False
-        return arr_date < dep_date
+        return False
 
     try:
         dep_dt = _dt(dep_date.year, dep_date.month, dep_date.day,
@@ -4323,26 +4310,7 @@ def _is_arrival_before_departure(itinerary: dict, arr_date_str: str, arr_time_st
     except (ValueError, IndexError):
         return False
 
-    if dep_gmt is not None and arr_gmt is not None:
-        try:
-            dep_gmt_val = float(dep_gmt)
-            arr_gmt_val = float(arr_gmt)
-        except (ValueError, TypeError):
-            if dep_tz and arr_tz and dep_tz == arr_tz:
-                return arr_dt < dep_dt
-            return False
-        if dep_gmt_val == arr_gmt_val:
-            return arr_dt < dep_dt
-        dep_utc = dep_dt - timedelta(hours=dep_gmt_val)
-        arr_utc = arr_dt - timedelta(hours=arr_gmt_val)
-        return arr_utc < dep_utc
-
-    if dep_tz and arr_tz:
-        if dep_tz == arr_tz:
-            return arr_dt < dep_dt
-        return False
-
-    return False
+    return arr_dt < dep_dt
 
 
 def _validate_time(text: str) -> Optional[str]:
@@ -4371,8 +4339,6 @@ async def _start_itinerary_flow(
         itinerary["departure"] = {}
     itinerary["departure"]["airport"] = airport_info.get("iata_code", "")
     itinerary["departure"]["airportName"] = airport_info.get("name", "")
-    itinerary["departure"]["gmt"] = airport_info.get("gmt")
-    itinerary["departure"]["timezone"] = airport_info.get("timezone")
 
     airport_iso2 = airport_info.get("country_iso2", "")
     country_code = airport_iso2 if len(airport_iso2) == 2 else flow_state.get("country_code", "NG")
@@ -4727,15 +4693,11 @@ async def _handle_arr_airport_input(message, sender_wa_id, phone_number_id, in_r
             "name": airport.get("name", ""),
             "iata_code": airport.get("iata_code", ""),
             "country": airport.get("country", ""),
-            "gmt": airport.get("gmt"),
-            "timezone": airport.get("timezone"),
         }
         if "arrival" not in itinerary:
             itinerary["arrival"] = {}
         itinerary["arrival"]["airport"] = arr_airport_info.get("iata_code", "")
         itinerary["arrival"]["airportName"] = arr_airport_info.get("name", "")
-        itinerary["arrival"]["gmt"] = arr_airport_info.get("gmt")
-        itinerary["arrival"]["timezone"] = arr_airport_info.get("timezone")
 
         if flow_state.get("editing_field"):
             if policy_id:
@@ -4822,15 +4784,11 @@ async def _handle_arr_airport_selection(reply_id, message, sender_wa_id, phone_n
             "name": airport.get("name", ""),
             "iata_code": airport.get("iata_code", ""),
             "country": airport.get("country", ""),
-            "gmt": airport.get("gmt"),
-            "timezone": airport.get("timezone"),
         }
         if "arrival" not in itinerary:
             itinerary["arrival"] = {}
         itinerary["arrival"]["airport"] = arr_airport_info.get("iata_code", "")
         itinerary["arrival"]["airportName"] = arr_airport_info.get("name", "")
-        itinerary["arrival"]["gmt"] = arr_airport_info.get("gmt")
-        itinerary["arrival"]["timezone"] = arr_airport_info.get("timezone")
 
         policy_id = flow_state.get("policy_id")
         if flow_state.get("editing_field"):
