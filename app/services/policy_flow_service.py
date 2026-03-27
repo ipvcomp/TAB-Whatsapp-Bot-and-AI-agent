@@ -391,6 +391,27 @@ def _resolve_country_code(text: str) -> Optional[str]:
     return None
 
 
+def _sanitize_api_error(raw_msg: str, status_code: int = 0) -> str:
+    friendly_map = {
+        413: "The file is too large. Please reduce the file size and try again.",
+        400: "There was a problem with the submitted data. Please review your details and try again.",
+        401: "Authentication error. Please try again later.",
+        403: "Access denied. Please try again later.",
+        404: "The requested service is currently unavailable. Please try again later.",
+        408: "The request timed out. Please try again.",
+        429: "Too many requests. Please wait a moment and try again.",
+        500: "An internal server error occurred. Please try again later.",
+        502: "The service is temporarily unavailable. Please try again shortly.",
+        503: "The service is temporarily unavailable. Please try again shortly.",
+        504: "The service took too long to respond. Please try again.",
+    }
+    if status_code in friendly_map:
+        return friendly_map[status_code]
+    if raw_msg and not re.search(r'HTTP \d{3}|status.code|exception|traceback|stack.trace|<html|<!DOCTYPE', raw_msg, re.IGNORECASE):
+        return raw_msg[:200]
+    return "Something went wrong. Please try again later."
+
+
 def _is_cancel_command(message: WhatsAppMessage) -> bool:
     if message.type == "text" and message.text:
         text = message.text.body.lower().strip()
@@ -4911,16 +4932,22 @@ async def _submit_policy_to_api(
                         resp_data = {}
                     return True, "", resp_data
 
+                if response.status_code == 413:
+                    last_err_msg = "The file is too large. Please reduce the file size and try again."
+                    logger.error(f"Policy submission failed: HTTP 413 (file too large), policy_id={policy_id}")
+                    return False, last_err_msg, {}
+
                 try:
                     err_data = response.json()
-                    last_err_msg = (
+                    raw_msg = (
                         err_data.get("message")
                         or err_data.get("error")
                         or err_data.get("detail")
-                        or response.text[:300]
+                        or ""
                     )
+                    last_err_msg = _sanitize_api_error(raw_msg, response.status_code)
                 except Exception:
-                    last_err_msg = response.text[:300]
+                    last_err_msg = _sanitize_api_error("", response.status_code)
 
                 if response.status_code in (502, 503, 504) and attempt < API_RETRY_MAX_ATTEMPTS:
                     wait = API_RETRY_BACKOFF_SECONDS[min(attempt - 1, len(API_RETRY_BACKOFF_SECONDS) - 1)]
@@ -5493,7 +5520,13 @@ async def _upload_boarding_pass_to_api(
                 if response.status_code in (200, 201) and resp_data.get("status") == "success":
                     return True, ""
 
-                last_err_msg = resp_data.get("message", f"HTTP {response.status_code}")
+                if response.status_code == 413:
+                    last_err_msg = "The file is too large. Please reduce the file size and try again."
+                    logger.error(f"Boarding pass upload failed: HTTP 413 (file too large), policy_code={policy_code}")
+                    return False, last_err_msg
+
+                raw_msg = resp_data.get("message", "")
+                last_err_msg = _sanitize_api_error(raw_msg, response.status_code)
 
                 if response.status_code in (502, 503, 504) and attempt < API_RETRY_MAX_ATTEMPTS:
                     wait = API_RETRY_BACKOFF_SECONDS[min(attempt - 1, len(API_RETRY_BACKOFF_SECONDS) - 1)]
