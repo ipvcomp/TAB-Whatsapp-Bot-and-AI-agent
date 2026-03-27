@@ -168,6 +168,8 @@ SHORTCUT_COMMANDS = {
     "shortcuts": "shortcuts",
     "menu": "menu",
     "back": "back",
+    "cancel": "exit",
+    "exit": "exit",
     "restart": "restart",
     "products": "products",
 }
@@ -495,13 +497,17 @@ async def _handle_shortcut(
             await _update_flow_state(session, sender_wa_id, new_state)
             return True
         if current_step == FLOW_STEP_EXIT_CONFIRM:
+            if policy_id:
+                await cancel_policy(policy_id)
+            session["active_policy_id"] = None
             await send_text_message(
                 to=sender_wa_id,
-                body="Please tap one of the buttons: *Yes, Cancel* or *No, Let's Resume*.\n\nOr type *cancel* to confirm cancellation.",
+                body="Policy flow cancelled. No worries!\n\nType *policy* to start a new one or *hi* for the main menu.",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
             )
+            await _clear_flow_state(session, sender_wa_id)
             return True
         payload = {
             "messaging_product": "whatsapp",
