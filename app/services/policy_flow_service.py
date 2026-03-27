@@ -497,7 +497,7 @@ async def _handle_shortcut(
         if current_step == FLOW_STEP_EXIT_CONFIRM:
             await send_text_message(
                 to=sender_wa_id,
-                body="Please tap one of the buttons: *Yes, Cancel* or *No, Let's Resume*.",
+                body="Please tap one of the buttons: *Yes, Cancel* or *No, Let's Resume*.\n\nOr type *cancel* to confirm cancellation.",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
@@ -700,7 +700,7 @@ async def _send_step_prompt(
                 "interactive": {
                     "type": "button",
                     "body": {
-                        "text": f"Departure airport: *{airport_name}* ({iata_code})\nCountry: *{country}*\n\nPlease confirm or change."
+                        "text": f"Departure airport: *{airport_name}* ({iata_code})\nCountry: *{country}*\n\nPlease confirm or change.\n\nOr type *cancel* or *exit* to leave."
                     },
                     "action": {
                         "buttons": [
@@ -999,7 +999,19 @@ async def handle_policy_flow(
         flow_state = _get_flow_state(session)
         current_step = flow_state.get("step")
         if current_step == FLOW_STEP_EXIT_CONFIRM:
-            pass
+            policy_id = flow_state.get("policy_id")
+            if policy_id:
+                await cancel_policy(policy_id)
+            session["active_policy_id"] = None
+            await send_text_message(
+                to=sender_wa_id,
+                body="Policy flow cancelled. No worries!\n\nType *policy* to start a new one or *hi* for the main menu.",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            await _clear_flow_state(session, sender_wa_id)
+            return
         elif current_step == FLOW_STEP_DETAILS_EDIT_SELECT or flow_state.get("editing_field"):
             new_state = {**flow_state, "step": FLOW_STEP_DETAILS_CONFIRM}
             new_state.pop("editing_field", None)
@@ -1834,7 +1846,7 @@ async def _handle_menu_selection(reply_id, message, sender_wa_id, phone_number_i
     else:
         await send_text_message(
             to=sender_wa_id,
-            body="Please select one of the options from the menu above. Tap on 'Purchase Policy' or 'Submit Boarding Pass'.",
+            body="Please select one of the options from the menu above.\n\nOr type *cancel* or *exit* to leave.",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -1857,7 +1869,7 @@ async def _handle_msisdn_confirm(message, sender_wa_id, phone_number_id, in_repl
             to=sender_wa_id,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
-            body="Please tap one of the buttons below to confirm or cancel.",
+            body="Please tap one of the buttons below to confirm or cancel.\n\nOr type *cancel* or *exit* to leave.",
         )
         return
 
@@ -1880,7 +1892,7 @@ async def _handle_msisdn_confirm(message, sender_wa_id, phone_number_id, in_repl
             to=sender_wa_id,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
-            body="Please tap one of the buttons below to confirm or cancel.",
+            body="Please tap one of the buttons below to confirm or cancel.\n\nOr type *cancel* or *exit* to leave.",
         )
         return
 
@@ -1962,7 +1974,7 @@ async def _handle_airport_confirm(reply_id, message, sender_wa_id, phone_number_
             "interactive": {
                 "type": "button",
                 "body": {
-                    "text": f"Departure airport: *{airport_name}* ({iata_code})\nCountry: *{country}*\n\nPlease confirm or change."
+                    "text": f"Departure airport: *{airport_name}* ({iata_code})\nCountry: *{country}*\n\nPlease confirm or change.\n\nOr type *cancel* or *exit* to leave."
                 },
                 "action": {
                     "buttons": [
@@ -2132,7 +2144,7 @@ async def _handle_product_list_response(reply_id, message, sender_wa_id, phone_n
     else:
         await send_text_message(
             to=sender_wa_id,
-            body="Please tap the 'View Products' button to see available products.",
+            body="Please tap the 'View Products' button to see available products.\n\nOr type *cancel* or *exit* to leave.",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -2383,7 +2395,7 @@ async def _handle_product_selected_response(reply_id, message, sender_wa_id, pho
     else:
         await send_text_message(
             to=sender_wa_id,
-            body="Please select a product from the list above.",
+            body="Please select a product from the list above.\n\nOr type *cancel* or *exit* to leave.",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -2470,7 +2482,8 @@ async def _handle_product_confirm_response(reply_id, message, sender_wa_id, phon
         f"\u2022 Price: {price_str}\n"
         f"\u2022 Validity: {validity} day{'s' if validity != 1 else ''}\n"
         f"\u2022 Provider: {selected_product.get('provider_name', '')}\n\n"
-        f"Please confirm if this selection is correct or choose to change it."
+        f"Please confirm if this selection is correct or choose to change it.\n\n"
+        f"Or type *cancel* or *exit* to leave."
     )
     await send_whatsapp_payload(
         {
@@ -2791,7 +2804,7 @@ async def _handle_id_type_selection(reply_id, message, sender_wa_id, phone_numbe
     else:
         await send_text_message(
             to=sender_wa_id,
-            body="Please select one of the options: *NIN* or *BVN*.",
+            body="Please select one of the options: *NIN* or *BVN*.\n\nOr type *cancel* or *exit* to leave.",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -3032,7 +3045,7 @@ async def _handle_exit_confirm_response(reply_id, message, sender_wa_id, phone_n
 
     await send_text_message(
         to=sender_wa_id,
-        body="Please tap one of the buttons: *Yes, Cancel* or *No, Let's Resume*.",
+        body="Please tap one of the buttons: *Yes, Cancel* or *No, Let's Resume*.\n\nOr type *cancel* to confirm cancellation.",
         phone_number_id=phone_number_id,
         in_reply_to=in_reply_to,
         source="policy_flow",
@@ -3366,7 +3379,7 @@ async def _handle_payment_method_selection(reply_id, message, sender_wa_id, phon
     else:
         await send_text_message(
             to=sender_wa_id,
-            body="Please select one of the payment method options above.",
+            body="Please select one of the payment method options above.\n\nOr type *cancel* or *exit* to leave.",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -3580,7 +3593,7 @@ async def _handle_bank_selection(reply_id, message, sender_wa_id, phone_number_i
         else:
             await send_text_message(
                 to=sender_wa_id,
-                body="Please select a bank from the list, or type at least 3 characters to search for a different bank.",
+                body="Please select a bank from the list, or type at least 3 characters to search for a different bank.\n\nOr type *cancel* or *exit* to leave.",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
@@ -3896,7 +3909,7 @@ async def _handle_policy_summary_response(reply_id, message, sender_wa_id, phone
     else:
         await send_text_message(
             to=sender_wa_id,
-            body="Please tap *Yes, Submit* to submit your policy or *No, Change details* to make corrections.",
+            body="Please tap *Yes, Submit* to submit your policy or *No, Change details* to make corrections.\n\nOr type *cancel* or *exit* to leave.",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -3920,7 +3933,7 @@ async def _handle_policy_summary_response(reply_id, message, sender_wa_id, phone
     if user_input not in ("yes", "y", "submit", "sure", "ok", "okay"):
         await send_text_message(
             to=sender_wa_id,
-            body="Please tap *Yes, Submit* to submit your policy or *No, Change details* to make corrections.",
+            body="Please tap *Yes, Submit* to submit your policy or *No, Change details* to make corrections.\n\nOr type *cancel* or *exit* to leave.",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -4252,7 +4265,7 @@ async def _handle_airport_selection(reply_id, message, sender_wa_id, phone_numbe
                 "interactive": {
                     "type": "button",
                     "body": {
-                        "text": f"Departure airport: *{airport_info['name']}* ({airport_info['iata_code']})\nCountry: *{airport_info['country']}*\n\nPlease confirm or change."
+                        "text": f"Departure airport: *{airport_info['name']}* ({airport_info['iata_code']})\nCountry: *{airport_info['country']}*\n\nPlease confirm or change.\n\nOr type *cancel* or *exit* to leave."
                     },
                     "action": {
                         "buttons": [
@@ -4283,7 +4296,7 @@ async def _handle_airport_selection(reply_id, message, sender_wa_id, phone_numbe
         else:
             await send_text_message(
                 to=sender_wa_id,
-                body="Please select an airport from the list, or type a different airport name or code to search again.",
+                body="Please select an airport from the list, or type a different airport name or code to search again.\n\nOr type *cancel* or *exit* to leave.",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
@@ -4931,7 +4944,7 @@ async def _handle_arr_airport_selection(reply_id, message, sender_wa_id, phone_n
         else:
             await send_text_message(
                 to=sender_wa_id,
-                body="Please select an airport from the list, or type a different city/state name to search again.",
+                body="Please select an airport from the list, or type a different city/state name to search again.\n\nOr type *cancel* or *exit* to leave.",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
