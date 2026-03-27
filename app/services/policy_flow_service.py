@@ -1463,6 +1463,7 @@ async def handle_policy_flow(
             reply_id=reply_id,
             message=message,
             sender_wa_id=sender_wa_id,
+            profile_name=profile_name,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             session=session,
@@ -1815,7 +1816,7 @@ async def _send_retry_options(
     )
 
 
-async def _handle_menu_selection(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
+async def _handle_menu_selection(reply_id, message, sender_wa_id, profile_name, phone_number_id, in_reply_to, session):
     flow_state = _get_flow_state(session)
     policy_id = flow_state.get("policy_id")
 
@@ -1841,14 +1842,14 @@ async def _handle_menu_selection(reply_id, message, sender_wa_id, phone_number_i
             "policy_id": policy_id,
         })
     elif reply_id == BUTTON_SUBMIT_ITINERARY:
-        await send_text_message(
-            to=sender_wa_id,
-            body="Thank you for choosing to submit an itinerary for an existing policy. This feature is coming soon! Our team will reach out to assist you shortly. In the meantime, you can type 'policy' to start a new policy.",
+        await _clear_flow_state(session, sender_wa_id)
+        await handle_boarding_pass_upload_flow(
+            message=message,
+            sender_wa_id=sender_wa_id,
+            profile_name=profile_name,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
-            source="policy_flow",
         )
-        await _clear_flow_state(session, sender_wa_id)
     else:
         await send_text_message(
             to=sender_wa_id,
