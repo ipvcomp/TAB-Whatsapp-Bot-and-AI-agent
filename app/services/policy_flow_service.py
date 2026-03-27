@@ -381,8 +381,12 @@ def _resolve_country_code(text: str) -> Optional[str]:
         return COUNTRY_MAP[cleaned]
     if len(cleaned) == 2 and cleaned.upper() in {v for v in COUNTRY_MAP.values()}:
         return cleaned.upper()
+    words = set(re.split(r'[\s,]+', cleaned))
     for name, code in COUNTRY_MAP.items():
-        if name in cleaned or cleaned in name:
+        if len(name) <= 2:
+            continue
+        name_words = set(name.split())
+        if name_words & words and len(name_words & words) == len(name_words):
             return code
     return None
 
