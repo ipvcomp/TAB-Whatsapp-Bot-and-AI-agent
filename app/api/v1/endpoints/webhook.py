@@ -193,6 +193,19 @@ async def _process_change(entry_id: str, change):
                         log_event("GREETING_WELCOME", {"to": sender_wa_id})
                         continue
 
+                    text_lower = message.text.body.lower().strip()
+                    cancel_words = ("cancel", "/cancel", "exit", "/exit", "stop", "/stop", "#cancel", "#exit")
+                    if text_lower in cancel_words and not is_in_policy_flow(user_session) and not is_in_bp_upload_flow(user_session):
+                        await send_text_message(
+                            to=sender_wa_id,
+                            body="You don't have an active flow to cancel.\n\nType *hi* for the main menu or *policy* to start a new policy.",
+                            phone_number_id=msg_phone_number_id,
+                            in_reply_to=message.id,
+                            source="auto_reply",
+                        )
+                        log_event("CANCEL_NO_FLOW", {"to": sender_wa_id})
+                        continue
+
                 if is_in_bp_upload_flow(user_session):
                     log_event("BP_UPLOAD_FLOW", {
                         "message_id": message.id,
