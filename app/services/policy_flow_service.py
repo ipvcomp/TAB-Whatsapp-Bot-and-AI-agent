@@ -14,7 +14,7 @@ from app.services.llm_service import call_extract
 from app.services.policy_service import (
     create_policy, get_active_draft, set_product_selection, cancel_policy,
     set_personal_details, set_id_verification, set_payment_method,
-    set_account_number, set_country,
+    set_account_number, set_country, set_kyc_country,
     set_bank_details, set_msisdn_info, set_channel_info, set_airport_info,
     set_itinerary, set_boarding_pass, set_policy_submitted, get_policy_by_id,
 )
@@ -87,6 +87,7 @@ FLOW_STEP_PRODUCT_CONFIRM = "product_confirm"
 FLOW_STEP_PD_FIRST_NAME = "pd_first_name"
 FLOW_STEP_PD_LAST_NAME = "pd_last_name"
 FLOW_STEP_PD_EMAIL = "pd_email"
+FLOW_STEP_KYC_COUNTRY = "kyc_country"
 FLOW_STEP_ID_TYPE = "id_type_selection"
 FLOW_STEP_ID_NUMBER = "id_number_input"
 FLOW_STEP_DETAILS_CONFIRM = "details_confirmation"
@@ -202,7 +203,8 @@ BACK_STEP_MAP = {
     FLOW_STEP_PD_FIRST_NAME: FLOW_STEP_ITIN_FLIGHT_NO,
     FLOW_STEP_PD_LAST_NAME: FLOW_STEP_PD_FIRST_NAME,
     FLOW_STEP_PD_EMAIL: FLOW_STEP_PD_LAST_NAME,
-    FLOW_STEP_ID_TYPE: FLOW_STEP_PD_EMAIL,
+    FLOW_STEP_KYC_COUNTRY: FLOW_STEP_PD_EMAIL,
+    FLOW_STEP_ID_TYPE: FLOW_STEP_KYC_COUNTRY,
     FLOW_STEP_ID_NUMBER: FLOW_STEP_ID_TYPE,
     FLOW_STEP_DETAILS_CONFIRM: FLOW_STEP_ID_NUMBER,
     FLOW_STEP_DETAILS_EDIT_SELECT: FLOW_STEP_DETAILS_CONFIRM,
@@ -232,7 +234,8 @@ DETAILS_EDITABLE_FIELDS = [
     {"num": 8, "label": "First Name", "field": "pd_first_name", "step": FLOW_STEP_PD_FIRST_NAME},
     {"num": 9, "label": "Last Name", "field": "pd_last_name", "step": FLOW_STEP_PD_LAST_NAME},
     {"num": 10, "label": "Email", "field": "pd_email", "step": FLOW_STEP_PD_EMAIL},
-    {"num": 11, "label": "ID Type & Number", "field": "id_type_number", "step": FLOW_STEP_ID_TYPE},
+    {"num": 11, "label": "KYC Country", "field": "kyc_country", "step": FLOW_STEP_KYC_COUNTRY},
+    {"num": 12, "label": "ID Type & Number", "field": "id_type_number", "step": FLOW_STEP_ID_TYPE},
 ]
 
 COUNTRY_MAP = {
@@ -760,6 +763,21 @@ async def _send_step_prompt(
                     },
                 },
             },
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+
+    elif step == FLOW_STEP_KYC_COUNTRY:
+        await send_text_message(
+            to=sender_wa_id,
+            body=(
+                "To continue with your policy purchase, we need to verify your identity "
+                "using a valid digital ID number.\n\n"
+                "Which country issued your national biometric ID? "
+                "For example: Nigeria (NIN/BVN), Ghana (Ghana Card), or South Africa (National ID).\n\n"
+                "Once selected, you'll be asked to enter your ID number for verification."
+            ),
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -1491,6 +1509,14 @@ async def handle_policy_flow(
             in_reply_to=in_reply_to,
             session=session,
             current_step=current_step,
+        )
+    elif current_step == FLOW_STEP_KYC_COUNTRY:
+        await _handle_kyc_country_input(
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
         )
     elif current_step == FLOW_STEP_ID_TYPE:
         await _handle_id_type_selection(
@@ -2653,12 +2679,77 @@ async def _handle_personal_detail_input(message, sender_wa_id, phone_number_id, 
             source="policy_flow",
         )
 
-        await _send_id_type_selection(sender_wa_id, phone_number_id, in_reply_to)
+        await send_text_message(
+            to=sender_wa_id,
+            body=(
+                "To continue with your policy purchase, we need to verify your identity "
+                "using a valid digital ID number.\n\n"
+                "Which country issued your national biometric ID? "
+                "For example: Nigeria (NIN/BVN), Ghana (Ghana Card), or South Africa (National ID).\n\n"
+                "Once selected, you'll be asked to enter your ID number for verification."
+            ),
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
         await _update_flow_state(session, sender_wa_id, {
             **flow_state,
-            "step": FLOW_STEP_ID_TYPE,
+            "step": FLOW_STEP_KYC_COUNTRY,
             "personal_details": personal_details,
         })
+
+
+async def _handle_kyc_country_input(message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+
+    text_input = _get_text_input(message)
+    if not text_input:
+        await send_text_message(
+            to=sender_wa_id,
+            body=(
+                "Which country issued your national biometric ID? "
+                "For example: Nigeria (NIN/BVN), Ghana (Ghana Card), or South Africa (National ID)."
+            ),
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    cleaned = text_input.strip()
+    country_code = _resolve_country_code(cleaned)
+
+    if not country_code:
+        await send_text_message(
+            to=sender_wa_id,
+            body=(
+                f"Sorry, we couldn't recognise *\"{cleaned}\"* as a country.\n\n"
+                f"Please enter a valid country name (e.g. Nigeria, Ghana, South Africa):"
+            ),
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        return
+
+    country_name = cleaned.title()
+    for name, code in COUNTRY_MAP.items():
+        if code == country_code and len(name) > 2:
+            country_name = name.title()
+            break
+
+    policy_id = flow_state.get("policy_id")
+    if policy_id:
+        await set_kyc_country(policy_id, country_code, country_name)
+        logger.info(f"KYC country '{country_name}' ({country_code}) saved to policy {policy_id}")
+
+    await _send_id_type_selection(sender_wa_id, phone_number_id, in_reply_to)
+    await _update_flow_state(session, sender_wa_id, {
+        **flow_state,
+        "step": FLOW_STEP_ID_TYPE,
+        "kyc_country_code": country_code,
+        "kyc_country_name": country_name,
+    })
 
 
 async def _send_id_type_selection(to: str, phone_number_id: str, in_reply_to: str) -> None:
@@ -2670,31 +2761,15 @@ async def _send_id_type_selection(to: str, phone_number_id: str, in_reply_to: st
         "interactive": {
             "type": "button",
             "body": {
-                "text": (
-                    "To continue with your policy purchase, we need a valid digital id number "
-                    "to verify your details.\n\n"
-                    "Please choose the identification number you would like to provide for verification:"
-                )
+                "text": "Please choose the identification number you would like to provide for verification:"
             },
             "action": {
                 "buttons": [
-                    {
-                        "type": "reply",
-                        "reply": {
-                            "id": BUTTON_ID_NIN,
-                            "title": "NIN (11 digit)"
-                        }
-                    },
-                    {
-                        "type": "reply",
-                        "reply": {
-                            "id": BUTTON_ID_BVN,
-                            "title": "BVN (11 digit)"
-                        }
-                    }
+                    {"type": "reply", "reply": {"id": BUTTON_ID_NIN, "title": "NIN (11 digit)"}},
+                    {"type": "reply", "reply": {"id": BUTTON_ID_BVN, "title": "BVN (11 digit)"}},
                 ]
-            }
-        }
+            },
+        },
     }
     await send_whatsapp_payload(
         payload,
@@ -2829,6 +2904,9 @@ async def _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to,
         summary_lines.append(f"\u2022 Name: {first_name} {last_name}")
     if personal_details.get("email"):
         summary_lines.append(f"\u2022 Email: {personal_details['email']}")
+    kyc_country_name = flow_state.get("kyc_country_name", "")
+    if kyc_country_name:
+        summary_lines.append(f"\u2022 KYC Country: {kyc_country_name}")
     if id_type and id_number:
         masked = f"***{id_number[-4:]}" if len(id_number) >= 4 else id_number
         summary_lines.append(f"\u2022 {id_type}: {masked}")
@@ -2978,14 +3056,15 @@ async def _send_edit_field_menu(sender_wa_id, phone_number_id, in_reply_to, flow
         8: personal_details.get("first_name", "—"),
         9: personal_details.get("last_name", "—"),
         10: personal_details.get("email", "—"),
-        11: f"{flow_state.get('id_type', '')} ***{flow_state.get('id_number', '')[-4:]}" if flow_state.get("id_number") and len(flow_state.get("id_number", "")) >= 4 else flow_state.get("id_type", "—"),
+        11: flow_state.get("kyc_country_name", "—"),
+        12: f"{flow_state.get('id_type', '')} ***{flow_state.get('id_number', '')[-4:]}" if flow_state.get("id_number") and len(flow_state.get("id_number", "")) >= 4 else flow_state.get("id_type", "—"),
     }
 
     lines = ["Which detail would you like to change? Reply with the *number*:\n"]
     for ef in DETAILS_EDITABLE_FIELDS:
         lines.append(f"*{ef['num']}.* {ef['label']}: {current_values.get(ef['num'], '—')}")
 
-    lines.append("\nReply with a number (1-11) or type *back* to go back.")
+    lines.append(f"\nReply with a number (1-{len(DETAILS_EDITABLE_FIELDS)}) or type *back* to go back.")
 
     await send_text_message(
         to=sender_wa_id,
@@ -3019,7 +3098,7 @@ async def _handle_details_edit_select(message, sender_wa_id, phone_number_id, in
     except ValueError:
         await send_text_message(
             to=sender_wa_id,
-            body="Please reply with a number between *1* and *11* to select which detail to change.",
+            body=f"Please reply with a number between *1* and *{len(DETAILS_EDITABLE_FIELDS)}* to select which detail to change.",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -3035,7 +3114,7 @@ async def _handle_details_edit_select(message, sender_wa_id, phone_number_id, in
     if not selected:
         await send_text_message(
             to=sender_wa_id,
-            body="Invalid choice. Please reply with a number between *1* and *11*.",
+            body=f"Invalid choice. Please reply with a number between *1* and *{len(DETAILS_EDITABLE_FIELDS)}*.",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -3043,6 +3122,24 @@ async def _handle_details_edit_select(message, sender_wa_id, phone_number_id, in
         return
 
     target_step = selected["step"]
+
+    if target_step == FLOW_STEP_KYC_COUNTRY:
+        await send_text_message(
+            to=sender_wa_id,
+            body=(
+                "Which country issued your national biometric ID? "
+                "For example: Nigeria (NIN/BVN), Ghana (Ghana Card), or South Africa (National ID)."
+            ),
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_KYC_COUNTRY,
+            "editing_field": True,
+        })
+        return
 
     if target_step == FLOW_STEP_ID_TYPE:
         await _send_id_type_selection(sender_wa_id, phone_number_id, in_reply_to)

@@ -148,6 +148,13 @@ async def set_personal_details(policy_id: str, details: dict) -> bool:
     })
 
 
+async def set_kyc_country(policy_id: str, kyc_country_code: str, kyc_country_name: str) -> bool:
+    return await update_policy(policy_id, {
+        "kyc_country_code": kyc_country_code,
+        "kyc_country_name": kyc_country_name,
+    })
+
+
 async def set_id_verification(policy_id: str, id_type: str, id_number: str) -> bool:
     update_data = {"id_type": id_type}
     if id_type == "NIN":
