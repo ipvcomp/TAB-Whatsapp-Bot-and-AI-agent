@@ -77,6 +77,7 @@ async def send_welcome_message(
     in_reply_to: Optional[str],
 ) -> Optional[dict]:
     image_media_id = await get_welcome_image_media_id()
+    logger.info(f"Welcome image media_id: {image_media_id}")
 
     interactive = {
         "type": "button",

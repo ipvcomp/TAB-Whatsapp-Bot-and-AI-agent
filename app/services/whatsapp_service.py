@@ -191,9 +191,13 @@ async def get_welcome_image_media_id() -> Optional[str]:
 
     import os
     image_path = os.path.join(os.path.dirname(__file__), "Image.jpeg")
+    logger.info(f"Uploading welcome image from: {image_path} (exists={os.path.isfile(image_path)})")
     media_id = await upload_media_to_whatsapp(image_path, "image/jpeg")
     if media_id:
         _welcome_image_media_id = media_id
+        logger.info(f"Welcome image cached with media_id={media_id}")
+    else:
+        logger.error("Failed to upload welcome image — welcome messages will be sent without image header")
     return media_id
 
 

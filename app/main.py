@@ -21,6 +21,15 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     await connect_to_mongodb()
+    try:
+        from app.services.whatsapp_service import get_welcome_image_media_id
+        media_id = await get_welcome_image_media_id()
+        if media_id:
+            logger.info(f"Welcome image pre-uploaded: media_id={media_id}")
+        else:
+            logger.warning("Welcome image upload failed at startup — will retry on first use")
+    except Exception as e:
+        logger.warning(f"Welcome image pre-upload skipped: {e}")
     logger.info("Application startup complete")
     yield
     await close_mongodb_connection()
