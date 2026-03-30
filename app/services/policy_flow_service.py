@@ -5522,8 +5522,7 @@ async def _show_final_summary(
             f"Boarding Pass: {bp_status}\n\n"
             f"*Status:* Policy Submitted Successfully ✅{ref_line}\n\n"
             f"You're all set! Your *{cover_label}* cover is now active.\n"
-            f"We'll notify you automatically if your flight is delayed or cancelled.\n\n"
-            f"Type *hi* for the main menu or *policy* to purchase a new policy."
+            f"We'll notify you automatically if your flight is delayed or cancelled."
         )
     else:
         error_detail = f"\nReason: {submission_error}" if submission_error else ""
@@ -5531,8 +5530,7 @@ async def _show_final_summary(
             f"Boarding Pass: {bp_status}\n\n"
             f"*Status:* Submission Failed{error_detail}\n\n"
             f"Thanks, we're processing your request. Your details have been saved.\n"
-            f"Please tap *Retry Submission* to try again, or type *back* to correct any information.\n\n"
-            f"Type *hi* for the main menu or *policy* to start a new policy."
+            f"Please tap *Retry Submission* to try again, or type *back* to correct any information."
         )
 
     summary = (
@@ -5605,6 +5603,9 @@ async def _show_final_summary(
             phone_number_id=phone_number_id,
             source="policy_flow",
         )
+    else:
+        from app.services.auto_reply_service import send_welcome_message as _send_welcome_msg
+        await _send_welcome_msg(to=sender_wa_id, phone_number_id=phone_number_id, in_reply_to=in_reply_to)
 
     final_step = "submitted" if submission_success else "submission_failed"
     await _update_flow_state(session, sender_wa_id, {
@@ -5959,11 +5960,13 @@ async def handle_boarding_pass_upload_flow(
         await _clear_bp_flow_state(session, sender_wa_id)
         await send_text_message(
             to=sender_wa_id,
-            body="Boarding pass upload cancelled. 👋\n\nType *hi* for the main menu or *policy* to purchase a new policy.",
+            body="Boarding pass upload cancelled. 👋",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="bp_upload_flow",
         )
+        from app.services.auto_reply_service import send_welcome_message as _send_welcome
+        await _send_welcome(to=sender_wa_id, phone_number_id=phone_number_id, in_reply_to=in_reply_to)
         return
 
     # ── Step 1: Initial entry — fetch & show policy list ──────────────────
@@ -6253,12 +6256,17 @@ async def handle_boarding_pass_upload_flow(
                 body=(
                     f"✅ *Boarding pass uploaded successfully!*\n\n"
                     f"*Policy:* {policy_code}\n\n"
-                    f"Your boarding pass has been linked to this policy.\n\n"
-                    f"Type *hi* for the main menu or *policy* to purchase a new policy."
+                    f"Your boarding pass has been linked to this policy."
                 ),
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="bp_upload_flow",
+            )
+            from app.services.auto_reply_service import send_welcome_message
+            await send_welcome_message(
+                to=sender_wa_id,
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
             )
         else:
             await _update_bp_flow_state(session, sender_wa_id, {**bp_state, "bp_uploading": False, "bp_sha256": None})
