@@ -235,7 +235,17 @@ async def _process_change(entry_id: str, change):
                         phone_number_id=msg_phone_number_id,
                         in_reply_to=message.id,
                     )
-                elif is_policy_trigger(message) or is_in_policy_flow(user_session):
+                elif is_policy_trigger(message) and not is_in_policy_flow(user_session):
+                    log_event("POLICY_KEYWORD_WELCOME", {
+                        "message_id": message.id,
+                        "from": sender_wa_id,
+                    })
+                    await send_welcome_message(
+                        to=sender_wa_id,
+                        phone_number_id=msg_phone_number_id,
+                        in_reply_to=message.id,
+                    )
+                elif is_in_policy_flow(user_session):
                     log_event("POLICY_FLOW", {
                         "message_id": message.id,
                         "from": sender_wa_id,
@@ -451,6 +461,23 @@ async def _handle_welcome_button(
     phone_number_id: str,
 ):
     in_reply_to = message.id
+
+    from app.services.session_service import get_session, save_session
+    session = await get_session(sender_wa_id)
+    if session:
+        flow_state = session.get("policy_flow", {})
+        if flow_state.get("active"):
+            old_policy_id = flow_state.get("policy_id")
+            if old_policy_id:
+                from app.services.policy_service import cancel_policy
+                await cancel_policy(old_policy_id)
+            session["policy_flow"] = {}
+            session["active_policy_id"] = None
+            await save_session(session)
+        bp_state = session.get("bp_upload_flow", {})
+        if bp_state.get("active"):
+            session["bp_upload_flow"] = {}
+            await save_session(session)
 
     if reply_id == "welcome_purchase_policy":
         log_event("WELCOME_BUTTON", {"action": "purchase_policy", "from": sender_wa_id})

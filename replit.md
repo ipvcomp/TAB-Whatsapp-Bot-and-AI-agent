@@ -46,7 +46,10 @@ The bot primarily interacts via WhatsApp messages, supporting interactive button
     - **sessions:** LLM conversation state per user.
     - **llm_logs:** Raw LLM request/response for auditing.
     - **policies:** Records of policy creation attempts, tracking flow status and collected data. Stores `nin` and `bvn` as separate top-level fields (not nested in `personal_details`). Includes `kyc_country_code` and `kyc_country_name` (country that issued the user's biometric ID, independent of product country). Includes `payout_method`, `account_number`, and `itinerary` (with departure/arrival airport, dates, times, booking ref, flight no) as separate fields.
-- **Message Routing Priority:** Welcome buttons → #shortcuts → greeting (only when NOT in active flow) → shortcut commands (in-flow) → boarding pass flow → policy flow → LLM → static auto-reply fallback.
+- **Welcome Message Image:** The welcome message includes `app/services/Image.jpeg` as a header image, uploaded to WhatsApp Media API on first use and cached in memory.
+- **No Policy Management Menu:** The intermediate "Policy Management" menu has been removed. Typing "policy" (or any policy keyword) shows the welcome message with CTA buttons (Purchase Policy, Submit Boarding Pass, Get Support). The flow always starts from the welcome screen.
+- **Text-to-Button Matching:** Users can type button labels instead of tapping buttons (e.g., "purchase policy", "submit boarding pass", "view products", etc.) — matching is case-insensitive with whitespace normalization.
+- **Message Routing Priority:** Welcome buttons → #shortcuts → greeting (only when NOT in active flow) → policy keyword (shows welcome when NOT in flow) → welcome text matching → shortcut commands (in-flow) → boarding pass flow → policy flow → LLM → static auto-reply fallback.
 
 ## External Dependencies
 - **Meta WhatsApp Business Cloud API (Graph API v22.0):** Core integration for sending and receiving WhatsApp messages.

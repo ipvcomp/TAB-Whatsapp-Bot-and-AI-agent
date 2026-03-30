@@ -2,7 +2,7 @@ import logging
 import re
 from typing import Optional
 
-from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
+from app.services.whatsapp_service import send_text_message, send_whatsapp_payload, get_welcome_image_media_id
 
 logger = logging.getLogger(__name__)
 
@@ -76,42 +76,52 @@ async def send_welcome_message(
     phone_number_id: Optional[str],
     in_reply_to: Optional[str],
 ) -> Optional[dict]:
+    image_media_id = await get_welcome_image_media_id()
+
+    interactive = {
+        "type": "button",
+        "body": {
+            "text": WELCOME_BODY
+        },
+        "action": {
+            "buttons": [
+                {
+                    "type": "reply",
+                    "reply": {
+                        "id": "welcome_purchase_policy",
+                        "title": "Purchase Policy"
+                    }
+                },
+                {
+                    "type": "reply",
+                    "reply": {
+                        "id": "welcome_submit_boarding",
+                        "title": "Submit Boarding Pass"
+                    }
+                },
+                {
+                    "type": "reply",
+                    "reply": {
+                        "id": "welcome_get_support",
+                        "title": "Get Support"
+                    }
+                }
+            ]
+        }
+    }
+
+    if image_media_id:
+        interactive["header"] = {
+            "type": "image",
+            "image": {"id": image_media_id}
+        }
+
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
         "to": to,
         "type": "interactive",
-        "interactive": {
-            "type": "button",
-            "body": {
-                "text": WELCOME_BODY
-            },
-            "action": {
-                "buttons": [
-                    {
-                        "type": "reply",
-                        "reply": {
-                            "id": "welcome_purchase_policy",
-                            "title": "Purchase Policy"
-                        }
-                    },
-                    {
-                        "type": "reply",
-                        "reply": {
-                            "id": "welcome_submit_boarding",
-                            "title": "Submit Boarding Pass"
-                        }
-                    },
-                    {
-                        "type": "reply",
-                        "reply": {
-                            "id": "welcome_get_support",
-                            "title": "Get Support"
-                        }
-                    }
-                ]
-            }
-        }
+        "interactive": interactive,
     }
     return await send_whatsapp_payload(
         whatsapp_payload=payload,

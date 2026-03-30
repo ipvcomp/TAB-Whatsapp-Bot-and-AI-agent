@@ -141,6 +141,62 @@ SUPPORTED_BOARDING_PASS_TYPES = {
 MEDIA_RETRY_MAX_ATTEMPTS = 3
 MEDIA_RETRY_BACKOFF = [1, 2, 4]
 
+_welcome_image_media_id: Optional[str] = None
+
+
+async def upload_media_to_whatsapp(file_path: str, mime_type: str = "image/jpeg") -> Optional[str]:
+    settings = get_settings()
+    token = settings.WHATSAPP_API_TOKEN
+    pid = settings.WHATSAPP_PHONE_NUMBER_ID
+    if not token or not pid:
+        logger.error("WhatsApp credentials not configured for media upload")
+        return None
+
+    url = f"https://graph.facebook.com/v22.0/{pid}/media"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    try:
+        import os
+        if not os.path.isfile(file_path):
+            logger.error(f"Media file not found: {file_path}")
+            return None
+
+        with open(file_path, "rb") as f:
+            file_bytes = f.read()
+
+        filename = os.path.basename(file_path)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                url,
+                headers=headers,
+                data={"messaging_product": "whatsapp", "type": mime_type},
+                files={"file": (filename, file_bytes, mime_type)},
+            )
+            if response.status_code == 200:
+                media_id = response.json().get("id")
+                logger.info(f"Uploaded media '{filename}' to WhatsApp, media_id={media_id}")
+                return media_id
+            else:
+                logger.error(f"Media upload failed: HTTP {response.status_code} — {response.text}")
+                return None
+    except Exception as e:
+        logger.error(f"Media upload error: {e}")
+        return None
+
+
+async def get_welcome_image_media_id() -> Optional[str]:
+    global _welcome_image_media_id
+    if _welcome_image_media_id:
+        return _welcome_image_media_id
+
+    import os
+    image_path = os.path.join(os.path.dirname(__file__), "Image.jpeg")
+    media_id = await upload_media_to_whatsapp(image_path, "image/jpeg")
+    if media_id:
+        _welcome_image_media_id = media_id
+    return media_id
+
+
 async def download_whatsapp_media(media_id: str) -> Optional[dict]:
     settings = get_settings()
     token = settings.WHATSAPP_API_TOKEN

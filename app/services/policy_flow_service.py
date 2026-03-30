@@ -186,8 +186,8 @@ SHORTCUTS_TEXT = (
 )
 
 BACK_STEP_MAP = {
-    FLOW_STEP_MSISDN_CONFIRM: FLOW_STEP_MENU,
-    FLOW_STEP_COUNTRY: FLOW_STEP_MENU,
+    FLOW_STEP_MSISDN_CONFIRM: None,
+    FLOW_STEP_COUNTRY: None,
     FLOW_STEP_AIRPORT_INPUT: FLOW_STEP_MSISDN_CONFIRM,
     FLOW_STEP_AIRPORT_SELECT: FLOW_STEP_AIRPORT_INPUT,
     FLOW_STEP_AIRPORT_CONFIRM: FLOW_STEP_AIRPORT_INPUT,
@@ -574,10 +574,7 @@ async def _handle_shortcut(
         if policy_id:
             await cancel_policy(policy_id)
         await _clear_flow_state(session, sender_wa_id)
-        phone_number = session.get("phone_number", sender_wa_id)
-        policy = await create_policy(user_id=sender_wa_id, phone_number=phone_number)
-        new_policy_id = policy.get("policy_id") if policy else None
-        session["active_policy_id"] = new_policy_id
+        session["active_policy_id"] = None
         await send_text_message(
             to=sender_wa_id,
             body="Starting fresh! \U0001F504",
@@ -585,20 +582,23 @@ async def _handle_shortcut(
             in_reply_to=in_reply_to,
             source="policy_flow",
         )
-        await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
-        await _update_flow_state(session, sender_wa_id, {
-            "active": True,
-            "step": FLOW_STEP_MENU,
-            "policy_id": new_policy_id,
-        })
+        from app.services.auto_reply_service import send_welcome_message as _send_welcome
+        await _send_welcome(
+            to=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+        )
         return True
 
     if shortcut == "menu":
-        await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
-        await _update_flow_state(session, sender_wa_id, {
-            **flow_state,
-            "step": FLOW_STEP_MENU,
-        })
+        await _clear_flow_state(session, sender_wa_id)
+        session["active_policy_id"] = None
+        from app.services.auto_reply_service import send_welcome_message as _send_welcome
+        await _send_welcome(
+            to=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+        )
         return True
 
     if shortcut == "products":
@@ -683,11 +683,14 @@ async def _handle_shortcut(
             return True
         prev_step = BACK_STEP_MAP.get(current_step)
         if not prev_step:
-            await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
-            await _update_flow_state(session, sender_wa_id, {
-                **flow_state,
-                "step": FLOW_STEP_MENU,
-            })
+            await _clear_flow_state(session, sender_wa_id)
+            session["active_policy_id"] = None
+            from app.services.auto_reply_service import send_welcome_message as _send_welcome
+            await _send_welcome(
+                to=sender_wa_id,
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+            )
             return True
         await _send_step_prompt(prev_step, sender_wa_id, phone_number_id, in_reply_to, session, flow_state)
         await _update_flow_state(session, sender_wa_id, {
@@ -708,7 +711,8 @@ async def _send_step_prompt(
     flow_state: dict,
 ) -> None:
     if step == FLOW_STEP_MENU:
-        await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
+        from app.services.auto_reply_service import send_welcome_message as _send_welcome
+        await _send_welcome(to=sender_wa_id, phone_number_id=phone_number_id, in_reply_to=in_reply_to)
 
     elif step == FLOW_STEP_MSISDN_CONFIRM:
         phone_display = _format_phone_display(sender_wa_id)
@@ -1003,7 +1007,8 @@ async def _send_step_prompt(
                     source="policy_flow",
                 )
                 return
-        await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
+        from app.services.auto_reply_service import send_welcome_message as _send_welcome
+        await _send_welcome(to=sender_wa_id, phone_number_id=phone_number_id, in_reply_to=in_reply_to)
 
 
 async def handle_policy_flow(
@@ -1099,17 +1104,14 @@ async def handle_policy_flow(
         if old_policy_id:
             await cancel_policy(old_policy_id)
 
-        phone_number = session.get("phone_number", sender_wa_id)
-        policy = await create_policy(user_id=sender_wa_id, phone_number=phone_number)
-        policy_id = policy.get("policy_id") if policy else None
-
-        session["active_policy_id"] = policy_id
-        await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
-        await _update_flow_state(session, sender_wa_id, {
-            "active": True,
-            "step": FLOW_STEP_MENU,
-            "policy_id": policy_id,
-        })
+        await _clear_flow_state(session, sender_wa_id)
+        session["active_policy_id"] = None
+        from app.services.auto_reply_service import send_welcome_message
+        await send_welcome_message(
+            to=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+        )
         return
 
     flow_state = _get_flow_state(session)
@@ -1223,12 +1225,12 @@ async def handle_policy_flow(
             })
             return
 
-        await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
-        await _update_flow_state(session, sender_wa_id, {
-            "active": True,
-            "step": FLOW_STEP_MENU,
-            "policy_id": policy_id,
-        })
+        from app.services.auto_reply_service import send_welcome_message as _send_welcome
+        await _send_welcome(
+            to=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+        )
         return
 
     reply_id = _get_interactive_reply_id(message)
@@ -1239,16 +1241,13 @@ async def handle_policy_flow(
         if old_policy_id:
             await cancel_policy(old_policy_id)
         await _clear_flow_state(session, sender_wa_id)
-        phone_number = session.get("phone_number", sender_wa_id)
-        policy = await create_policy(user_id=sender_wa_id, phone_number=phone_number)
-        new_policy_id = policy.get("policy_id") if policy else None
-        session["active_policy_id"] = new_policy_id
-        await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
-        await _update_flow_state(session, sender_wa_id, {
-            "active": True,
-            "step": FLOW_STEP_MENU,
-            "policy_id": new_policy_id,
-        })
+        session["active_policy_id"] = None
+        from app.services.auto_reply_service import send_welcome_message as _send_welcome
+        await _send_welcome(
+            to=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+        )
         return
 
     if reply_id == BUTTON_RETRY:
@@ -1478,15 +1477,29 @@ async def handle_policy_flow(
             })
             return
 
-        await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
-        await _update_flow_state(session, sender_wa_id, {
-            "active": True,
-            "step": FLOW_STEP_MENU,
-            "policy_id": flow_state.get("policy_id"),
-        })
+        await _clear_flow_state(session, sender_wa_id)
+        session["active_policy_id"] = None
+        from app.services.auto_reply_service import send_welcome_message as _send_welcome
+        await _send_welcome(to=sender_wa_id, phone_number_id=phone_number_id, in_reply_to=in_reply_to)
         return
 
     if current_step == FLOW_STEP_MENU:
+        if reply_id == "welcome_purchase_policy":
+            await _clear_flow_state(session, sender_wa_id)
+            session["active_policy_id"] = None
+            await handle_policy_flow(
+                message=message,
+                sender_wa_id=sender_wa_id,
+                profile_name=profile_name,
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                skip_menu=True,
+            )
+            return
+        if reply_id in ("welcome_submit_boarding", "welcome_get_support"):
+            await _clear_flow_state(session, sender_wa_id)
+            session["active_policy_id"] = None
+            return
         await _handle_menu_selection(
             reply_id=reply_id,
             message=message,
@@ -1716,11 +1729,10 @@ async def handle_policy_flow(
             session=session,
         )
     else:
-        await _send_policy_menu(sender_wa_id, phone_number_id, in_reply_to)
-        await _update_flow_state(session, sender_wa_id, {
-            "active": True,
-            "step": FLOW_STEP_MENU,
-        })
+        await _clear_flow_state(session, sender_wa_id)
+        session["active_policy_id"] = None
+        from app.services.auto_reply_service import send_welcome_message as _send_welcome
+        await _send_welcome(to=sender_wa_id, phone_number_id=phone_number_id, in_reply_to=in_reply_to)
 
 
 async def _send_msisdn_confirm_buttons(
@@ -6127,7 +6139,7 @@ async def handle_boarding_pass_upload_flow(
             source="bp_upload_flow",
         )
 
-        media_data = await download_whatsapp_media(media_id, mime_type)
+        media_data = await download_whatsapp_media(media_id)
         if not media_data or not media_data.get("bytes"):
             await _update_bp_flow_state(session, sender_wa_id, {**bp_state, "bp_uploading": False})
             await send_text_message(
