@@ -3588,7 +3588,8 @@ async def _send_banks_page(to: str, phone_number_id: str, in_reply_to: str, bank
     body_text = (
         f"Please select your bank{page_info}.\n"
         f"Showing {start + 1}-{end} of {total} banks.\n"
-        f"Banks sorted alphabetically"
+        f"Banks sorted alphabetically.\n\n"
+        f"Select *Search Again* for a new bank search."
     )
 
     payload = {
