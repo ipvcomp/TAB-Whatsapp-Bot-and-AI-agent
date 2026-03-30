@@ -1959,6 +1959,24 @@ async def _handle_msisdn_confirm(message, sender_wa_id, phone_number_id, in_repl
         return
 
     if user_input not in ("yes", "y", "yeah", "yep", "sure", "ok", "okay"):
+        settings = get_settings()
+        if settings.LLM_API_URL and message.type == "text" and message.text:
+            from app.services.llm_service import call_generic
+            llm_response = await call_generic(
+                user_id=sender_wa_id,
+                phone_number=session.get("phone_number", sender_wa_id),
+                message=message.text.body.strip(),
+                user_name=session.get("first_name", ""),
+                current_node=session.get("current_node", "N01"),
+            )
+            if llm_response and llm_response.get("response"):
+                await send_text_message(
+                    to=sender_wa_id,
+                    body=llm_response["response"],
+                    phone_number_id=phone_number_id,
+                    in_reply_to=in_reply_to,
+                    source="llm",
+                )
         await _send_msisdn_confirm_buttons(
             to=sender_wa_id,
             phone_number_id=phone_number_id,
