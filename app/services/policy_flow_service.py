@@ -534,12 +534,14 @@ async def _handle_shortcut(
             session["active_policy_id"] = None
             await send_text_message(
                 to=sender_wa_id,
-                body="Policy flow cancelled. No worries!\n\nType *policy* to start a new one or *hi* for the main menu.",
+                body="Your policy application has been cancelled. No worries! 👋",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
             )
             await _clear_flow_state(session, sender_wa_id)
+            from app.services.auto_reply_service import send_welcome_message as _swm
+            await _swm(to=sender_wa_id, phone_number_id=phone_number_id, in_reply_to=in_reply_to)
             return True
         payload = {
             "messaging_product": "whatsapp",
@@ -550,8 +552,8 @@ async def _handle_shortcut(
                 "type": "button",
                 "body": {
                     "text": (
-                        "Are you sure you want to cancel? All your current progress will be lost.\n\n"
-                        "You can always start a new policy later by typing *policy*."
+                        "Are you sure you want to cancel your policy application?\n\n"
+                        "You can always start a new one anytime."
                     )
                 },
                 "action": {
@@ -1083,12 +1085,14 @@ async def handle_policy_flow(
             session["active_policy_id"] = None
             await send_text_message(
                 to=sender_wa_id,
-                body="Policy flow cancelled. No worries!\n\nType *policy* to start a new one or *hi* for the main menu.",
+                body="Your policy application has been cancelled. No worries! 👋",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
             )
             await _clear_flow_state(session, sender_wa_id)
+            from app.services.auto_reply_service import send_welcome_message as _swm2
+            await _swm2(to=sender_wa_id, phone_number_id=phone_number_id, in_reply_to=in_reply_to)
             return
         elif current_step == FLOW_STEP_DETAILS_EDIT_SELECT or flow_state.get("editing_field"):
             new_state = {**flow_state, "step": FLOW_STEP_DETAILS_CONFIRM}
@@ -1106,8 +1110,8 @@ async def handle_policy_flow(
                     "type": "button",
                     "body": {
                         "text": (
-                            "Are you sure you want to cancel? All your current progress will be lost.\n\n"
-                            "You can always start a new policy later by typing *policy*."
+                            "Are you sure you want to cancel your policy application?\n\n"
+                            "You can always start a new one anytime."
                         )
                     },
                     "action": {
@@ -1950,12 +1954,14 @@ async def _handle_msisdn_confirm(message, sender_wa_id, phone_number_id, in_repl
         session["active_policy_id"] = None
         await send_text_message(
             to=sender_wa_id,
-            body="No problem! Policy flow has been cancelled.\n\nType *policy* to start again or *hi* for the main menu.",
+            body="Your policy application has been cancelled. No worries! 👋",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
         )
         await _clear_flow_state(session, sender_wa_id)
+        from app.services.auto_reply_service import send_welcome_message as _swm4
+        await _swm4(to=sender_wa_id, phone_number_id=phone_number_id, in_reply_to=in_reply_to)
         return
 
     if user_input not in ("yes", "y", "yeah", "yep", "sure", "ok", "okay"):
@@ -3162,12 +3168,14 @@ async def _handle_exit_confirm_response(reply_id, message, sender_wa_id, phone_n
         session["active_policy_id"] = None
         await send_text_message(
             to=sender_wa_id,
-            body="Policy flow cancelled. No worries!\n\nType *policy* to start a new one or *hi* for the main menu.",
+            body="Your policy application has been cancelled. No worries! 👋",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
         )
         await _clear_flow_state(session, sender_wa_id)
+        from app.services.auto_reply_service import send_welcome_message as _swm3
+        await _swm3(to=sender_wa_id, phone_number_id=phone_number_id, in_reply_to=in_reply_to)
         return
 
     if reply_id == BUTTON_EXIT_NO:
