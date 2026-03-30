@@ -242,6 +242,7 @@ DETAILS_EDITABLE_FIELDS = [
     {"num": 10, "label": "Email", "field": "pd_email", "step": FLOW_STEP_PD_EMAIL},
     {"num": 11, "label": "KYC Country", "field": "kyc_country", "step": FLOW_STEP_KYC_COUNTRY},
     {"num": 12, "label": "ID Type & Number", "field": "id_type_number", "step": FLOW_STEP_ID_TYPE},
+    {"num": 13, "label": "Boarding Pass", "field": "boarding_pass", "step": FLOW_STEP_BOARDING_PASS_CHOICE},
 ]
 
 COUNTRY_MAP = {
@@ -3193,6 +3194,7 @@ async def _send_edit_field_menu(sender_wa_id, phone_number_id, in_reply_to, flow
         10: personal_details.get("email", "—"),
         11: flow_state.get("kyc_country_name", "—"),
         12: f"{flow_state.get('id_type', '')} ***{flow_state.get('id_number', '')[-4:]}" if flow_state.get("id_number") and len(flow_state.get("id_number", "")) >= 4 else flow_state.get("id_type", "—"),
+        13: "Uploaded" if flow_state.get("boarding_pass_uploaded") else "Not uploaded (will upload later)",
     }
 
     lines = ["Which detail would you like to change? Reply with the *number*:\n"]
@@ -3296,6 +3298,15 @@ async def _handle_details_edit_select(message, sender_wa_id, phone_number_id, in
         await _update_flow_state(session, sender_wa_id, {
             **flow_state,
             "step": FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
+            "editing_field": True,
+        })
+        return
+
+    if target_step == FLOW_STEP_BOARDING_PASS_CHOICE:
+        await _send_boarding_pass_choice(sender_wa_id, phone_number_id, in_reply_to)
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_BOARDING_PASS_CHOICE,
             "editing_field": True,
         })
         return
