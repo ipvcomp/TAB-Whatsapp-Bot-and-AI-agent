@@ -5514,7 +5514,7 @@ async def _show_final_summary(
     cover_label = f"{product_name} from {insurer_name}" if insurer_name else product_name
 
     if submission_success:
-        ref_line = f"\n*Policy Code:* {policy_reference}" if policy_reference else ""
+        ref_line = f"\n*Policy Code:* ```{policy_reference}```" if policy_reference else ""
         status_block = (
             f"Boarding Pass: {bp_status}\n\n"
             f"*Status:* Policy Submitted Successfully ✅{ref_line}\n\n"
@@ -5735,7 +5735,7 @@ def _format_policy_summary(policy: dict) -> str:
 
     policy_code = policy.get("policyCode", "")
     if policy_code:
-        lines.append(f"*Policy Code:* {policy_code}")
+        lines.append(f"*Policy Code:* ```{policy_code}```")
 
     status = policy.get("status", "")
     if status:
@@ -6252,7 +6252,7 @@ async def handle_boarding_pass_upload_flow(
                 to=sender_wa_id,
                 body=(
                     f"✅ *Boarding pass uploaded successfully!*\n\n"
-                    f"*Policy:* {policy_code}\n\n"
+                    f"*Policy:* ```{policy_code}```\n\n"
                     f"Your boarding pass has been linked to this policy."
                 ),
                 phone_number_id=phone_number_id,
