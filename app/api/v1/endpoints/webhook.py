@@ -204,6 +204,24 @@ async def _process_change(entry_id: str, change):
                         log_event("CANCEL_NO_FLOW", {"to": sender_wa_id})
                         continue
 
+                    text_norm = " ".join(text_lower.split())
+                    welcome_text_map = {
+                        "purchase policy": "welcome_purchase_policy",
+                        "submit boarding pass": "welcome_submit_boarding",
+                        "get support": "welcome_get_support",
+                    }
+                    matched_welcome = welcome_text_map.get(text_norm)
+                    if matched_welcome and not is_in_policy_flow(user_session) and not is_in_bp_upload_flow(user_session):
+                        await _handle_welcome_button(
+                            reply_id=matched_welcome,
+                            message=message,
+                            sender_wa_id=sender_wa_id,
+                            profile_name=resolved_profile,
+                            phone_number_id=msg_phone_number_id,
+                        )
+                        log_event("WELCOME_TEXT_MATCH", {"to": sender_wa_id, "action": matched_welcome})
+                        continue
+
                 if is_in_bp_upload_flow(user_session):
                     log_event("BP_UPLOAD_FLOW", {
                         "message_id": message.id,

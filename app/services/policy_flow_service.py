@@ -467,6 +467,15 @@ def _get_interactive_reply_id(message: WhatsAppMessage) -> Optional[str]:
     return None
 
 
+def _match_text_to_button(message: WhatsAppMessage, button_map: dict) -> Optional[str]:
+    if message.type == "text" and message.text:
+        normalized = " ".join(message.text.body.lower().split())
+        for label, btn_id in button_map.items():
+            if normalized == label:
+                return btn_id
+    return None
+
+
 async def _handle_shortcut(
     shortcut: str,
     message: WhatsAppMessage,
@@ -1827,6 +1836,13 @@ async def _handle_menu_selection(reply_id, message, sender_wa_id, profile_name, 
     flow_state = _get_flow_state(session)
     policy_id = flow_state.get("policy_id")
 
+    if not reply_id:
+        reply_id = _match_text_to_button(message, {
+            "purchase policy": BUTTON_CREATE_NEW,
+            "submit boarding pass": BUTTON_SUBMIT_ITINERARY,
+            "start new policy": BUTTON_START_OVER,
+        })
+
     if reply_id == BUTTON_CREATE_NEW:
         phone_display = _format_phone_display(sender_wa_id)
         confirm_text = (
@@ -1877,7 +1893,18 @@ async def _handle_msisdn_confirm(message, sender_wa_id, phone_number_id, in_repl
     elif reply_id == BUTTON_MSISDN_NO:
         user_input = "no"
     elif message.type == "text" and message.text:
-        user_input = message.text.body.strip().lower()
+        text_btn = _match_text_to_button(message, {
+            "yes, proceed": BUTTON_MSISDN_YES,
+            "yes proceed": BUTTON_MSISDN_YES,
+            "no, cancel": BUTTON_MSISDN_NO,
+            "no cancel": BUTTON_MSISDN_NO,
+        })
+        if text_btn == BUTTON_MSISDN_YES:
+            user_input = "yes"
+        elif text_btn == BUTTON_MSISDN_NO:
+            user_input = "no"
+        else:
+            user_input = message.text.body.strip().lower()
     else:
         await _send_msisdn_confirm_buttons(
             to=sender_wa_id,
@@ -1944,6 +1971,12 @@ async def _handle_airport_confirm(reply_id, message, sender_wa_id, phone_number_
     flow_state = _get_flow_state(session)
     policy_id = flow_state.get("policy_id")
     airport_info = flow_state.get("pending_airport_info", {})
+
+    if not reply_id:
+        reply_id = _match_text_to_button(message, {
+            "confirm": "airport_confirm_yes",
+            "change": "airport_confirm_change",
+        })
 
     if reply_id == "airport_confirm_yes":
         airport_iso2 = airport_info.get("country_iso2", "")
@@ -2118,6 +2151,11 @@ async def _handle_product_list_response(reply_id, message, sender_wa_id, phone_n
     flow_state = _get_flow_state(session)
     policy_id = flow_state.get("policy_id")
     country_code = flow_state.get("country_code", "NG")
+
+    if not reply_id:
+        reply_id = _match_text_to_button(message, {
+            "view products": BUTTON_VIEW_PRODUCTS,
+        })
 
     if reply_id == BUTTON_VIEW_PRODUCTS:
         await send_text_message(
@@ -2419,6 +2457,13 @@ async def _handle_product_selected_response(reply_id, message, sender_wa_id, pho
 async def _handle_product_confirm_response(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
     flow_state = _get_flow_state(session)
     policy_id = flow_state.get("policy_id")
+
+    if not reply_id:
+        reply_id = _match_text_to_button(message, {
+            "confirm": BUTTON_PRODUCT_CONFIRM,
+            "change product": BUTTON_PRODUCT_CHANGE,
+            "change": BUTTON_PRODUCT_CHANGE,
+        })
 
     if reply_id == BUTTON_PRODUCT_CONFIRM:
         first_itin_step = ITINERARY_STEPS[0]
@@ -2809,6 +2854,14 @@ async def _send_id_type_selection(to: str, phone_number_id: str, in_reply_to: st
 async def _handle_id_type_selection(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
     flow_state = _get_flow_state(session)
 
+    if not reply_id:
+        reply_id = _match_text_to_button(message, {
+            "nin": BUTTON_ID_NIN,
+            "nin (11 digit)": BUTTON_ID_NIN,
+            "bvn": BUTTON_ID_BVN,
+            "bvn (11 digit)": BUTTON_ID_BVN,
+        })
+
     if reply_id == BUTTON_ID_NIN:
         id_type = "NIN"
         id_label = "NIN (National Identification Number)"
@@ -2970,6 +3023,15 @@ async def _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to,
 async def _handle_details_confirm_response(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
     flow_state = _get_flow_state(session)
 
+    if not reply_id:
+        reply_id = _match_text_to_button(message, {
+            "yes, proceed": BUTTON_DETAILS_CONFIRM,
+            "yes proceed": BUTTON_DETAILS_CONFIRM,
+            "no, change details": BUTTON_DETAILS_CHANGE,
+            "no change details": BUTTON_DETAILS_CHANGE,
+            "change details": BUTTON_DETAILS_CHANGE,
+        })
+
     if reply_id == BUTTON_DETAILS_CONFIRM:
         await send_text_message(
             to=sender_wa_id,
@@ -3027,6 +3089,16 @@ async def _handle_exit_confirm_response(reply_id, message, sender_wa_id, phone_n
     flow_state = _get_flow_state(session)
     policy_id = flow_state.get("policy_id")
     pre_exit_step = flow_state.get("pre_exit_step")
+
+    if not reply_id:
+        reply_id = _match_text_to_button(message, {
+            "yes, cancel": BUTTON_EXIT_YES,
+            "yes cancel": BUTTON_EXIT_YES,
+            "no, let's resume": BUTTON_EXIT_NO,
+            "no let's resume": BUTTON_EXIT_NO,
+            "no lets resume": BUTTON_EXIT_NO,
+            "resume": BUTTON_EXIT_NO,
+        })
 
     if reply_id == BUTTON_EXIT_YES:
         if policy_id:
@@ -3367,6 +3439,13 @@ async def _send_payment_methods(to: str, phone_number_id: str, in_reply_to: str,
 async def _handle_payment_method_selection(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
     flow_state = _get_flow_state(session)
     policy_id = flow_state.get("policy_id")
+
+    if not reply_id and message.type == "text" and message.text:
+        text_norm = " ".join(message.text.body.lower().split())
+        for method_key, method_label in PAYMENT_METHOD_LABELS.items():
+            if text_norm == method_label.lower():
+                reply_id = f"{PAYMENT_METHOD_PREFIX}{method_key}"
+                break
 
     if reply_id and reply_id.startswith(PAYMENT_METHOD_PREFIX):
         method = reply_id[len(PAYMENT_METHOD_PREFIX):]
@@ -3758,6 +3837,12 @@ async def _send_boarding_pass_choice(sender_wa_id, phone_number_id, in_reply_to)
 async def _handle_boarding_pass_choice(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
     flow_state = _get_flow_state(session)
 
+    if not reply_id:
+        reply_id = _match_text_to_button(message, {
+            "upload now": BUTTON_BP_UPLOAD_NOW,
+            "upload later": BUTTON_BP_UPLOAD_LATER,
+        })
+
     if reply_id == BUTTON_BP_UPLOAD_NOW:
         await send_text_message(
             to=sender_wa_id,
@@ -3913,6 +3998,15 @@ async def _send_policy_summary_confirmation(
 async def _handle_policy_summary_response(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
     flow_state = _get_flow_state(session)
     policy_id = flow_state.get("policy_id")
+
+    if not reply_id:
+        reply_id = _match_text_to_button(message, {
+            "yes, submit": BUTTON_SUMMARY_SUBMIT,
+            "yes submit": BUTTON_SUMMARY_SUBMIT,
+            "no, change details": BUTTON_SUMMARY_CHANGE,
+            "no change details": BUTTON_SUMMARY_CHANGE,
+            "change details": BUTTON_SUMMARY_CHANGE,
+        })
 
     if reply_id == BUTTON_SUMMARY_SUBMIT:
         user_input = "yes"
