@@ -3926,15 +3926,14 @@ async def _handle_policy_summary_response(reply_id, message, sender_wa_id, phone
     if user_input in ("no", "n", "change"):
         await send_text_message(
             to=sender_wa_id,
-            body="No problem! Let's go back so you can make changes.\n\nPlease enter your *departure date* (DD/MM/YYYY):",
+            body="No problem! Please select which detail you'd like to change:",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
         )
-        await _update_flow_state(session, sender_wa_id, {
-            **flow_state,
-            "step": FLOW_STEP_ITIN_DEP_DATE,
-        })
+        new_state = {**flow_state, "step": FLOW_STEP_DETAILS_EDIT_SELECT}
+        await _send_edit_field_menu(sender_wa_id, phone_number_id, in_reply_to, new_state)
+        await _update_flow_state(session, sender_wa_id, new_state)
         return
 
     if user_input not in ("yes", "y", "submit", "sure", "ok", "okay"):
