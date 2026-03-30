@@ -1195,13 +1195,6 @@ async def handle_policy_flow(
             })
             return
 
-        await send_text_message(
-            to=sender_wa_id,
-            body="Resubmitting your policy, please wait...",
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            source="policy_flow",
-        )
         success, err_msg, resp_data = await _submit_policy_to_api(
             flow_state, policy_id, bytes(boarding_pass_bytes), boarding_pass_mime,
         )
@@ -4117,13 +4110,6 @@ async def _handle_policy_summary_response(reply_id, message, sender_wa_id, phone
         else:
             boarding_pass_bytes = bytes(boarding_pass_bytes) if boarding_pass_bytes else b""
 
-    await send_text_message(
-        to=sender_wa_id,
-        body="Submitting your policy, please wait...",
-        phone_number_id=phone_number_id,
-        in_reply_to=in_reply_to,
-        source="policy_flow",
-    )
     success, err_msg, resp_data = await _submit_policy_to_api(
         flow_state, policy_id or "", boarding_pass_bytes, boarding_pass_mime,
     )
