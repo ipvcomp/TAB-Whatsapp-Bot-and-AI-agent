@@ -106,6 +106,7 @@ FLOW_STEP_ITIN_DEP_DATE = "itin_dep_date"
 FLOW_STEP_ITIN_DEP_TIME = "itin_dep_time"
 FLOW_STEP_ITIN_ARR_AIRPORT_INPUT = "itin_arr_airport_input"
 FLOW_STEP_ITIN_ARR_AIRPORT_SELECT = "itin_arr_airport_select"
+FLOW_STEP_ITIN_ARR_AIRPORT_CONFIRM = "itin_arr_airport_confirm"
 FLOW_STEP_ITIN_ARR_DATE = "itin_arr_date"
 FLOW_STEP_ITIN_ARR_TIME = "itin_arr_time"
 FLOW_STEP_BOARDING_PASS = "boarding_pass"
@@ -198,7 +199,8 @@ BACK_STEP_MAP = {
     FLOW_STEP_ITIN_DEP_TIME: FLOW_STEP_ITIN_DEP_DATE,
     FLOW_STEP_ITIN_ARR_AIRPORT_INPUT: FLOW_STEP_ITIN_DEP_TIME,
     FLOW_STEP_ITIN_ARR_AIRPORT_SELECT: FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
-    FLOW_STEP_ITIN_ARR_DATE: FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
+    FLOW_STEP_ITIN_ARR_AIRPORT_CONFIRM: FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
+    FLOW_STEP_ITIN_ARR_DATE: FLOW_STEP_ITIN_ARR_AIRPORT_CONFIRM,
     FLOW_STEP_ITIN_ARR_TIME: FLOW_STEP_ITIN_ARR_DATE,
     FLOW_STEP_ITIN_BOOKING_REF: FLOW_STEP_ITIN_ARR_TIME,
     FLOW_STEP_ITIN_FLIGHT_NO: FLOW_STEP_ITIN_BOOKING_REF,
@@ -996,6 +998,34 @@ async def _send_step_prompt(
                 source="policy_flow",
             )
 
+    elif step == FLOW_STEP_ITIN_ARR_AIRPORT_CONFIRM:
+        airport_info = flow_state.get("pending_arr_airport_info", {})
+        airport_name = airport_info.get("name", "")
+        iata_code = airport_info.get("iata_code", "")
+        country = airport_info.get("country", "")
+        await send_whatsapp_payload(
+            {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": sender_wa_id,
+                "type": "interactive",
+                "interactive": {
+                    "type": "button",
+                    "body": {
+                        "text": f"Arrival airport: *{airport_name}* ({iata_code})\nCountry: *{country}*\n\nPlease confirm or change.\n\nOr type *cancel* or *exit* to leave."
+                    },
+                    "action": {
+                        "buttons": [
+                            {"type": "reply", "reply": {"id": "arr_airport_confirm_yes", "title": "Confirm"}},
+                            {"type": "reply", "reply": {"id": "arr_airport_confirm_change", "title": "Change"}},
+                        ]
+                    },
+                },
+            },
+            phone_number_id=phone_number_id,
+            source="policy_flow",
+        )
+
     else:
         for pd_step in PERSONAL_DETAIL_STEPS:
             if pd_step["step"] == step:
@@ -1420,46 +1450,17 @@ async def handle_policy_flow(
                     })
                     return
                 itinerary = flow_state.get("itinerary", {})
-                if len(airports) == 1:
-                    airport = airports[0]
-                    arr_airport_info = {
-                        "name": airport.get("name", ""),
-                        "iata_code": airport.get("iata_code", ""),
-                        "country": airport.get("country", ""),
-                    }
-                    if "arrival" not in itinerary:
-                        itinerary["arrival"] = {}
-                    itinerary["arrival"]["airport"] = arr_airport_info.get("iata_code", "")
-                    itinerary["arrival"]["airportName"] = arr_airport_info.get("name", "")
-                    await send_text_message(
-                        to=sender_wa_id,
-                        body=(
-                            f"Arrival airport selected: *{arr_airport_info['name']}* ({arr_airport_info['iata_code']})\n\n"
-                            f"Please enter your *arrival date* in DD/MM/YYYY format (e.g. 25/12/2026):"
-                        ),
-                        phone_number_id=phone_number_id,
-                        in_reply_to=in_reply_to,
-                        source="policy_flow",
-                    )
-                    await _update_flow_state(session, sender_wa_id, {
-                        **flow_state,
-                        "step": FLOW_STEP_ITIN_ARR_DATE,
-                        "itinerary": itinerary,
-                        "retry_step": None,
-                        "retry_data": None,
-                    })
-                else:
-                    await _send_arr_airports_page(sender_wa_id, phone_number_id, in_reply_to, airports, 0, saved_search)
-                    await _update_flow_state(session, sender_wa_id, {
-                        **flow_state,
-                        "step": FLOW_STEP_ITIN_ARR_AIRPORT_SELECT,
-                        "itinerary": itinerary,
-                        "available_arr_airports": airports,
-                        "arr_airport_page": 0,
-                        "arr_airport_search_term": saved_search,
-                        "retry_step": None,
-                        "retry_data": None,
-                    })
+                await _send_arr_airports_page(sender_wa_id, phone_number_id, in_reply_to, airports, 0, saved_search)
+                await _update_flow_state(session, sender_wa_id, {
+                    **flow_state,
+                    "step": FLOW_STEP_ITIN_ARR_AIRPORT_SELECT,
+                    "itinerary": itinerary,
+                    "available_arr_airports": airports,
+                    "arr_airport_page": 0,
+                    "arr_airport_search_term": saved_search,
+                    "retry_step": None,
+                    "retry_data": None,
+                })
                 return
 
             await send_text_message(
@@ -1695,6 +1696,15 @@ async def handle_policy_flow(
         )
     elif current_step == FLOW_STEP_ITIN_ARR_AIRPORT_SELECT:
         await _handle_arr_airport_selection(
+            reply_id=reply_id,
+            message=message,
+            sender_wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            session=session,
+        )
+    elif current_step == FLOW_STEP_ITIN_ARR_AIRPORT_CONFIRM:
+        await _handle_arr_airport_confirm(
             reply_id=reply_id,
             message=message,
             sender_wa_id=sender_wa_id,
@@ -4922,58 +4932,15 @@ async def _handle_arr_airport_input(message, sender_wa_id, phone_number_id, in_r
         )
         return
 
-    if len(airports) == 1:
-        airport = airports[0]
-        arr_airport_info = {
-            "name": airport.get("name", ""),
-            "iata_code": airport.get("iata_code", ""),
-            "country": airport.get("country", ""),
-        }
-        if "arrival" not in itinerary:
-            itinerary["arrival"] = {}
-        itinerary["arrival"]["airport"] = arr_airport_info.get("iata_code", "")
-        itinerary["arrival"]["airportName"] = arr_airport_info.get("name", "")
-
-        if flow_state.get("editing_field"):
-            if policy_id:
-                await set_itinerary(policy_id, itinerary)
-            await send_text_message(
-                to=sender_wa_id,
-                body=f"Arrival airport updated to: *{arr_airport_info['name']}* ({arr_airport_info['iata_code']})",
-                phone_number_id=phone_number_id,
-                in_reply_to=in_reply_to,
-                source="policy_flow",
-            )
-            new_state = {**flow_state, "step": FLOW_STEP_DETAILS_CONFIRM, "itinerary": itinerary}
-            new_state.pop("editing_field", None)
-            await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, new_state)
-            await _update_flow_state(session, sender_wa_id, new_state)
-        else:
-            await send_text_message(
-                to=sender_wa_id,
-                body=(
-                    f"Arrival airport selected: *{arr_airport_info['name']}* ({arr_airport_info['iata_code']})\n\n"
-                    f"Please enter your scheduled *arrival date* (e.g. 25/12/2026 or 25-12-2026):"
-                ),
-                phone_number_id=phone_number_id,
-                in_reply_to=in_reply_to,
-                source="policy_flow",
-            )
-            await _update_flow_state(session, sender_wa_id, {
-                **flow_state,
-                "step": FLOW_STEP_ITIN_ARR_DATE,
-                "itinerary": itinerary,
-            })
-    else:
-        await _send_arr_airports_page(sender_wa_id, phone_number_id, in_reply_to, airports, 0, cleaned_input)
-        await _update_flow_state(session, sender_wa_id, {
-            **flow_state,
-            "step": FLOW_STEP_ITIN_ARR_AIRPORT_SELECT,
-            "itinerary": itinerary,
-            "available_arr_airports": airports,
-            "arr_airport_page": 0,
-            "arr_airport_search_term": cleaned_input,
-        })
+    await _send_arr_airports_page(sender_wa_id, phone_number_id, in_reply_to, airports, 0, cleaned_input)
+    await _update_flow_state(session, sender_wa_id, {
+        **flow_state,
+        "step": FLOW_STEP_ITIN_ARR_AIRPORT_SELECT,
+        "itinerary": itinerary,
+        "available_arr_airports": airports,
+        "arr_airport_page": 0,
+        "arr_airport_search_term": cleaned_input,
+    })
 
 
 async def _handle_arr_airport_selection(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
@@ -5018,44 +4985,37 @@ async def _handle_arr_airport_selection(reply_id, message, sender_wa_id, phone_n
         arr_airport_info = {
             "name": airport.get("name", ""),
             "iata_code": airport.get("iata_code", ""),
-            "country": airport.get("country", ""),
+            "country": airport.get("country_name", "") or airport.get("country", ""),
         }
-        if "arrival" not in itinerary:
-            itinerary["arrival"] = {}
-        itinerary["arrival"]["airport"] = arr_airport_info.get("iata_code", "")
-        itinerary["arrival"]["airportName"] = arr_airport_info.get("name", "")
 
-        policy_id = flow_state.get("policy_id")
-        if flow_state.get("editing_field"):
-            if policy_id:
-                await set_itinerary(policy_id, itinerary)
-            await send_text_message(
-                to=sender_wa_id,
-                body=f"Arrival airport updated to: *{arr_airport_info['name']}* ({arr_airport_info['iata_code']})",
-                phone_number_id=phone_number_id,
-                in_reply_to=in_reply_to,
-                source="policy_flow",
-            )
-            new_state = {**flow_state, "step": FLOW_STEP_DETAILS_CONFIRM, "itinerary": itinerary}
-            new_state.pop("editing_field", None)
-            await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, new_state)
-            await _update_flow_state(session, sender_wa_id, new_state)
-        else:
-            await send_text_message(
-                to=sender_wa_id,
-                body=(
-                    f"Arrival airport selected: *{arr_airport_info['name']}* ({arr_airport_info['iata_code']})\n\n"
-                    f"Please enter your scheduled *arrival date* (e.g. 25/12/2026 or 25-12-2026):"
-                ),
-                phone_number_id=phone_number_id,
-                in_reply_to=in_reply_to,
-                source="policy_flow",
-            )
-            await _update_flow_state(session, sender_wa_id, {
-                **flow_state,
-                "step": FLOW_STEP_ITIN_ARR_DATE,
-                "itinerary": itinerary,
-            })
+        await send_whatsapp_payload(
+            {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": sender_wa_id,
+                "type": "interactive",
+                "interactive": {
+                    "type": "button",
+                    "body": {
+                        "text": f"Arrival airport: *{arr_airport_info['name']}* ({arr_airport_info['iata_code']})\nCountry: *{arr_airport_info['country']}*\n\nPlease confirm or change.\n\nOr type *cancel* or *exit* to leave."
+                    },
+                    "action": {
+                        "buttons": [
+                            {"type": "reply", "reply": {"id": "arr_airport_confirm_yes", "title": "Confirm"}},
+                            {"type": "reply", "reply": {"id": "arr_airport_confirm_change", "title": "Change"}},
+                        ]
+                    },
+                },
+            },
+            phone_number_id=phone_number_id,
+            source="policy_flow",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_ITIN_ARR_AIRPORT_CONFIRM,
+            "pending_arr_airport_info": arr_airport_info,
+            "itinerary": itinerary,
+        })
     else:
         text_input = _get_text_input(message)
         if text_input:
@@ -5074,6 +5034,94 @@ async def _handle_arr_airport_selection(reply_id, message, sender_wa_id, phone_n
                 in_reply_to=in_reply_to,
                 source="policy_flow",
             )
+
+
+async def _handle_arr_airport_confirm(reply_id, message, sender_wa_id, phone_number_id, in_reply_to, session):
+    flow_state = _get_flow_state(session)
+    policy_id = flow_state.get("policy_id")
+    airport_info = flow_state.get("pending_arr_airport_info", {})
+    itinerary = flow_state.get("itinerary", {})
+
+    if not reply_id:
+        reply_id = _match_text_to_button(message, {
+            "confirm": "arr_airport_confirm_yes",
+            "change": "arr_airport_confirm_change",
+        })
+
+    if reply_id == "arr_airport_confirm_yes":
+        if "arrival" not in itinerary:
+            itinerary["arrival"] = {}
+        itinerary["arrival"]["airport"] = airport_info.get("iata_code", "")
+        itinerary["arrival"]["airportName"] = airport_info.get("name", "")
+
+        if flow_state.get("editing_field"):
+            if policy_id:
+                await set_itinerary(policy_id, itinerary)
+            await send_text_message(
+                to=sender_wa_id,
+                body=f"Arrival airport updated to: *{airport_info['name']}* ({airport_info['iata_code']})",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            new_state = {**flow_state, "step": FLOW_STEP_DETAILS_CONFIRM, "itinerary": itinerary}
+            new_state.pop("editing_field", None)
+            await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, new_state)
+            await _update_flow_state(session, sender_wa_id, new_state)
+        else:
+            await send_text_message(
+                to=sender_wa_id,
+                body="Please enter your scheduled *arrival date* (e.g. 25/12/2026 or 25-12-2026):",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            await _update_flow_state(session, sender_wa_id, {
+                **flow_state,
+                "step": FLOW_STEP_ITIN_ARR_DATE,
+                "itinerary": itinerary,
+            })
+        return
+
+    if reply_id == "arr_airport_confirm_change":
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter the first 3 characters of the *arrival airport name* or *airport code* (e.g. LOS, Mur, KAN, Enu, PHC):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
+        })
+        return
+
+    airport_name = airport_info.get("name", "")
+    iata_code = airport_info.get("iata_code", "")
+    country = airport_info.get("country", "")
+    await send_whatsapp_payload(
+        {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": sender_wa_id,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {
+                    "text": f"Arrival airport: *{airport_name}* ({iata_code})\nCountry: *{country}*\n\nPlease confirm or change.\n\nOr type *cancel* or *exit* to leave."
+                },
+                "action": {
+                    "buttons": [
+                        {"type": "reply", "reply": {"id": "arr_airport_confirm_yes", "title": "Confirm"}},
+                        {"type": "reply", "reply": {"id": "arr_airport_confirm_change", "title": "Change"}},
+                    ]
+                },
+            },
+        },
+        phone_number_id=phone_number_id,
+        source="policy_flow",
+    )
 
 
 async def _submit_policy_to_api(
