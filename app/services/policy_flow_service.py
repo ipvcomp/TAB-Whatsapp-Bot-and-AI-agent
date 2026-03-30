@@ -154,8 +154,10 @@ AIRPORTS_PER_PAGE = 8
 AIRPORT_ID_PREFIX = "airport_"
 AIRPORT_NAV_NEXT = "airport_nav_next"
 AIRPORT_NAV_PREV = "airport_nav_prev"
+AIRPORT_SEARCH_AGAIN = "airport_search_again"
 ARR_AIRPORT_NAV_NEXT = "arr_airport_nav_next"
 ARR_AIRPORT_NAV_PREV = "arr_airport_nav_prev"
+ARR_AIRPORT_SEARCH_AGAIN = "arr_airport_search_again"
 
 SHORTCUT_COMMANDS = {
     "#shortcuts": "shortcuts",
@@ -4185,10 +4187,17 @@ async def _send_dep_airports_page(to: str, phone_number_id: str, in_reply_to: st
                 "description": f"Go back (page {page} of {total_pages})",
             })
 
+    rows.append({
+        "id": AIRPORT_SEARCH_AGAIN,
+        "title": "\U0001F50D Search Again",
+        "description": "Search for a different airport",
+    })
+
     page_info = f" (Page {page + 1}/{total_pages})" if total_pages > 1 else ""
     body_text = (
         f"Found {total} airports for *\"{search_term}\"*{page_info}.\n"
-        f"Showing {start + 1}-{end} of {total}. Please select one:"
+        f"Showing {start + 1}-{end} of {total}. Please select one.\n\n"
+        f"Select *Search Again* for a new airport search."
     )
 
     payload = {
@@ -4247,10 +4256,17 @@ async def _send_arr_airports_page(to: str, phone_number_id: str, in_reply_to: st
                 "description": f"Go back (page {page} of {total_pages})",
             })
 
+    rows.append({
+        "id": ARR_AIRPORT_SEARCH_AGAIN,
+        "title": "\U0001F50D Search Again",
+        "description": "Search for a different airport",
+    })
+
     page_info = f" (Page {page + 1}/{total_pages})" if total_pages > 1 else ""
     body_text = (
         f"Found {total} airports for *\"{search_term}\"*{page_info}.\n"
-        f"Showing {start + 1}-{end} of {total}. Please select one:"
+        f"Showing {start + 1}-{end} of {total}. Please select one.\n\n"
+        f"Select *Search Again* for a new airport search."
     )
 
     payload = {
@@ -4363,6 +4379,20 @@ async def _handle_airport_selection(reply_id, message, sender_wa_id, phone_numbe
         new_page = max(current_page - 1, 0)
         await _send_dep_airports_page(sender_wa_id, phone_number_id, in_reply_to, airports, new_page, search_term)
         await _update_flow_state(session, sender_wa_id, {**flow_state, "airport_page": new_page})
+        return
+
+    if reply_id == AIRPORT_SEARCH_AGAIN:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter the first 3 characters of the *departure airport name* or *airport code* (e.g. LOS, Mur, KAN, Enu, PHC):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_AIRPORT_INPUT,
+        })
         return
 
     if reply_id and reply_id.startswith(AIRPORT_ID_PREFIX):
@@ -4961,6 +4991,20 @@ async def _handle_arr_airport_selection(reply_id, message, sender_wa_id, phone_n
         new_page = max(current_page - 1, 0)
         await _send_arr_airports_page(sender_wa_id, phone_number_id, in_reply_to, airports, new_page, search_term)
         await _update_flow_state(session, sender_wa_id, {**flow_state, "arr_airport_page": new_page})
+        return
+
+    if reply_id == ARR_AIRPORT_SEARCH_AGAIN:
+        await send_text_message(
+            to=sender_wa_id,
+            body="Please enter the first 3 characters of the *arrival airport name* or *airport code* (e.g. LOS, Mur, KAN, Enu, PHC):",
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="policy_flow",
+        )
+        await _update_flow_state(session, sender_wa_id, {
+            **flow_state,
+            "step": FLOW_STEP_ITIN_ARR_AIRPORT_INPUT,
+        })
         return
 
     if reply_id and reply_id.startswith(ARR_AIRPORT_ID_PREFIX):
