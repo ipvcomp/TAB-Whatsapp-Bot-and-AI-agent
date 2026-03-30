@@ -1940,7 +1940,7 @@ async def _handle_msisdn_confirm(message, sender_wa_id, phone_number_id, in_repl
             to=sender_wa_id,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
-            body="Please tap one of the buttons below to confirm or cancel.\n\nOr type *cancel* or *exit* to leave.",
+            body="Please tap one of the buttons below to confirm or cancel.",
         )
         return
 
@@ -1981,7 +1981,7 @@ async def _handle_msisdn_confirm(message, sender_wa_id, phone_number_id, in_repl
             to=sender_wa_id,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
-            body="Please tap one of the buttons below to confirm or cancel.\n\nOr type *cancel* or *exit* to leave.",
+            body="Please tap one of the buttons below to confirm or cancel.",
         )
         return
 
