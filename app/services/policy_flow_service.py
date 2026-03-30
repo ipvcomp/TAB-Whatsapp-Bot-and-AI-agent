@@ -476,6 +476,24 @@ def _match_text_to_button(message: WhatsAppMessage, button_map: dict) -> Optiona
     return None
 
 
+def _extract_policy_code(resp_data) -> str:
+    if not isinstance(resp_data, dict):
+        logger.warning(f"_extract_policy_code received non-dict response: {type(resp_data).__name__}")
+        return ""
+    data = resp_data.get("data", {}) if isinstance(resp_data.get("data"), dict) else {}
+    code = (
+        data.get("policyCode", "")
+        or resp_data.get("policyCode", "")
+        or data.get("policyId", "")
+        or data.get("id", "")
+        or resp_data.get("policyId", "")
+        or resp_data.get("id", "")
+        or ""
+    )
+    logger.info(f"Extracted policy code/reference: '{code}' from response keys: {list(resp_data.keys())}, data keys: {list(data.keys()) if data else 'N/A'}")
+    return str(code) if code else ""
+
+
 async def _handle_shortcut(
     shortcut: str,
     message: WhatsAppMessage,
@@ -1155,13 +1173,7 @@ async def handle_policy_flow(
 
         policy_reference = ""
         if success and policy_id:
-            policy_reference = (
-                resp_data.get("data", {}).get("policyId", "")
-                or resp_data.get("data", {}).get("id", "")
-                or resp_data.get("policyId", "")
-                or resp_data.get("id", "")
-                or ""
-            )
+            policy_reference = _extract_policy_code(resp_data)
             await set_policy_submitted(policy_id, resp_data)
             logger.info(f"Policy {policy_id} resubmitted successfully. Reference: {policy_reference}")
         else:
@@ -4082,13 +4094,7 @@ async def _handle_policy_summary_response(reply_id, message, sender_wa_id, phone
 
     policy_reference = ""
     if success and policy_id:
-        policy_reference = (
-            resp_data.get("data", {}).get("policyId", "")
-            or resp_data.get("data", {}).get("id", "")
-            or resp_data.get("policyId", "")
-            or resp_data.get("id", "")
-            or ""
-        )
+        policy_reference = _extract_policy_code(resp_data)
         await set_policy_submitted(policy_id, resp_data)
         logger.info(f"Policy {policy_id} submitted successfully. Reference: {policy_reference}")
     elif not success:
