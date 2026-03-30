@@ -4828,11 +4828,11 @@ async def _handle_itinerary_text_input(message, sender_wa_id, phone_number_id, i
     elif validation == "booking_ref":
         cleaned = re.sub(r"[\s\-]", "", value).upper()
         has_letter = any(c.isalpha() for c in cleaned)
-        has_digit = any(c.isdigit() for c in cleaned)
-        if not cleaned or not re.fullmatch(r"[A-Z0-9]{4,8}", cleaned) or not has_letter or not has_digit:
+        is_alnum = bool(re.fullmatch(r"[A-Z0-9]{3,10}", cleaned))
+        if not cleaned or not is_alnum or not has_letter:
             await send_text_message(
                 to=sender_wa_id,
-                body="Enter a valid booking reference (e.g. ABC123).\n\nIt must be 4-8 characters and contain both letters and numbers.",
+                body="Enter a valid booking reference (e.g. ABC123).\n\nIt must be alphanumeric or letters only. Numbers only are not allowed.",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
@@ -4842,10 +4842,10 @@ async def _handle_itinerary_text_input(message, sender_wa_id, phone_number_id, i
 
     elif validation == "flight_no":
         cleaned = re.sub(r"[\s\-]", "", value).upper()
-        if not cleaned or not re.fullmatch(r"[A-Z]{2}\d{1,4}[A-Z]?", cleaned):
+        if not cleaned or not re.fullmatch(r"[A-Z]{1,3}\d{2,4}", cleaned):
             await send_text_message(
                 to=sender_wa_id,
-                body="Enter a valid flight number (e.g. BA1234).\n\nIt should be 2 letters followed by 1-4 digits.",
+                body="Enter a valid flight number (e.g. BA1234).\n\n1-3 letters followed by 2-4 numbers.",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
