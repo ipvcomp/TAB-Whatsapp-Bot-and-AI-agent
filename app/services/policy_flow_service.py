@@ -632,10 +632,17 @@ async def _handle_shortcut(
         return True
 
     if shortcut == "back":
-        if current_step == FLOW_STEP_DETAILS_EDIT_SELECT or flow_state.get("editing_field"):
-            new_state = {**flow_state, "step": FLOW_STEP_DETAILS_CONFIRM}
+        if flow_state.get("editing_field"):
+            new_state = {**flow_state, "step": FLOW_STEP_DETAILS_EDIT_SELECT}
             new_state.pop("editing_field", None)
-            await _send_details_confirmation(sender_wa_id, phone_number_id, in_reply_to, new_state)
+            await _send_edit_field_menu(sender_wa_id, phone_number_id, in_reply_to, new_state)
+            await _update_flow_state(session, sender_wa_id, new_state)
+            return True
+        if current_step == FLOW_STEP_EXIT_CONFIRM:
+            pre_exit_step = flow_state.get("pre_exit_step", FLOW_STEP_MENU)
+            new_state = {**flow_state, "step": pre_exit_step}
+            new_state.pop("pre_exit_step", None)
+            await _send_step_prompt(pre_exit_step, sender_wa_id, phone_number_id, in_reply_to, session, new_state)
             await _update_flow_state(session, sender_wa_id, new_state)
             return True
         if not current_step or current_step == FLOW_STEP_MENU:
