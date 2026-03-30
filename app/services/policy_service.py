@@ -217,11 +217,17 @@ async def set_itinerary(policy_id: str, itinerary: dict) -> bool:
 
 async def set_policy_submitted(policy_id: str, api_response: dict) -> bool:
     from datetime import datetime, timezone
-    return await update_policy(policy_id, {
+    update_data = {
         "status": "submitted",
         "submitted_at": datetime.now(timezone.utc),
         "api_response": api_response,
-    })
+    }
+    if isinstance(api_response, dict):
+        data = api_response.get("data", {}) if isinstance(api_response.get("data"), dict) else {}
+        policy_code = data.get("policyCode", "") or api_response.get("policyCode", "")
+        if policy_code:
+            update_data["policyCode"] = policy_code
+    return await update_policy(policy_id, update_data)
 
 
 async def set_boarding_pass(policy_id: str, boarding_pass: dict) -> bool:
