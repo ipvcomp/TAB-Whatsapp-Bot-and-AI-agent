@@ -534,7 +534,7 @@ async def _handle_shortcut(
             session["active_policy_id"] = None
             await send_text_message(
                 to=sender_wa_id,
-                body="Your policy application has been cancelled. No worries! 👋",
+                body="Your policy application has been cancelled. No worries! 👋\n\nYou can always start a new one.",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
@@ -1085,7 +1085,7 @@ async def handle_policy_flow(
             session["active_policy_id"] = None
             await send_text_message(
                 to=sender_wa_id,
-                body="Your policy application has been cancelled. No worries! 👋",
+                body="Your policy application has been cancelled. No worries! 👋\n\nYou can always start a new one.",
                 phone_number_id=phone_number_id,
                 in_reply_to=in_reply_to,
                 source="policy_flow",
@@ -1954,7 +1954,7 @@ async def _handle_msisdn_confirm(message, sender_wa_id, phone_number_id, in_repl
         session["active_policy_id"] = None
         await send_text_message(
             to=sender_wa_id,
-            body="Your policy application has been cancelled. No worries! 👋",
+            body="Your policy application has been cancelled. No worries! 👋\n\nYou can always start a new one.",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
@@ -3168,7 +3168,7 @@ async def _handle_exit_confirm_response(reply_id, message, sender_wa_id, phone_n
         session["active_policy_id"] = None
         await send_text_message(
             to=sender_wa_id,
-            body="Your policy application has been cancelled. No worries! 👋",
+            body="Your policy application has been cancelled. No worries! 👋\n\nYou can always start a new one.",
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
             source="policy_flow",
