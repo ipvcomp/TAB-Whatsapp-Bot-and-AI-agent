@@ -2709,29 +2709,37 @@ async def _handle_personal_detail_input(message, sender_wa_id, phone_number_id, 
 
     if current_field in ("first_name", "last_name"):
         words = extracted_value.split()
-        if len(words) == 1:
+        is_single_name = len(words) == 1 and all(c.isalpha() or c == '-' for c in extracted_value)
+        if is_single_name:
             extracted_value = extracted_value.title()
         else:
+            label = "first name" if current_field == "first_name" else "last name"
             settings = get_settings()
             if settings.LLM_API_URL:
-                try:
-                    from app.services.llm_service import call_extract
-                    extract_result = await call_extract(
-                        user_id=sender_wa_id,
-                        field_name=current_field,
-                        question_asked=current_step_info["prompt"],
-                        user_response=extracted_value,
-                        expected_format="text",
+                from app.services.llm_service import call_generic
+                llm_response = await call_generic(
+                    user_id=sender_wa_id,
+                    phone_number=session.get("phone_number", sender_wa_id),
+                    message=extracted_value,
+                    user_name=session.get("first_name", ""),
+                    current_node=session.get("current_node", "N01"),
+                )
+                if llm_response and llm_response.get("response"):
+                    await send_text_message(
+                        to=sender_wa_id,
+                        body=llm_response["response"],
+                        phone_number_id=phone_number_id,
+                        in_reply_to=in_reply_to,
+                        source="llm",
                     )
-                    if extract_result and extract_result.get("value"):
-                        extracted_value = extract_result["value"].strip().title()
-                    else:
-                        extracted_value = words[0].title()
-                except Exception as e:
-                    logger.warning(f"LLM extract failed for {current_field}, using first word: {e}")
-                    extracted_value = words[0].title()
-            else:
-                extracted_value = words[0].title()
+            await send_text_message(
+                to=sender_wa_id,
+                body=f"Please enter a valid {label}:",
+                phone_number_id=phone_number_id,
+                in_reply_to=in_reply_to,
+                source="policy_flow",
+            )
+            return
 
         if not extracted_value or not extracted_value.strip():
             label = "first name" if current_field == "first_name" else "last name"
