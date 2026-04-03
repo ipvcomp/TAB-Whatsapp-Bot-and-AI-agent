@@ -1,70 +1,163 @@
-# Getting Started with Create React App
+TravelAssist - Backend Developer Guide
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
-## Available Scripts
+OVERVIEW
 
-In the project directory, you can run:
+TravelAssist is a WhatsApp-style travel insurance chatbot frontend built with React.
+All business logic runs client-side using mock functions. This guide explains what each
+mock does, what inputs it expects, what it returns, and how to replace it with a real API call.
 
-### `npm start`
+All mock functions are located in: src/data/mockData.js
+All flow logic that calls those functions is in: src/context/ChatContext.js
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+RUNNING THE FRONTEND LOCALLY
 
-### `npm test`
+Requirements: Node.js 16 or higher, npm
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+    npm install
+    npm start
 
-### `npm run build`
+Opens at http://localhost:3000
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+MOCK FUNCTIONS TO REPLACE
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
 
-### `npm run eject`
+1. simulateFlightLookup(flightNumber)
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+Purpose: Looks up a flight by its number and returns status and schedule details.
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+Input:  flightNumber - string, e.g. "P47123"
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+Expected return on success:
+    {
+      success: true,
+      data: {
+        flightNumber: string,
+        airline: string,
+        origin: string,
+        destination: string,
+        scheduledDeparture: string,
+        scheduledArrival: string,
+        status: "ON TIME" or "DELAYED" or "CANCELLED",
+        delayMinutes: number,
+        gate: string
+      }
+    }
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+Expected return on failure:
+    { success: false, error: string }
 
-## Learn More
+Replace with: any live flight data API such as AviationStack or FlightAware.
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+2. simulateKYC(type, value)
 
-### Code Splitting
+Purpose: Verifies a traveller identity using BVN or NIN.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+Input:
+    type  - string, either "BVN" or "NIN"
+    value - string, 11-digit number
 
-### Analyzing the Bundle Size
+Expected return on success:
+    {
+      success: true,
+      data: {
+        name: string   (full name as registered with the ID)
+      }
+    }
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+Expected return on failure:
+    { success: false, error: string }
 
-### Making a Progressive Web App
+Replace with: NIBSS BVN verification API or NIN lookup via NIMC.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
 
-### Advanced Configuration
+3. simulatePayment(method, amount)
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+Purpose: Processes a payment and returns success or failure.
 
-### Deployment
+Input:
+    method - string, one of "card", "bank", "ussd", "wallet"
+    amount - number, e.g. 2500
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+Expected return on success:
+    { success: true, reference: string }
 
-### `npm run build` fails to minify
+Expected return on pending:
+    { success: false, status: "PENDING" }
+
+Expected return on failure:
+    { success: false, status: "FAILED", error: string }
+
+Replace with: Paystack or Flutterwave payment APIs.
+
+
+4. simulateBoardingPassVerification(fileName)
+
+Purpose: Reads an uploaded boarding pass image or PDF and extracts flight details.
+
+Input:  fileName - string, name of the uploaded file
+
+Expected return on success:
+    {
+      success: true,
+      flightNumber: string,
+      date: string,
+      passengerName: string
+    }
+
+Expected return on failure:
+    { success: false, error: string }
+
+Replace with: an OCR or document parsing service such as Google Vision or AWS Textract.
+
+
+5. generatePolicyNumber()
+
+Purpose: Generates a unique policy reference number after successful payment.
+
+Current behaviour: returns a random string like "TA-2026-482910"
+
+Replace with: a call to your policy management backend that creates the policy record
+and returns the assigned policy number.
+
+
+DATA MODELS
+
+The frontend expects the following fields when displaying a policy:
+
+    policyNumber  - string
+    status        - "ACTIVE" or "EXPIRED"
+    airline       - string
+    flightNumber  - string
+    travelDate    - string
+    plan          - string, plan name
+    phone         - string
+
+Mock policies used for testing are defined in the MOCK_POLICIES array in mockData.js.
+
+
+SESSION AND STATE
+
+There is no backend session management. All state is held in React context and
+optionally persisted to localStorage. When connecting a backend, you will need to
+add authentication and pass a user token with each API call.
+
+
+PAYMENT FLOW SUMMARY
+
+1. User selects a cover plan
+2. User completes KYC (BVN or NIN verification)
+3. User selects payment method and pays
+4. On payment success, generatePolicyNumber is called and the policy is shown
+5. User can optionally upload a boarding pass for eligibility verification
+
+
+CONTACT
+
+For questions about the frontend implementation, refer to ChatContext.js.
+Each flow section is clearly commented with the flow name.
 
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
