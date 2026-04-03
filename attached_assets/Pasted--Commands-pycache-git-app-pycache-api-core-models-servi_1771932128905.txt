@@ -1,0 +1,160 @@
+
+Commands
+
+__pycache__
+.git
+app
+__pycache__
+api
+core
+models
+services
+utils
+__init__.py
+main.py
+attached_assets
+1
+main.py
+replit.md
+Packager files
+.pythonlibs
+.upm
+poetry.lock
+pyproject.toml
+Config files
+.replit
+
+uvicorn main:app --host 0.0.0.0 --port 5000 --reload
+6m
+ • 
+6 minutes ago
+
+Open a new tab to test authentication and file uploads.
+
+Secrets
+SESSION_SECRET
+••••••••
+MONGODB_URI
+••••••••
+Configurations
+Configurations are similar to secrets, but should only be used for non-sensitive information. They're useful for having a variable that's different between your published app and when testing on Replit.
+Time
+Deployment
+Source
+Log
+2026-02-23 21:22:14.89
+b1abe248
+System
+metasidecar: loaded enterprise status from environment is_enterprise=false
+2026-02-23 21:55:56.11
+b6d63b99
+System
+forwarding local port 5000 to external port 80 (mapped as 1104)
+2026-02-23 21:55:56.11
+b6d63b99
+System
+metasidecar: loaded enterprise status from environment is_enterprise=false
+2026-02-23 21:55:57.12
+b6d63b99
+User
+[2026-02-23 16:55:57 +0000] [21] [INFO] Listening at: (21)
+2026-02-23 21:55:57.12
+b6d63b99
+User
+[2026-02-23 16:55:57 +0000] [21] [INFO] Using worker: uvicorn.workers.UvicornWorker
+2026-02-23 21:55:57.12
+b6d63b99
+User
+[2026-02-23 16:55:57 +0000] [21] [INFO] Starting gunicorn 25.1.0
+2026-02-23 21:55:57.14
+b6d63b99
+User
+[2026-02-23 16:55:57 +0000] [27] [INFO] Booting worker with pid: 27
+2026-02-23 21:55:57.14
+b6d63b99
+User
+[2026-02-23 16:55:57 +0000] [21] [INFO] Control socket listening at /home/runner/workspace/gunicorn.ctl
+2026-02-23 21:55:58.85
+b6d63b99
+User
+2026-02-23 16:55:58,854 - app.main - INFO - Application started: WhatsApp Bot SaaS v0.1.0
+2026-02-23 21:55:59.05
+b6d63b99
+User
+[2026-02-23 16:55:59 +0000] [27] [INFO] Started server process [27]
+2026-02-23 21:55:59.05
+b6d63b99
+User
+[2026-02-23 16:55:59 +0000] [27] [INFO] Waiting for application startup.
+2026-02-23 21:55:59.05
+b6d63b99
+User
+[2026-02-23 16:55:59 +0000] [27] [INFO] Application startup complete.
+2026-02-23 21:56:00.85
+b6d63b99
+System
+starting up user application
+2026-02-23 21:56:00.85
+b6d63b99
+System
+metasidecar: loaded enterprise status from environment is_enterprise=false
+2026-02-23 21:56:00.85
+b6d63b99
+System
+forwarding local port 5000 to external port 80 (mapped as 1104)
+2026-02-23 21:56:02.00
+b6d63b99
+User
+[2026-02-23 16:56:02 +0000] [18] [INFO] Starting gunicorn 25.1.0
+2026-02-23 21:56:02.00
+b6d63b99
+User
+[2026-02-23 16:56:02 +0000] [18] [INFO] Using worker: uvicorn.workers.UvicornWorker
+2026-02-23 21:56:02.00
+b6d63b99
+User
+[2026-02-23 16:56:02 +0000] [18] [INFO] Listening at: (18)
+2026-02-23 21:56:02.02
+b6d63b99
+User
+[2026-02-23 16:56:02 +0000] [29] [INFO] Booting worker with pid: 29
+2026-02-23 21:56:02.02
+b6d63b99
+User
+[2026-02-23 16:56:02 +0000] [18] [INFO] Control socket listening at /home/runner/workspace/gunicorn.ctl
+2026-02-23 21:56:03.79
+b6d63b99
+User
+2026-02-23 16:56:03,790 - app.main - INFO - Application started: WhatsApp Bot SaaS v0.1.0
+2026-02-23 21:56:03.95
+b6d63b99
+User
+[2026-02-23 16:56:03 +0000] [29] [INFO] Started server process [29]
+2026-02-23 21:56:03.95
+b6d63b99
+User
+[2026-02-23 16:56:03 +0000] [29] [INFO] Application startup complete.
+2026-02-23 21:56:03.95
+b6d63b99
+User
+[2026-02-23 16:56:03 +0000] [29] [INFO] Waiting for application startup.
+2026-02-23 21:56:18.01
+b6d63b99
+User
+[WEBHOOK] {"timestamp": "2026-02-23T16:56:18.016264+00:00", "event": "CONTACT_INFO", "wa_id": "923176811061", "profile_name": "Huzaifa Roman"}
+2026-02-23 21:56:18.01
+b6d63b99
+User
+[WEBHOOK] {"timestamp": "2026-02-23T16:56:18.016223+00:00", "event": "WEBHOOK_CHANGE", "entry_id": "846004775155269", "field": "messages", "business_phone": "447457406270", "phone_number_id": "970590362802994", "contacts_count": 1, "messages_count": 1, "statuses_count": 0}
+2026-02-23 21:56:18.01
+b6d63b99
+User
+[WEBHOOK] {"timestamp": "2026-02-23T16:56:18.016043+00:00", "event": "INCOMING_WEBHOOK", "client_ip": "34.23.253.208", "object_type": "whatsapp_business_account", "raw_payload": {"object": "whatsapp_business_account", "entry": [{"id": "846004775155269", "changes": [{"value": {"messaging_product": "whatsapp", "metadata": {"display_phone_number": "447457406270", "phone_number_id": "970590362802994"}, "contacts": [{"profile": {"name": "Huzaifa Roman"}, "wa_id": "923176811061"}], "messages": [{"from": "923176811061", "id": "wamid.HBgMOTIzMTc2ODExMDYxFQIAEhgUM0E4QzBCOThBNjdFN0YwMERFRjEA", "timestamp": "1771865776", "text": {"body": "Hi there"}, "type": "text"}]}, "field": "messages"}]}]}}
+2026-02-23 21:56:18.01
+b6d63b99
+User
+[WEBHOOK] {"timestamp": "1771865776", "event": "MESSAGE_RECEIVED", "from": "923176811061", "message_id": "wamid.HBgMOTIzMTc2ODExMDYxFQIAEhgUM0E4QzBCOThBNjdFN0YwMERFRjEA", "type": "text", "text": "Hi there"}
+2026-02-23 21:58:46.50
+b1abe248
+System
+system: received signal terminated
