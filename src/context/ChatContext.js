@@ -55,6 +55,11 @@ const initialState = {
     payoutBankName: null,
     payoutWalletProvider: null,
     payoutWalletPhone: null,
+    payoutFromBuyFlow: false, // true = triggered from KYC success, show "Continue to payment"
+    bankSearchMatches: [],
+    updatingBankDetails: false, // true = came from "Update my details → Bank/payout"
+    updatingTravellerIndex: null, // index of traveller being edited
+    updatingTravellerIsKyc: false, // true = editing kycName (solo flow fallback)
     // Boarding
     boardingPassUploaded: false,
   },
@@ -207,7 +212,6 @@ export function ChatProvider({ children }) {
           { id: 'check_policy',   label: '📄 Check my policy' },
           { id: 'update_details', label: '✏️ Update my details' },
           { id: 'upload_boarding',label: '🛂 Upload boarding pass' },
-          { id: 'payment_options',label: '💳 Payment options' },
           { id: 'help',           label: '🙋 Help' },
         ],
       });
@@ -243,6 +247,8 @@ export function ChatProvider({ children }) {
 
   const startBuyCover = useCallback(async () => {
     userSay('✈️ Buy cover');
+    // Reset KYC so verification always runs fresh for each new purchase
+    updateUserData({ kycVerified: false, kycValue: null, kycType: null, kycName: null });
     pushFlowStack(STEPS.MAIN_MENU);
     setStep(STEPS.BUY_COVER_TYPE);
     await botSay(
@@ -251,16 +257,16 @@ export function ChatProvider({ children }) {
       {
         buttons: [
           { id: 'cover_solo',  label: '👤 Just me' },
-          { id: 'cover_group', label: '👥 Me and others' },
+          { id: 'cover_group', label: '👥 Me and others(Same Booking)' },
         ],
       }
     );
-  }, [botSay, pushFlowStack, setStep, userSay]);
+  }, [botSay, pushFlowStack, setStep, updateUserData, userSay]);
 
   const handleCoverType = useCallback(async (typeId) => {
     const isSolo = typeId === 'cover_solo';
     updateUserData({ coverType: isSolo ? 'solo' : 'group', travellerCount: isSolo ? 1 : null, travellerNames: [] });
-    userSay(isSolo ? '👤 Just me' : '👥 Me and others');
+    userSay(isSolo ? '👤 Just me' : '👥 Me and others(Same Booking');
 
     if (isSolo) {
       updateUserData({ travellerCount: 1 });
@@ -366,7 +372,7 @@ export function ChatProvider({ children }) {
     setInputMode(null);
     setStep(STEPS.BUY_ENTER_FLIGHT);
     await botSay(
-      '✈️ Please enter your *flight number*\n\n📌 Examples: *P47123*, *QI402*, *AA123*\n_(Just the flight number — no airline name)_\n\nType *0* to go back',
+      '✈️ Please enter your *flight number*\n\n📌 Examples: *P47123*, *QI402*, *AA123*\nType *0* to go back',
       'text'
     );
     setInputMode('text', 'e.g. P47123');
@@ -740,7 +746,7 @@ export function ChatProvider({ children }) {
       {
         buttons: [
           { id: 'kyc_bvn', label: '🏦 Verify with BVN Nigeria' },
-          { id: 'kyc_nin', label: '🆔 Verify with NIN' },
+          { id: 'kyc_nin', label: '🆔 Verify with NIN Nigeria' },
           { id: 'help',    label: '🙋 Help' },
         ],
       }
@@ -878,8 +884,6 @@ export function ChatProvider({ children }) {
   // ─── PAYOUT OPTIONS FLOW (how user receives money) ─────────────────────────
 
   const startPayoutOptions = useCallback(async () => {
-    pushFlowStack(STEPS.MAIN_MENU);
-    userSay('💳 Payment options');
     setStep(STEPS.PAYOUT_SELECT);
     await botSay(
       '💰 *Payout options*\n\nChoose how you would like to *receive money* for any future payouts:',
@@ -891,7 +895,7 @@ export function ChatProvider({ children }) {
         ],
       }
     );
-  }, [botSay, pushFlowStack, setStep, userSay]);
+  }, [botSay, setStep]);
 
   const handlePayoutMethod = useCallback(async (methodId) => {
     const isBank = methodId === 'payout_bank';
@@ -917,6 +921,32 @@ export function ChatProvider({ children }) {
     }
   }, [botSay, setInputMode, setStep, updateUserData, userSay]);
 
+  const BANKS_PER_PAGE = 8;
+
+  const showBankPage = useCallback(async (matches, page) => {
+    const total = matches.length;
+    const totalPages = Math.ceil(total / BANKS_PER_PAGE);
+    const start = page * BANKS_PER_PAGE;
+    const pageItems = matches.slice(start, start + BANKS_PER_PAGE);
+    const footerBtns = [];
+    if (page > 0) {
+      footerBtns.push({ id: `payout_bank_page_${page - 1}`, label: `◀ Previous (Page ${page})` });
+    }
+    if (page < totalPages - 1) {
+      footerBtns.push({ id: `payout_bank_page_${page + 1}`, label: `▶ Next (Page ${page + 2} of ${totalPages})` });
+    }
+    footerBtns.push({ id: 'payout_retry_bank_search', label: '🔍 My bank is not listed — search again' });
+    await botSay(
+      `🏦 *Select your bank* (Page ${page + 1} of ${totalPages})\n\nShowing ${start + 1}–${Math.min(start + BANKS_PER_PAGE, total)} of ${total} banks. Sorted alphabetically`,
+      'list',
+      {
+        listType: 'banks',
+        items: pageItems.map((b) => ({ id: `select_bank_${b.replace(/\s/g, '_')}`, label: b })),
+        footer: footerBtns,
+      }
+    );
+  }, [botSay]); // eslint-disable-line
+
   const handlePayoutBankAccount = useCallback(async (value) => {
     if (!/^\d{10}$/.test(value.trim())) {
       await botSay('⚠️ Please enter a valid *10-digit account number*.', 'text');
@@ -924,48 +954,22 @@ export function ChatProvider({ children }) {
     }
     userSay('••••••••' + value.slice(-2));
     updateUserData({ payoutBankAccount: value.trim() });
-    setInputMode(null);
     setStep(STEPS.PAYOUT_BANK_NAME);
-    await botSay(
-      '🏦 Please enter at least the *first 3 characters* of your bank name to receive money for future payouts\n\n📌 Examples: *Zen* (Zenith), *Wem* (Wema), *GT* (GTBank)',
-      'text'
-    );
-    setInputMode('text', 'e.g. Zen, Wem, GT');
-  }, [botSay, setInputMode, setStep, updateUserData, userSay]);
+    await botSay('🏦 Please enter at least *3 characters* of your bank name:\n\n📌 Examples: *Zen* (Zenith), *Wem* (Wema), *GT* (GTBank)', 'text');
+    setInputMode('text', 'e.g. Zen, GT, Access');
+  }, [botSay, setInputMode, setStep, updateUserData, userSay]); // eslint-disable-line
 
   const handlePayoutBankName = useCallback(async (value) => {
-    const query = value.trim().toLowerCase();
-    const matches = NIGERIAN_BANKS.filter((b) => b.toLowerCase().includes(query));
-    if (matches.length === 0) {
-      await botSay(
-        `⚠️ No banks found matching "*${value}*". Please try again.\n\n📌 Examples: *Zenith*, *GTBank*, *Access*`,
-        'text'
-      );
+    if (value.trim().length < 3) {
+      await botSay('⚠️ Please enter at least *3 characters* of your bank name.\n\n📌 Examples: *Zen* (Zenith), *Wem* (Wema), *GT* (GTBank)', 'text');
       return;
     }
-    userSay(value);
+    userSay(value.trim());
     setInputMode(null);
-    if (matches.length === 1) {
-      updateUserData({ payoutBankName: matches[0] });
-      setStep(STEPS.PAYOUT_SAVED);
-      await botSay(
-        `✅ *Payout details saved!*\n\n🏦 Bank: *${matches[0]}*\n💰 Account: *••••••••${stateRef.current.userData.payoutBankAccount?.slice(-2)}*\n\nWe'll use these details for any future payouts.`,
-        'buttons',
-        { buttons: [{ id: 'main_menu', label: '🏠 Main Menu' }] }
-      );
-    } else {
-      // Show bank list to select from
-      await botSay(
-        `🏦 Please select your bank:`,
-        'list',
-        {
-          listType: 'banks',
-          items: matches.map((b) => ({ id: `select_bank_${b.replace(/\s/g, '_')}`, label: b })),
-          footer: [],
-        }
-      );
-    }
-  }, [botSay, setInputMode, setStep, updateUserData, userSay]);
+    const allBanks = [...NIGERIAN_BANKS].sort();
+    updateUserData({ bankSearchMatches: allBanks });
+    await showBankPage(allBanks, 0);
+  }, [botSay, setInputMode, updateUserData, userSay, showBankPage]); // eslint-disable-line
 
   const handlePayoutWalletProvider = useCallback(async (providerId) => {
     const key = providerId.replace('payout_wallet_wallet_', '').replace('payout_wallet_', '');
@@ -991,10 +995,15 @@ export function ChatProvider({ children }) {
     setInputMode(null);
     setStep(STEPS.PAYOUT_SAVED);
     const provider = stateRef.current.userData.payoutWalletProvider;
+    const needsPayment = !!stateRef.current.userData.payoutFromBuyFlow;
     await botSay(
       `✅ *Payout details saved!*\n\n👛 Wallet: *${provider}*\n📱 Phone: *${value.slice(0, 4)}•••••${value.slice(-3)}*\n\nWe'll send payouts directly to your wallet.`,
       'buttons',
-      { buttons: [{ id: 'main_menu', label: '🏠 Main Menu' }] }
+      {
+        buttons: needsPayment
+          ? [{ id: 'start_payment', label: '💳 Continue to payment' }, { id: 'main_menu', label: '🏠 Main menu' }]
+          : [{ id: 'main_menu', label: '🏠 Main menu' }],
+      }
     );
   }, [botSay, setInputMode, setStep, updateUserData, userSay]);
 
@@ -1268,12 +1277,23 @@ export function ChatProvider({ children }) {
   }, [botSay, setInputMode, setStep, updateUserData, userSay]);
 
   const handlePolicyLookupValue = useCallback(async (value) => {
+    const method = stateRef.current.userData.policyLookupMethod;
+
+    // For flight lookup: first collect flight number, then ask for travel date
+    if (method === 'lookup_flight' && !stateRef.current.userData.lookupFlightNumber) {
+      userSay(value);
+      updateUserData({ lookupFlightNumber: value.trim() });
+      setStep(STEPS.POLICY_FLIGHT_DATE);
+      await botSay('📅 Please enter your *travel date*:\n\n📌 Example: *25 Dec 2025* or *25/12/2025*', 'text');
+      setInputMode('text', 'e.g. 25 Dec 2025');
+      return;
+    }
+
     userSay(value);
     setInputMode(null);
     await botSay('⏳ Looking up your policy...', 'status', { statusType: 'loading' }, 400);
     await new Promise((r) => setTimeout(r, 1000));
 
-    const method = stateRef.current.userData.policyLookupMethod;
     let matches = [];
     if (method === 'lookup_phone') {
       matches = MOCK_POLICIES.filter((p) => p.phone === value.trim() || p.phone === stateRef.current.userData.phone);
@@ -1281,8 +1301,10 @@ export function ChatProvider({ children }) {
     } else if (method === 'lookup_policy') {
       matches = MOCK_POLICIES.filter((p) => p.policyNumber.toLowerCase() === value.trim().toLowerCase());
     } else if (method === 'lookup_flight') {
-      matches = MOCK_POLICIES.filter((p) => p.flightNumber.toUpperCase() === value.trim().toUpperCase());
+      const flightNo = stateRef.current.userData.lookupFlightNumber || value.trim();
+      matches = MOCK_POLICIES.filter((p) => p.flightNumber.toUpperCase() === flightNo.toUpperCase());
       if (matches.length === 0) matches = MOCK_POLICIES; // demo fallback
+      updateUserData({ lookupFlightNumber: null }); // reset for next search
     }
 
     if (matches.length === 0) {
@@ -1335,9 +1357,9 @@ Date: *${policy.travelDate || policy.issueDate}*`,
         {
           cardType: 'policy_detail',
           buttons: [
-            { id: `download_policy_${index}`, label: '📥 Download policy' },
+            { id: `download_policy_${index}`, label: '📥 Download policy Document' },
             { id: 'manage_alerts',            label: '🔔 Manage alerts' },
-            { id: 'upload_boarding',          label: '🛂 Upload boarding pass' },
+            { id: 'check_policy',             label: '📋 All my policies' },
             { id: 'help',                     label: '🙋 Help' },
           ],
         }
@@ -1611,6 +1633,22 @@ Date: *${policy.travelDate || policy.issueDate}*`,
   const startUpdateDetails = useCallback(async () => {
     pushFlowStack(STEPS.MAIN_MENU);
     userSay('✏️ Update details');
+    setStep(STEPS.UPDATE_WHO);
+    await botSay(
+      '✏️ *Update your details*\n\nWho would you like to update details for?',
+      'buttons',
+      {
+        buttons: [
+          { id: 'update_who_solo',  label: '👤 Just me' },
+          { id: 'update_who_group', label: '👥 Me and others (Same Booking)' },
+          { id: 'main_menu',        label: '🏠 Main menu' },
+        ],
+      }
+    );
+  }, [botSay, pushFlowStack, setStep, userSay]);
+
+  const showUpdateMenuSolo = useCallback(async () => {
+    userSay('👤 Just me');
     setStep(STEPS.UPDATE_MENU);
     await botSay(
       '✏️ *Update your details*\n\nWhat would you like to update?',
@@ -1619,20 +1657,64 @@ Date: *${policy.travelDate || policy.issueDate}*`,
         buttons: [
           { id: 'update_name',  label: '👤 Name' },
           { id: 'update_email', label: '📧 Email address' },
-          { id: 'update_phone', label: '📱 Phone number' },
           { id: 'update_bank',  label: '🏦 Bank/payout details' },
           { id: 'main_menu',    label: '🏠 Main menu' },
         ],
       }
     );
-  }, [botSay, pushFlowStack, setStep, userSay]);
+  }, [botSay, setStep, userSay]);
+
+  const showUpdateMenuGroup = useCallback(async () => {
+    userSay('👥 Me and others (Same Booking)');
+    const travellerNames = stateRef.current.userData.travellerNames || [];
+    setStep(STEPS.UPDATE_MENU_GROUP);
+    if (travellerNames.length === 0) {
+      await botSay(
+        '✏️ *Update details — Group*\n\nWhat would you like to update?',
+        'buttons',
+        {
+          buttons: [
+            { id: 'update_name',        label: '👤 My name' },
+            { id: 'update_email',       label: '📧 Email address' },
+            { id: 'update_bank',        label: '🏦 Bank/payout details' },
+            { id: 'update_travellers',  label: '👥 Traveller names' },
+            { id: 'main_menu',          label: '🏠 Main menu' },
+          ],
+        }
+      );
+    } else {
+      await botSay(
+        '✏️ *Update details — Group*\n\nWhat would you like to update?',
+        'buttons',
+        {
+          buttons: [
+            { id: 'update_name',        label: '👤 My name' },
+            { id: 'update_email',       label: '📧 Email address' },
+            { id: 'update_bank',        label: '🏦 Bank/payout details' },
+            { id: 'update_travellers',  label: `👥 Traveller names (${travellerNames.length})` },
+            { id: 'main_menu',          label: '🏠 Main menu' },
+          ],
+        }
+      );
+    }
+  }, [botSay, setStep, userSay]);
 
   const handleUpdateField = useCallback(async (fieldId) => {
+    if (fieldId === 'update_bank') {
+      userSay('🏦 Bank/payout details');
+      updateUserData({ updatingBankDetails: true });
+      setStep(STEPS.UPDATE_BANK);
+      await botSay(
+        '🏦 Please enter your *10-digit account number*:',
+        'text'
+      );
+      setInputMode('text', 'Enter 10-digit account number');
+      return;
+    }
     const config = {
-      update_name:  { step: STEPS.UPDATE_NAME,  label: '👤 Full name',       hint: 'Enter your full name' },
-      update_email: { step: STEPS.UPDATE_EMAIL, label: '📧 Email address',    hint: 'e.g. you@example.com' },
-      update_phone: { step: STEPS.UPDATE_PHONE, label: '📱 Phone number',     hint: 'e.g. 08012345678' },
-      update_bank:  { step: STEPS.UPDATE_BANK,  label: '🏦 Account number',   hint: 'Enter 10-digit account number' },
+      update_name:  { step: STEPS.UPDATE_NAME,  label: '👤 Full name',    hint: 'Enter your full name' },
+      update_email: { step: STEPS.UPDATE_EMAIL, label: '📧 Email address', hint: 'e.g. you@example.com' },
+      update_phone: { step: STEPS.UPDATE_PHONE, label: '📱 Phone number',  hint: 'e.g. 08012345678' },
     };
     const cfg = config[fieldId];
     if (!cfg) return;
@@ -1640,29 +1722,47 @@ Date: *${policy.travelDate || policy.issueDate}*`,
     setStep(cfg.step);
     await botSay(`Please enter your new *${cfg.label.replace(/^[^\s]+ /, '')}*:`, 'text');
     setInputMode('text', cfg.hint);
-  }, [botSay, setInputMode, setStep, userSay]);
+  }, [botSay, setInputMode, setStep, updateUserData, userSay]);
 
   const handleUpdateValue = useCallback(async (value) => {
     const step = stateRef.current.currentStep;
+
+    // Bank update: validate account number then ask for bank name search
+    if (step === STEPS.UPDATE_BANK) {
+      if (!/^\d{10}$/.test(value.trim())) {
+        await botSay('⚠️ Please enter a valid *10-digit account number*.\n\n📌 Example: *0123456789*', 'text');
+        return;
+      }
+      userSay('••••••••' + value.slice(-2));
+      updateUserData({ payoutBankAccount: value.trim() });
+      setStep(STEPS.PAYOUT_BANK_NAME);
+      await botSay('🏦 Please enter at least *3 characters* of your bank name:\n\n📌 Examples: *Zen* (Zenith), *Wem* (Wema), *GT* (GTBank)', 'text');
+      setInputMode('text', 'e.g. Zen, GT, Access');
+      return;
+    }
+
     const fieldMap = {
-      [STEPS.UPDATE_NAME]:  { key: 'kycName',          label: 'Name' },
-      [STEPS.UPDATE_EMAIL]: { key: 'email',             label: 'Email' },
-      [STEPS.UPDATE_PHONE]: { key: 'phone',             label: 'Phone number' },
-      [STEPS.UPDATE_BANK]:  { key: 'payoutBankAccount', label: 'Account number' },
+      [STEPS.UPDATE_NAME]:  { key: 'kycName', label: 'Name' },
+      [STEPS.UPDATE_EMAIL]: { key: 'email',   label: 'Email' },
+      [STEPS.UPDATE_PHONE]: { key: 'phone',   label: 'Phone number' },
     };
     const cfg = fieldMap[step];
     if (!cfg) return;
 
     if (step === STEPS.UPDATE_PHONE && !/^0[7-9]\d{9}$/.test(value.trim())) {
-      await botSay('⚠️ Please enter a valid Nigerian phone number (e.g. 08012345678).', 'text');
+      await botSay('⚠️ Please enter a valid Nigerian phone number.\n\n📌 Example: *08012345678*', 'text');
       return;
     }
     if (step === STEPS.UPDATE_EMAIL && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())) {
-      await botSay('⚠️ Please enter a valid email address.', 'text');
+      await botSay('⚠️ Please enter a valid email address.\n\n📌 Example: *name@email.com*', 'text');
+      return;
+    }
+    if (step === STEPS.UPDATE_NAME && value.trim().length < 2) {
+      await botSay('⚠️ Please enter a valid full name.', 'text');
       return;
     }
 
-    userSay(step === STEPS.UPDATE_BANK ? '••••••••' + value.slice(-2) : value);
+    userSay(value);
     updateUserData({ [cfg.key]: value.trim() });
     setInputMode(null);
     setStep(STEPS.UPDATE_CONFIRMED);
@@ -1671,11 +1771,104 @@ Date: *${policy.travelDate || policy.issueDate}*`,
       'buttons',
       {
         buttons: [
-          { id: 'update_details', label: '✏️ Update something else' },
+          { id: 'update_details', label: '✏️ Update another details' },
           { id: 'main_menu',      label: '🏠 Main menu' },
         ],
       }
     );
+  }, [botSay, setInputMode, setStep, updateUserData, userSay, showBankPage]); // eslint-disable-line
+
+  const showUpdateTravellerList = useCallback(async () => {
+    const names = stateRef.current.userData.travellerNames || [];
+    const kycName = stateRef.current.userData.kycName;
+
+    // Solo buy cover: no travellerNames collected — fall back to kycName
+    const displayNames = names.length > 0 ? names : (kycName ? [kycName] : []);
+
+    if (displayNames.length === 0) {
+      await botSay(
+        '⚠️ No traveller names found.\n\nPlease complete a *Buy Cover* purchase first so we can see your travellers here.',
+        'buttons',
+        { buttons: [{ id: 'update_details', label: '⬅️ Back' }, { id: 'main_menu', label: '🏠 Main menu' }] }
+      );
+      return;
+    }
+    setStep(STEPS.UPDATE_TRAVELLER_SELECT);
+    await botSay(
+      '👥 *Select the traveller to update:*',
+      'buttons',
+      {
+        buttons: [
+          ...displayNames.map((n, i) => ({ id: `update_traveller_${i}`, label: `👤 Traveller ${i + 1}: ${n}` })),
+          { id: 'update_details', label: '⬅️ Back' },
+        ],
+      }
+    );
+  }, [botSay, setStep]);
+
+  const handleUpdateTravellerSelect = useCallback(async (index) => {
+    const names = stateRef.current.userData.travellerNames || [];
+    const kycName = stateRef.current.userData.kycName;
+    // Use travellerNames if available, else fall back to kycName array
+    const displayNames = names.length > 0 ? names : (kycName ? [kycName] : []);
+    const name = displayNames[index];
+    if (!name) return;
+    // Store index and whether this is editing the kycName fallback
+    updateUserData({ updatingTravellerIndex: index, updatingTravellerIsKyc: names.length === 0 });
+    setStep(STEPS.UPDATE_TRAVELLER_NAME);
+    userSay(`👤 Traveller ${index + 1}: ${name}`);
+    await botSay(
+      `✏️ Enter the new name for *Traveller ${index + 1}* (*${name}*):`,
+      'text'
+    );
+    setInputMode('text', 'First name and surname');
+  }, [botSay, setInputMode, setStep, updateUserData, userSay]);
+
+  const handleUpdateTravellerName = useCallback(async (value) => {
+    if (value.trim().length < 2) {
+      await botSay('⚠️ Please enter a valid full name.', 'text');
+      return;
+    }
+    const ud = stateRef.current.userData;
+    const idx = ud.updatingTravellerIndex ?? 0;
+    const isKyc = !!ud.updatingTravellerIsKyc;
+    userSay(value.trim());
+
+    if (isKyc) {
+      // Solo flow: update kycName directly
+      const oldName = ud.kycName;
+      updateUserData({ kycName: value.trim(), updatingTravellerIndex: null, updatingTravellerIsKyc: false });
+      setInputMode(null);
+      setStep(STEPS.UPDATE_CONFIRMED);
+      await botSay(
+        `✅ *Name updated*\n\n*${oldName}* → *${value.trim()}*\n\nIs there anything else you'd like to update?`,
+        'buttons',
+        {
+          buttons: [
+            { id: 'update_details', label: '✏️ Update another details' },
+            { id: 'main_menu',      label: '🏠 Main menu' },
+          ],
+        }
+      );
+    } else {
+      // Group flow: update travellerNames[idx]
+      const names = [...(ud.travellerNames || [])];
+      const oldName = names[idx];
+      names[idx] = value.trim();
+      updateUserData({ travellerNames: names, updatingTravellerIndex: null, updatingTravellerIsKyc: false });
+      setInputMode(null);
+      setStep(STEPS.UPDATE_CONFIRMED);
+      await botSay(
+        `✅ *Traveller ${idx + 1} updated*\n\n*${oldName}* → *${value.trim()}*\n\nIs there anything else you'd like to update?`,
+        'buttons',
+        {
+          buttons: [
+            { id: 'update_details', label: '✏️ Update another details' },
+            { id: 'main_menu',      label: '🏠 Main menu' },
+          ],
+        }
+      );
+    }
   }, [botSay, setInputMode, setStep, updateUserData, userSay]);
 
   // ─── HELP FLOW ─────────────────────────────────────────────────────────────
@@ -1920,7 +2113,11 @@ Date: *${policy.travelDate || policy.issueDate}*`,
     if (buttonId === 'retry_kyc' || buttonId === 'change_kyc' || buttonId === 'change_kyc_type') {
       await startKYC(); return;
     }
-    if (buttonId === 'proceed_payment') { await startPaymentFlow(); return; }
+    if (buttonId === 'proceed_payment') {
+      updateUserData({ payoutFromBuyFlow: true });
+      await startPayoutOptions();
+      return;
+    }
 
     // ── Payment ──────────────────────────────────────────────────────────────
     if (buttonId === 'change_payment' || buttonId === 'retry_payment') { await startPaymentFlow(); return; }
@@ -1971,21 +2168,57 @@ Date: *${policy.travelDate || policy.issueDate}*`,
     }
 
     // ── Payout options ───────────────────────────────────────────────────────
-    if (buttonId === 'payment_options') { await startPayoutOptions(); return; }
+    if (buttonId === 'payout_options' || buttonId === 'payment_options') { await startPayoutOptions(); return; }
     if (buttonId === 'payout_bank' || buttonId === 'payout_wallet') { await handlePayoutMethod(buttonId); return; }
     if (buttonId.startsWith('payout_wallet_')) { await handlePayoutWalletProvider(buttonId); return; }
-    if (buttonId.startsWith('select_bank_')) {
-      const bankName = buttonId.replace('select_bank_', '').replace(/_/g, ' ');
-      updateUserData({ payoutBankName: bankName });
-      setStep(STEPS.PAYOUT_SAVED);
-      await botSay(
-        `✅ *Payout details saved!*\n\n🏦 Bank: *${bankName}*\n💰 Account: *••••••••${stateRef.current.userData.payoutBankAccount?.slice(-2)}*\n\nWe'll use these details for any future payouts.`,
-        'buttons',
-        { buttons: [{ id: 'main_menu', label: '🏠 Main menu' }] }
-      );
+    if (buttonId === 'start_payment') { await startPaymentFlow(); return; }
+    if (buttonId.startsWith('payout_bank_page_')) {
+      const page = parseInt(buttonId.replace('payout_bank_page_', ''));
+      const matches = stateRef.current.userData.bankSearchMatches || [];
+      await showBankPage(matches, page);
       return;
     }
-
+    if (buttonId === 'payout_retry_bank_search') {
+      setStep(STEPS.PAYOUT_BANK_NAME);
+      const allBanks = [...NIGERIAN_BANKS].sort();
+      updateUserData({ bankSearchMatches: allBanks });
+      await showBankPage(allBanks, 0);
+      return;
+    }
+    if (buttonId.startsWith('select_bank_')) {
+      const bankName = buttonId.replace('select_bank_', '').replace(/_/g, ' ');
+      const acct = stateRef.current.userData.payoutBankAccount;
+      const isUpdating = !!stateRef.current.userData.updatingBankDetails;
+      const needsPayment = !!stateRef.current.userData.payoutFromBuyFlow;
+      updateUserData({ payoutBankName: bankName, updatingBankDetails: false });
+      if (isUpdating) {
+        // Came from Update my details → Bank/payout details
+        setStep(STEPS.UPDATE_CONFIRMED);
+        await botSay(
+          `✅ *Bank/payout details updated!*\n\n🏦 Bank: *${bankName}*\n💰 Account: *••••••••${acct?.slice(-2)}*\n\nIs there anything else you'd like to update?`,
+          'buttons',
+          {
+            buttons: [
+              { id: 'update_details', label: '✏️ Update another details' },
+              { id: 'main_menu',      label: '🏠 Main menu' },
+            ],
+          }
+        );
+      } else {
+        // Came from payout options in buy cover flow
+        setStep(STEPS.PAYOUT_SAVED);
+        await botSay(
+          `✅ *Payout details saved!*\n\n🏦 Bank: *${bankName}*\n💰 Account: *••••••••${acct?.slice(-2)}*\n\nWe'll use these details for any future payouts.`,
+          'buttons',
+          {
+            buttons: needsPayment
+              ? [{ id: 'start_payment', label: '💳 Continue to payment' }, { id: 'main_menu', label: '🏠 Main menu' }]
+              : [{ id: 'main_menu', label: '🏠 Main menu' }],
+          }
+        );
+      }
+      return;
+    }
     // ── Policy ───────────────────────────────────────────────────────────────
     if (buttonId === 'check_policy' || buttonId === 'view_policies') { await showPolicies(); return; }
     if (buttonId === 'view_policy') { await showPolicyDetail(0); return; }
@@ -2030,6 +2263,13 @@ Date: *${policy.travelDate || policy.issueDate}*`,
 
     // ── Update details ────────────────────────────────────────────────────────
     if (buttonId === 'update_details') { await startUpdateDetails(); return; }
+    if (buttonId === 'update_who_solo') { await showUpdateMenuSolo(); return; }
+    if (buttonId === 'update_who_group') { await showUpdateMenuGroup(); return; }
+    if (buttonId === 'update_travellers') { await showUpdateTravellerList(); return; }
+    if (buttonId.startsWith('update_traveller_')) {
+      const idx = parseInt(buttonId.replace('update_traveller_', ''));
+      await handleUpdateTravellerSelect(idx); return;
+    }
     if (['update_name', 'update_email', 'update_phone', 'update_bank'].includes(buttonId)) {
       await handleUpdateField(buttonId); return;
     }
@@ -2133,6 +2373,7 @@ Date: *${policy.travelDate || policy.issueDate}*`,
     handleSelectPlan,
     handleTripType,
     handleUpdateField,
+    handleUpdateTravellerSelect,
     handleWalletProviderSelected,
     processKYC,
     processPayment,
@@ -2144,6 +2385,9 @@ Date: *${policy.travelDate || policy.issueDate}*`,
     showMainMenu,
     showPolicies,
     showPolicyDetail,
+    showUpdateMenuSolo,
+    showUpdateMenuGroup,
+    showUpdateTravellerList,
     startBoardingUpload,
     startBoardingUploadPrompt,
     startBuyCover,
@@ -2152,6 +2396,12 @@ Date: *${policy.travelDate || policy.issueDate}*`,
     startPaymentFlow,
     startPayoutOptions,
     startUpdateDetails,
+    showBankPage,
+    showUpdateMenuSolo,
+    showUpdateMenuGroup,
+    showUpdateTravellerList,
+    handleUpdateTravellerSelect,
+    handleUpdateTravellerName,
     triggerProactiveAlert,
     updateUserData,
     userSay,
@@ -2203,6 +2453,7 @@ Date: *${policy.travelDate || policy.issueDate}*`,
 
     // Policy lookup
     if (step === STEPS.POLICY_LOOKUP)        { await handlePolicyLookupValue(text.trim()); return; }
+    if (step === STEPS.POLICY_FLIGHT_DATE)   { await handlePolicyLookupValue(text.trim()); return; }
 
     // Link flight text input
     if (step === STEPS.LINK_ENTER_FLIGHT)    { await handleLinkFlightEntered(text.trim()); return; }
@@ -2211,6 +2462,7 @@ Date: *${policy.travelDate || policy.issueDate}*`,
     if ([STEPS.UPDATE_NAME, STEPS.UPDATE_EMAIL, STEPS.UPDATE_PHONE, STEPS.UPDATE_BANK].includes(step)) {
       await handleUpdateValue(text.trim()); return;
     }
+    if (step === STEPS.UPDATE_TRAVELLER_NAME) { await handleUpdateTravellerName(text.trim()); return; }
 
     // Fallback
     userSay(text);
@@ -2243,6 +2495,7 @@ Date: *${policy.travelDate || policy.issueDate}*`,
     handleTravelTime,
     handleTravellerCount,
     handleTravellerName,
+    handleUpdateTravellerName,
     handleUpdateValue,
     handleWalletPhoneEntered,
     userSay,

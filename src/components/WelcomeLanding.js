@@ -69,7 +69,6 @@ export default function WelcomeLanding({ onStart }) {
           { id: 'check_policy',    emoji: '📄', label: 'Check my policy'       },
           { id: 'update_details',  emoji: '✏️', label: 'Update my details'     },
           { id: 'upload_boarding', emoji: '🛂', label: 'Upload boarding pass'  },
-          { id: 'payment_options', emoji: '💳', label: 'Payment options'       },
           { id: 'help',            emoji: '🙋', label: 'Help'                  },
         ].map((btn) => (
           <button

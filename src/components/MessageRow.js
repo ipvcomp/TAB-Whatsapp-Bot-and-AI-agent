@@ -41,7 +41,7 @@ export default function MessageRow({ message }) {
     return (
       <div className="w-full">
         <ChatBubble message={{ ...message, type: 'text' }} />
-        <ListMenu items={message.items || []} footer={message.footer} />
+        <ListMenu items={message.items || []} footer={message.footer} listType={message.listType} />
       </div>
     );
   }

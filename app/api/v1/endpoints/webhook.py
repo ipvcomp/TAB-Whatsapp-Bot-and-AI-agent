@@ -13,6 +13,7 @@ from app.services.llm_service import build_llm_payload, call_llm
 from app.services.whatsapp_service import send_whatsapp_payload
 from app.services.llm_log_service import save_llm_log
 from app.services.policy_flow_service import is_policy_trigger, is_in_policy_flow, handle_policy_flow
+from app.services.travelassist_flow_service import is_travelassist_trigger, is_in_travelassist_flow, handle_travelassist
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -152,7 +153,20 @@ async def _process_change(entry_id: str, change):
                 msg_phone_number_id = value.metadata.phone_number_id
 
                 user_session = await get_session(sender_wa_id)
-                if is_policy_trigger(message) or is_in_policy_flow(user_session):
+                if is_travelassist_trigger(message) or is_in_travelassist_flow(user_session):
+                    log_event("TRAVELASSIST_FLOW", {
+                        "message_id": message.id,
+                        "from": sender_wa_id,
+                        "trigger": "keyword" if is_travelassist_trigger(message) else "active_flow",
+                    })
+                    await handle_travelassist(
+                        message=message.dict() if hasattr(message, 'dict') else message,
+                        sender_wa_id=sender_wa_id,
+                        phone_number_id=msg_phone_number_id,
+                        msg_id=message.id,
+                        session=user_session,
+                    )
+                elif is_policy_trigger(message) or is_in_policy_flow(user_session):
                     log_event("POLICY_FLOW", {
                         "message_id": message.id,
                         "from": sender_wa_id,

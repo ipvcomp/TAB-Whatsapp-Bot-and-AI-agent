@@ -128,9 +128,31 @@ export const NIGERIAN_AIRPORTS = [
 ];
 
 export const NIGERIAN_BANKS = [
-  'Access Bank', 'Zenith Bank', 'GTBank', 'First Bank', 'UBA',
-  'Stanbic IBTC', 'Sterling Bank', 'Fidelity Bank', 'FCMB', 'Wema Bank',
-  'Polaris Bank', 'Union Bank', 'Keystone Bank', 'Heritage Bank', 'Providus Bank',
+  'Access Bank', 'Citibank Nigeria', 'Ecobank Nigeria', 'Fidelity Bank',
+  'First Bank of Nigeria', 'First City Monument Bank', 'Globus Bank',
+  'Guaranty Trust Bank', 'Heritage Bank', 'Jaiz Bank', 'Keystone Bank',
+  'Lotus Bank', 'Parallex Bank', 'Polaris Bank', 'Premium Trust Bank',
+  'Providus Bank', 'Stanbic IBTC Bank', 'Standard Chartered Bank',
+  'Sterling Bank', 'SunTrust Bank', 'TAJBank', 'Titan Trust Bank',
+  'Union Bank of Nigeria', 'United Bank for Africa', 'Unity Bank',
+  'Wema Bank', 'Zenith Bank',
+  'Carbon', 'Kuda Bank', 'Moniepoint', 'OPay', 'PalmPay', 'Sparkle',
+  'VFD Microfinance Bank', 'Eyowo', 'Rubies Bank', 'Mint Finex MFB',
+  'GTBank Microfinance', 'Zenith Microfinance Bank', 'Zest Payments',
+  'ALAT by Wema', 'Opay Digital Services', 'Flutterwave', 'Piggyvest',
+  'Fairmoney Microfinance Bank', 'Accion Microfinance Bank',
+  'AB Microfinance Bank', 'CEMCS Microfinance Bank', 'Covenant MFB',
+  'Ekondo Microfinance Bank', 'Finatrust Microfinance Bank',
+  'Grooming Microfinance Bank', 'Hasal Microfinance Bank',
+  'Ibile Microfinance Bank', 'Lapo Microfinance Bank',
+  'Mainstreet Microfinance Bank', 'Mutual Benefits Microfinance Bank',
+  'NPF Microfinance Bank', 'Okpoga Microfinance Bank',
+  'Page Financials', 'Pecantrust Microfinance Bank',
+  'Rephidim Microfinance Bank', 'Seed Capital Microfinance Bank',
+  'Susu Microfinance Bank', 'Tangerine Money MFB',
+  'TCF Microfinance Bank', 'Think Finance Microfinance Bank',
+  'Vestige Finance MFB', 'Xslnce Microfinance Bank',
+  'Yes Microfinance Bank', 'Zikora Microfinance Bank',
 ];
 
 export const MOCK_POLICIES = [
@@ -167,7 +189,7 @@ export const MOCK_POLICIES = [
 export const FAQ_ITEMS = [
   {
     id: 'buying_cover',
-    question: '🛒 Buying cover',
+    question: '🛒 Buy cover',
     answer:
       'Tap "Buy cover" from the main menu. Enter your trip details, complete a quick identity check, then pay. The whole process takes under 3 minutes.',
   },
