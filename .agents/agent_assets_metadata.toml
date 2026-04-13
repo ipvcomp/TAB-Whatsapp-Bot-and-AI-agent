@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "7ORpF0fkTmVULWR3Bp2su"
+uri = "file://Developer_Guide_Architecture_Documentation.md"
+type = "text"
+title = "TravelAssist WhatsApp Bot — Developer Guide & Architecture Documentation"
