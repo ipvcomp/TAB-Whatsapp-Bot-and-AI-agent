@@ -241,7 +241,7 @@ async def _process_change(entry_id: str, change):
                         "from": sender_wa_id,
                     })
                     await send_welcome_message(
-                        to=sender_wa_id,
+                        to=sender_wa_id,  
                         phone_number_id=msg_phone_number_id,
                         in_reply_to=message.id,
                     )
