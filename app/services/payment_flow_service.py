@@ -639,8 +639,8 @@ async def handle_payment_flow(
             session["temp_data"][BUY_COVER_FLOW_KEY] = {}
             session["temp_data"][KYC_FLOW_KEY] = {}
             await save_session(session)
-            from app.services.auto_reply_service import send_welcome_message
-            await send_welcome_message(to=sender_wa_id, phone_number_id=phone_number_id)
+            from app.services.auto_reply_service import send_main_menu
+            await send_main_menu(to=sender_wa_id, phone_number_id=phone_number_id)
         elif reply_id == "pay_new":
             session["temp_data"][PAYMENT_FLOW_KEY] = {}
             session["temp_data"][BUY_COVER_FLOW_KEY] = {}
@@ -673,5 +673,5 @@ async def handle_payment_flow(
     else:
         session["temp_data"][PAYMENT_FLOW_KEY] = {}
         await save_session(session)
-        from app.services.auto_reply_service import send_welcome_message
-        await send_welcome_message(to=sender_wa_id, phone_number_id=phone_number_id)
+        from app.services.auto_reply_service import send_main_menu
+        await send_main_menu(to=sender_wa_id, phone_number_id=phone_number_id)

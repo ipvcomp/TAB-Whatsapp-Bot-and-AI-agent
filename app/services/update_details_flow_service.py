@@ -403,8 +403,8 @@ async def handle_update_details_flow(
             await start_update_details_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
         elif reply_id == "upd_home":
             await _reset(session)
-            from app.services.auto_reply_service import send_welcome_message
-            await send_welcome_message(to=sender_wa_id, phone_number_id=phone_number_id)
+            from app.services.auto_reply_service import send_main_menu
+            await send_main_menu(to=sender_wa_id, phone_number_id=phone_number_id)
         else:
             await _reset(session)
             await start_update_details_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)

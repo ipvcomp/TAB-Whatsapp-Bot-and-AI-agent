@@ -158,6 +158,39 @@ async def send_welcome_message(
     return result
 
 
+async def send_main_menu(
+    to: str,
+    phone_number_id: Optional[str],
+    in_reply_to: Optional[str] = None,
+) -> Optional[dict]:
+    list_payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "body": {"text": "What would you like to do?"},
+            "action": {
+                "button": "Choose an option",
+                "sections": MENU_SECTIONS,
+            },
+        },
+    }
+    result = await send_whatsapp_payload(
+        whatsapp_payload=list_payload,
+        phone_number_id=phone_number_id,
+        source="auto_reply",
+    )
+    await send_text_message(
+        to=to,
+        body=UTILITY_TEXT,
+        phone_number_id=phone_number_id,
+        source="auto_reply",
+    )
+    return result
+
+
 async def handle_auto_reply(
     to_wa_id: str,
     incoming_text: Optional[str],

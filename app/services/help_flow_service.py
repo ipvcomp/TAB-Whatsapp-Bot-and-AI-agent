@@ -317,8 +317,8 @@ async def _handle_action(
 
     elif reply_id == "hlp_act_policy":
         await _reset(session)
-        from app.services.auto_reply_service import send_welcome_message
-        await send_welcome_message(to=wa_id, phone_number_id=phone_number_id)
+        from app.services.auto_reply_service import send_main_menu
+        await send_main_menu(to=wa_id, phone_number_id=phone_number_id)
 
     elif reply_id == "hlp_act_boarding":
         await _reset(session)
@@ -353,8 +353,8 @@ async def _handle_action(
 
     elif reply_id == "hlp_home":
         await _reset(session)
-        from app.services.auto_reply_service import send_welcome_message
-        await send_welcome_message(to=wa_id, phone_number_id=phone_number_id)
+        from app.services.auto_reply_service import send_main_menu
+        await send_main_menu(to=wa_id, phone_number_id=phone_number_id)
 
     else:
         await _reset(session)

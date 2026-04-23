@@ -602,8 +602,8 @@ async def _handle_welcome_button(
         )
     elif reply_id == "go_main":
         log_event("WELCOME_BUTTON", {"action": "go_main", "from": sender_wa_id})
-        from app.services.auto_reply_service import send_welcome_message
-        await send_welcome_message(
+        from app.services.auto_reply_service import send_main_menu
+        await send_main_menu(
             to=sender_wa_id,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,

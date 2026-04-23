@@ -402,8 +402,8 @@ async def handle_check_policy_flow(
 
 async def _go_home(session: dict, wa_id: str, phone_number_id: Optional[str]):
     await _reset(session)
-    from app.services.auto_reply_service import send_welcome_message
-    await send_welcome_message(to=wa_id, phone_number_id=phone_number_id)
+    from app.services.auto_reply_service import send_main_menu
+    await send_main_menu(to=wa_id, phone_number_id=phone_number_id)
 
 
 async def _show_phone_policies(session: dict, wa_id: str, phone_number_id: Optional[str]):
