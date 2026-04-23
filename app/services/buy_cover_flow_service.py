@@ -473,14 +473,8 @@ async def handle_buy_cover_flow(
     # ── Next steps ────────────────────────────────────────────────────────────
     elif step == "buy_cover_next_steps":
         if reply_id == "next_kyc":
-            flow["step"] = "buy_cover_kyc_pending"
-            await save_session(session)
-            await _send_text(sender_wa_id,
-                "🗂️ *KYC (Identity Verification)*\n\n"
-                "This step is coming soon. Our team will contact you to complete your identity verification "
-                "and finalise your policy.\n\n"
-                "Thank you for choosing TravelAssist! ✈️",
-                phone_number_id)
+            from app.services.kyc_flow_service import start_kyc_flow
+            await start_kyc_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
         elif reply_id == "next_ask":
             flow["step"] = "buy_cover_ask_question"
             await save_session(session)
