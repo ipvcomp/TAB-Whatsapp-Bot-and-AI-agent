@@ -257,6 +257,28 @@ async def _process_change(entry_id: str, change):
                         log_event("WELCOME_TEXT_MATCH", {"to": sender_wa_id, "action": matched_welcome})
                         continue
 
+                if message.type == "text" and message.text:
+                    text_lower_mm = message.text.body.lower().strip()
+                    text_norm_mm = " ".join(text_lower_mm.split())
+                    main_menu_triggers = {"00", "main menu", "#menu", "#main", "#home"}
+                    if text_norm_mm in main_menu_triggers or text_lower_mm in main_menu_triggers:
+                        if user_session:
+                            td = user_session.setdefault("temp_data", {})
+                            for fk in ("buy_cover_flow", "kyc_flow", "payment_flow",
+                                       "bp_link_flow", "help_flow", "check_policy_flow",
+                                       "update_details_flow"):
+                                if td.get(fk, {}).get("active"):
+                                    td[fk] = {}
+                            await save_session(user_session)
+                        from app.services.auto_reply_service import send_main_menu
+                        await send_main_menu(
+                            to=sender_wa_id,
+                            phone_number_id=msg_phone_number_id,
+                            in_reply_to=message.id,
+                        )
+                        log_event("MAIN_MENU_TRIGGER", {"to": sender_wa_id, "text": text_lower_mm})
+                        continue
+
                 if is_in_update_details_flow(user_session):
                     log_event("UPDATE_DETAILS_FLOW", {
                         "message_id": message.id,
