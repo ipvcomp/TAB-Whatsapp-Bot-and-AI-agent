@@ -12,10 +12,6 @@ from app.services.session_service import get_session, save_session, build_defaul
 from app.services.llm_service import call_generic
 from app.services.whatsapp_service import send_text_message
 from app.services.llm_log_service import save_llm_log
-from app.services.policy_flow_service import (
-    is_policy_trigger, is_in_policy_flow, handle_policy_flow, get_shortcuts_text, SHORTCUT_COMMANDS,
-    is_in_bp_upload_flow, handle_boarding_pass_upload_flow,
-)
 from app.services.buy_cover_flow_service import (
     is_in_buy_cover_flow, start_buy_cover_flow, handle_buy_cover_flow,
 )
@@ -26,7 +22,7 @@ from app.services.payment_flow_service import (
     is_in_payment_flow, handle_payment_flow,
 )
 from app.services.bp_link_flow_service import (
-    is_in_bp_link_flow, handle_bp_link_flow,
+    is_in_bp_link_flow, handle_bp_link_flow, start_bp_link_flow,
 )
 from app.services.help_flow_service import (
     is_in_help_flow, handle_help_flow, start_help_flow,
@@ -192,27 +188,12 @@ async def _process_change(entry_id: str, change):
                     )
                     continue
 
-                if message.type == "text" and message.text:
-                    text_lower = message.text.body.lower().strip()
-                    if text_lower == "#shortcuts":
-                        await send_text_message(
-                            to=sender_wa_id,
-                            body=get_shortcuts_text(),
-                            phone_number_id=msg_phone_number_id,
-                            in_reply_to=message.id,
-                            source="auto_reply",
-                        )
-                        log_event("SHORTCUTS", {"to": sender_wa_id})
-                        continue
-
                 user_session = await get_session(sender_wa_id)
 
                 if message.type == "text" and message.text:
                     from app.services.auto_reply_service import is_greeting, send_welcome_message
                     if (
                         is_greeting(message.text.body)
-                        and not is_in_policy_flow(user_session)
-                        and not is_in_bp_upload_flow(user_session)
                         and not is_in_buy_cover_flow(user_session)
                         and not is_in_kyc_flow(user_session)
                         and not is_in_payment_flow(user_session)
@@ -233,8 +214,6 @@ async def _process_change(entry_id: str, change):
                     cancel_words = ("cancel", "/cancel", "exit", "/exit", "stop", "/stop", "#cancel", "#exit")
                     if (
                         text_lower in cancel_words
-                        and not is_in_policy_flow(user_session)
-                        and not is_in_bp_upload_flow(user_session)
                         and not is_in_buy_cover_flow(user_session)
                         and not is_in_kyc_flow(user_session)
                         and not is_in_payment_flow(user_session)
@@ -260,8 +239,6 @@ async def _process_change(entry_id: str, change):
                     matched_welcome = welcome_text_map.get(text_norm)
                     if (
                         matched_welcome
-                        and not is_in_policy_flow(user_session)
-                        and not is_in_bp_upload_flow(user_session)
                         and not is_in_buy_cover_flow(user_session)
                         and not is_in_kyc_flow(user_session)
                         and not is_in_payment_flow(user_session)
@@ -361,42 +338,6 @@ async def _process_change(entry_id: str, change):
                     await handle_buy_cover_flow(
                         message=message,
                         sender_wa_id=sender_wa_id,
-                        phone_number_id=msg_phone_number_id,
-                        in_reply_to=message.id,
-                    )
-                elif is_in_bp_upload_flow(user_session):
-                    log_event("BP_UPLOAD_FLOW", {
-                        "message_id": message.id,
-                        "from": sender_wa_id,
-                        "trigger": "active_bp_flow",
-                    })
-                    await handle_boarding_pass_upload_flow(
-                        message=message,
-                        sender_wa_id=sender_wa_id,
-                        profile_name=resolved_profile,
-                        phone_number_id=msg_phone_number_id,
-                        in_reply_to=message.id,
-                    )
-                elif is_policy_trigger(message) and not is_in_policy_flow(user_session):
-                    log_event("POLICY_KEYWORD_WELCOME", {
-                        "message_id": message.id,
-                        "from": sender_wa_id,
-                    })
-                    await send_welcome_message(
-                        to=sender_wa_id,  
-                        phone_number_id=msg_phone_number_id,
-                        in_reply_to=message.id,
-                    )
-                elif is_in_policy_flow(user_session):
-                    log_event("POLICY_FLOW", {
-                        "message_id": message.id,
-                        "from": sender_wa_id,
-                        "trigger": "keyword" if is_policy_trigger(message) else "active_flow",
-                    })
-                    await handle_policy_flow(
-                        message=message,
-                        sender_wa_id=sender_wa_id,
-                        profile_name=resolved_profile,
                         phone_number_id=msg_phone_number_id,
                         in_reply_to=message.id,
                     )
@@ -616,19 +557,6 @@ async def _handle_welcome_button(
     from app.services.session_service import get_session, save_session
     session = await get_session(sender_wa_id)
     if session:
-        flow_state = session.get("policy_flow", {})
-        if flow_state.get("active"):
-            old_policy_id = flow_state.get("policy_id")
-            if old_policy_id:
-                from app.services.policy_service import cancel_policy
-                await cancel_policy(old_policy_id)
-            session["policy_flow"] = {}
-            session["active_policy_id"] = None
-            await save_session(session)
-        bp_state = session.get("bp_upload_flow", {})
-        if bp_state.get("active"):
-            session["bp_upload_flow"] = {}
-            await save_session(session)
         bc_state = session.get("temp_data", {}).get("buy_cover_flow", {})
         if bc_state.get("active"):
             session.setdefault("temp_data", {})["buy_cover_flow"] = {}
@@ -667,13 +595,10 @@ async def _handle_welcome_button(
         )
     elif reply_id == "welcome_purchase_policy":
         log_event("WELCOME_BUTTON", {"action": "purchase_policy", "from": sender_wa_id})
-        await handle_policy_flow(
-            message=message,
-            sender_wa_id=sender_wa_id,
-            profile_name=profile_name,
+        await start_buy_cover_flow(
+            wa_id=sender_wa_id,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
-            skip_menu=True,
         )
     elif reply_id == "go_main":
         log_event("WELCOME_BUTTON", {"action": "go_main", "from": sender_wa_id})
@@ -685,10 +610,8 @@ async def _handle_welcome_button(
         )
     elif reply_id in ("welcome_submit_boarding", "boarding_pass"):
         log_event("WELCOME_BUTTON", {"action": "submit_boarding", "from": sender_wa_id})
-        await handle_boarding_pass_upload_flow(
-            message=message,
-            sender_wa_id=sender_wa_id,
-            profile_name=profile_name,
+        await start_bp_link_flow(
+            wa_id=sender_wa_id,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
         )
