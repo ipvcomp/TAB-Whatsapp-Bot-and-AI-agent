@@ -22,6 +22,9 @@ from app.services.buy_cover_flow_service import (
 from app.services.kyc_flow_service import (
     is_in_kyc_flow, handle_kyc_flow,
 )
+from app.services.payment_flow_service import (
+    is_in_payment_flow, handle_payment_flow,
+)
 
 WELCOME_BUTTON_IDS = {
     "welcome_purchase_policy", "welcome_submit_boarding", "welcome_get_support",
@@ -200,6 +203,7 @@ async def _process_change(entry_id: str, change):
                         and not is_in_bp_upload_flow(user_session)
                         and not is_in_buy_cover_flow(user_session)
                         and not is_in_kyc_flow(user_session)
+                        and not is_in_payment_flow(user_session)
                     ):
                         await send_welcome_message(
                             to=sender_wa_id,
@@ -217,6 +221,7 @@ async def _process_change(entry_id: str, change):
                         and not is_in_bp_upload_flow(user_session)
                         and not is_in_buy_cover_flow(user_session)
                         and not is_in_kyc_flow(user_session)
+                        and not is_in_payment_flow(user_session)
                     ):
                         await send_welcome_message(
                             to=sender_wa_id,
@@ -239,6 +244,7 @@ async def _process_change(entry_id: str, change):
                         and not is_in_bp_upload_flow(user_session)
                         and not is_in_buy_cover_flow(user_session)
                         and not is_in_kyc_flow(user_session)
+                        and not is_in_payment_flow(user_session)
                     ):
                         await _handle_welcome_button(
                             reply_id=matched_welcome,
@@ -250,7 +256,19 @@ async def _process_change(entry_id: str, change):
                         log_event("WELCOME_TEXT_MATCH", {"to": sender_wa_id, "action": matched_welcome})
                         continue
 
-                if is_in_kyc_flow(user_session):
+                if is_in_payment_flow(user_session):
+                    log_event("PAYMENT_FLOW", {
+                        "message_id": message.id,
+                        "from": sender_wa_id,
+                        "trigger": "active_payment_flow",
+                    })
+                    await handle_payment_flow(
+                        message=message,
+                        sender_wa_id=sender_wa_id,
+                        phone_number_id=msg_phone_number_id,
+                        in_reply_to=message.id,
+                    )
+                elif is_in_kyc_flow(user_session):
                     log_event("KYC_FLOW", {
                         "message_id": message.id,
                         "from": sender_wa_id,
@@ -546,6 +564,10 @@ async def _handle_welcome_button(
         kyc_state = session.get("temp_data", {}).get("kyc_flow", {})
         if kyc_state.get("active"):
             session.setdefault("temp_data", {})["kyc_flow"] = {}
+            await save_session(session)
+        pay_state = session.get("temp_data", {}).get("payment_flow", {})
+        if pay_state.get("active"):
+            session.setdefault("temp_data", {})["payment_flow"] = {}
             await save_session(session)
 
     if reply_id == "buy_cover" or reply_id == "restart_buy":

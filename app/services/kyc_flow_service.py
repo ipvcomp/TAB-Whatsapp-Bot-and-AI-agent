@@ -252,16 +252,8 @@ async def handle_kyc_flow(
     # ── Verified — next steps ─────────────────────────────────────────────────
     elif step == "kyc_verified":
         if reply_id == "kyc_pay":
-            flow["step"] = "kyc_payment_pending"
-            await save_session(session)
-            await _send_text(
-                sender_wa_id,
-                "💳 *Payment*\n\n"
-                "Payment is the next step. This feature is coming soon.\n\n"
-                "Our team will reach out to complete your policy payment.\n\n"
-                "Thank you for choosing TravelAssist! ✈️",
-                phone_number_id,
-            )
+            from app.services.payment_flow_service import start_payment_flow
+            await start_payment_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
         elif reply_id == "kyc_review":
             bc_data = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
             travelers = bc_data.get("travelers", [])
