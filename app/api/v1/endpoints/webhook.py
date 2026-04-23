@@ -34,6 +34,9 @@ from app.services.help_flow_service import (
 from app.services.check_policy_flow_service import (
     is_in_check_policy_flow, handle_check_policy_flow, start_check_policy_flow,
 )
+from app.services.update_details_flow_service import (
+    is_in_update_details_flow, handle_update_details_flow, start_update_details_flow,
+)
 
 WELCOME_BUTTON_IDS = {
     "welcome_purchase_policy", "welcome_submit_boarding", "welcome_get_support",
@@ -216,6 +219,7 @@ async def _process_change(entry_id: str, change):
                         and not is_in_bp_link_flow(user_session)
                         and not is_in_help_flow(user_session)
                         and not is_in_check_policy_flow(user_session)
+                        and not is_in_update_details_flow(user_session)
                     ):
                         await send_welcome_message(
                             to=sender_wa_id,
@@ -237,6 +241,7 @@ async def _process_change(entry_id: str, change):
                         and not is_in_bp_link_flow(user_session)
                         and not is_in_help_flow(user_session)
                         and not is_in_check_policy_flow(user_session)
+                        and not is_in_update_details_flow(user_session)
                     ):
                         await send_welcome_message(
                             to=sender_wa_id,
@@ -263,6 +268,7 @@ async def _process_change(entry_id: str, change):
                         and not is_in_bp_link_flow(user_session)
                         and not is_in_help_flow(user_session)
                         and not is_in_check_policy_flow(user_session)
+                        and not is_in_update_details_flow(user_session)
                     ):
                         await _handle_welcome_button(
                             reply_id=matched_welcome,
@@ -274,7 +280,19 @@ async def _process_change(entry_id: str, change):
                         log_event("WELCOME_TEXT_MATCH", {"to": sender_wa_id, "action": matched_welcome})
                         continue
 
-                if is_in_check_policy_flow(user_session):
+                if is_in_update_details_flow(user_session):
+                    log_event("UPDATE_DETAILS_FLOW", {
+                        "message_id": message.id,
+                        "from": sender_wa_id,
+                        "trigger": "active_update_details_flow",
+                    })
+                    await handle_update_details_flow(
+                        message=message,
+                        sender_wa_id=sender_wa_id,
+                        phone_number_id=msg_phone_number_id,
+                        in_reply_to=message.id,
+                    )
+                elif is_in_check_policy_flow(user_session):
                     log_event("CHECK_POLICY_FLOW", {
                         "message_id": message.id,
                         "from": sender_wa_id,
@@ -635,6 +653,10 @@ async def _handle_welcome_button(
         if cp_state.get("active"):
             session.setdefault("temp_data", {})["check_policy_flow"] = {}
             await save_session(session)
+        ud_state = session.get("temp_data", {}).get("update_details_flow", {})
+        if ud_state.get("active"):
+            session.setdefault("temp_data", {})["update_details_flow"] = {}
+            await save_session(session)
 
     if reply_id == "buy_cover" or reply_id == "restart_buy":
         log_event("WELCOME_BUTTON", {"action": "buy_cover", "from": sender_wa_id})
@@ -677,7 +699,14 @@ async def _handle_welcome_button(
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
         )
-    elif reply_id in ("welcome_get_support", "help", "update_details"):
+    elif reply_id == "update_details":
+        log_event("WELCOME_BUTTON", {"action": "update_details", "from": sender_wa_id})
+        await start_update_details_flow(
+            wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+        )
+    elif reply_id in ("welcome_get_support", "help"):
         log_event("WELCOME_BUTTON", {"action": "help", "from": sender_wa_id})
         await start_help_flow(
             wa_id=sender_wa_id,
