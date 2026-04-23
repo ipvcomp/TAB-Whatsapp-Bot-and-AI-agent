@@ -17,7 +17,10 @@ from app.services.policy_flow_service import (
     is_in_bp_upload_flow, handle_boarding_pass_upload_flow,
 )
 
-WELCOME_BUTTON_IDS = {"welcome_purchase_policy", "welcome_submit_boarding", "welcome_get_support"}
+WELCOME_BUTTON_IDS = {
+    "welcome_purchase_policy", "welcome_submit_boarding", "welcome_get_support",
+    "buy_cover", "check_policy", "update_details", "boarding_pass", "help",
+}
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -444,12 +447,21 @@ def _get_welcome_button_id(message) -> str | None:
     interactive = getattr(message, "interactive", None)
     if not interactive:
         return None
+
+    # Handle button_reply (old 3-button style)
     button_reply = interactive.get("button_reply") if isinstance(interactive, dict) else getattr(interactive, "button_reply", None)
-    if not button_reply:
-        return None
-    reply_id = button_reply.get("id") if isinstance(button_reply, dict) else getattr(button_reply, "id", None)
-    if reply_id in WELCOME_BUTTON_IDS:
-        return reply_id
+    if button_reply:
+        reply_id = button_reply.get("id") if isinstance(button_reply, dict) else getattr(button_reply, "id", None)
+        if reply_id in WELCOME_BUTTON_IDS:
+            return reply_id
+
+    # Handle list_reply (new list menu style)
+    list_reply = interactive.get("list_reply") if isinstance(interactive, dict) else getattr(interactive, "list_reply", None)
+    if list_reply:
+        reply_id = list_reply.get("id") if isinstance(list_reply, dict) else getattr(list_reply, "id", None)
+        if reply_id in WELCOME_BUTTON_IDS:
+            return reply_id
+
     return None
 
 
@@ -479,7 +491,7 @@ async def _handle_welcome_button(
             session["bp_upload_flow"] = {}
             await save_session(session)
 
-    if reply_id == "welcome_purchase_policy":
+    if reply_id in ("welcome_purchase_policy", "buy_cover"):
         log_event("WELCOME_BUTTON", {"action": "purchase_policy", "from": sender_wa_id})
         await handle_policy_flow(
             message=message,
@@ -489,7 +501,7 @@ async def _handle_welcome_button(
             in_reply_to=in_reply_to,
             skip_menu=True,
         )
-    elif reply_id == "welcome_submit_boarding":
+    elif reply_id in ("welcome_submit_boarding", "boarding_pass"):
         log_event("WELCOME_BUTTON", {"action": "submit_boarding", "from": sender_wa_id})
         await handle_boarding_pass_upload_flow(
             message=message,
@@ -498,7 +510,7 @@ async def _handle_welcome_button(
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
         )
-    elif reply_id == "welcome_get_support":
+    elif reply_id in ("welcome_get_support", "help", "check_policy", "update_details"):
         log_event("WELCOME_BUTTON", {"action": "get_support", "from": sender_wa_id})
         await send_text_message(
             to=sender_wa_id,

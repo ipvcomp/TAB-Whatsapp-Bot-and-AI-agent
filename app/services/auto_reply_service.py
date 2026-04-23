@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from typing import Optional
@@ -15,13 +16,30 @@ HELP_PATTERNS = [r"\b(help|support|assist)\b"]
 THANKS_PATTERNS = [r"\b(thank|thanks|shukria|shukriya)\b"]
 BYE_PATTERNS = [r"\b(bye|goodbye|see you|khuda hafiz)\b"]
 
-WELCOME_BODY = (
-    "Hi, My name is *Travel Assistant abdullah test*\n"
-    "\U0001f44b Your Trusted Partner for Travel Disruption Compensation!\n"
-    "My name is *TravelAssist*.\n"
-    "Please select an option below so I can assist you!\n"
-    "\U0001f447\n\n"
-    "Type *help* if you need assistance."
+WELCOME_TEXT = (
+    "👋 *Welcome to TravelAssist*\n"
+    "We help travelers:\n"
+    "✈️ buy travel disruption cover\n"
+    "🔔 get flight alerts"
+)
+
+MENU_SECTIONS = [
+    {
+        "title": "Options",
+        "rows": [
+            {"id": "buy_cover",      "title": "✈️ Buy cover"},
+            {"id": "check_policy",   "title": "📋 Check my policy"},
+            {"id": "update_details", "title": "✏️ Update my details"},
+            {"id": "boarding_pass",  "title": "🛫 Upload boarding pass"},
+            {"id": "help",           "title": "🆘 Help"},
+        ],
+    }
+]
+
+UTILITY_TEXT = (
+    "*Utility options:*\n"
+    "0 ↩️ Back  |  9 🆘 Help  |  00 🏠 Main menu\n"
+    "99 ❌ Cancel/Exit"
 )
 
 HELP_REPLY = (
@@ -83,49 +101,61 @@ async def send_welcome_message(
     image_media_id = await get_welcome_image_media_id()
     logger.info(f"Welcome image media_id: {image_media_id}")
 
-    interactive = {
-        "type": "button",
-        "body": {"text": WELCOME_BODY},
-        "action": {
-            "buttons": [
-                {
-                    "type": "reply",
-                    "reply": {
-                        "id": "welcome_purchase_policy",
-                        "title": "Purchase Policy",
-                    },
-                },
-                {
-                    "type": "reply",
-                    "reply": {
-                        "id": "welcome_submit_boarding",
-                        "title": "Submit Boarding Pass",
-                    },
-                },
-                {
-                    "type": "reply",
-                    "reply": {"id": "welcome_get_support", "title": "Get Support"},
-                },
-            ]
-        },
-    }
-
+    # 1. Send image as a standalone message
     if image_media_id:
-        interactive["header"] = {"type": "image", "image": {"id": image_media_id}}
+        image_payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": to,
+            "type": "image",
+            "image": {"id": image_media_id},
+        }
+        await send_whatsapp_payload(
+            whatsapp_payload=image_payload,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            source="auto_reply",
+        )
+        await asyncio.sleep(1.5)
 
-    payload = {
+    # 2. Send welcome text
+    await send_text_message(
+        to=to,
+        body=WELCOME_TEXT,
+        phone_number_id=phone_number_id,
+        source="auto_reply",
+    )
+
+    # 3. Send list menu
+    list_payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
         "to": to,
         "type": "interactive",
-        "interactive": interactive,
+        "interactive": {
+            "type": "list",
+            "body": {"text": "What would you like to do?"},
+            "action": {
+                "button": "Choose an option",
+                "sections": MENU_SECTIONS,
+            },
+        },
     }
-    return await send_whatsapp_payload(
-        whatsapp_payload=payload,
+    result = await send_whatsapp_payload(
+        whatsapp_payload=list_payload,
         phone_number_id=phone_number_id,
-        in_reply_to=in_reply_to,
         source="auto_reply",
     )
+
+    # 4. Send utility bar
+    await send_text_message(
+        to=to,
+        body=UTILITY_TEXT,
+        phone_number_id=phone_number_id,
+        source="auto_reply",
+    )
+
+    return result
 
 
 async def handle_auto_reply(
