@@ -28,6 +28,9 @@ from app.services.payment_flow_service import (
 from app.services.bp_link_flow_service import (
     is_in_bp_link_flow, handle_bp_link_flow,
 )
+from app.services.help_flow_service import (
+    is_in_help_flow, handle_help_flow, start_help_flow,
+)
 
 WELCOME_BUTTON_IDS = {
     "welcome_purchase_policy", "welcome_submit_boarding", "welcome_get_support",
@@ -208,6 +211,7 @@ async def _process_change(entry_id: str, change):
                         and not is_in_kyc_flow(user_session)
                         and not is_in_payment_flow(user_session)
                         and not is_in_bp_link_flow(user_session)
+                        and not is_in_help_flow(user_session)
                     ):
                         await send_welcome_message(
                             to=sender_wa_id,
@@ -227,6 +231,7 @@ async def _process_change(entry_id: str, change):
                         and not is_in_kyc_flow(user_session)
                         and not is_in_payment_flow(user_session)
                         and not is_in_bp_link_flow(user_session)
+                        and not is_in_help_flow(user_session)
                     ):
                         await send_welcome_message(
                             to=sender_wa_id,
@@ -251,6 +256,7 @@ async def _process_change(entry_id: str, change):
                         and not is_in_kyc_flow(user_session)
                         and not is_in_payment_flow(user_session)
                         and not is_in_bp_link_flow(user_session)
+                        and not is_in_help_flow(user_session)
                     ):
                         await _handle_welcome_button(
                             reply_id=matched_welcome,
@@ -262,7 +268,19 @@ async def _process_change(entry_id: str, change):
                         log_event("WELCOME_TEXT_MATCH", {"to": sender_wa_id, "action": matched_welcome})
                         continue
 
-                if is_in_bp_link_flow(user_session):
+                if is_in_help_flow(user_session):
+                    log_event("HELP_FLOW", {
+                        "message_id": message.id,
+                        "from": sender_wa_id,
+                        "trigger": "active_help_flow",
+                    })
+                    await handle_help_flow(
+                        message=message,
+                        sender_wa_id=sender_wa_id,
+                        phone_number_id=msg_phone_number_id,
+                        in_reply_to=message.id,
+                    )
+                elif is_in_bp_link_flow(user_session):
                     log_event("BP_LINK_FLOW", {
                         "message_id": message.id,
                         "from": sender_wa_id,
@@ -591,6 +609,10 @@ async def _handle_welcome_button(
         if bpl_state.get("active"):
             session.setdefault("temp_data", {})["bp_link_flow"] = {}
             await save_session(session)
+        hlp_state = session.get("temp_data", {}).get("help_flow", {})
+        if hlp_state.get("active"):
+            session.setdefault("temp_data", {})["help_flow"] = {}
+            await save_session(session)
 
     if reply_id == "buy_cover" or reply_id == "restart_buy":
         log_event("WELCOME_BUTTON", {"action": "buy_cover", "from": sender_wa_id})
@@ -627,11 +649,9 @@ async def _handle_welcome_button(
             in_reply_to=in_reply_to,
         )
     elif reply_id in ("welcome_get_support", "help", "check_policy", "update_details"):
-        log_event("WELCOME_BUTTON", {"action": "get_support", "from": sender_wa_id})
-        await send_text_message(
-            to=sender_wa_id,
-            body=get_shortcuts_text(),
+        log_event("WELCOME_BUTTON", {"action": "help", "from": sender_wa_id})
+        await start_help_flow(
+            wa_id=sender_wa_id,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
-            source="auto_reply",
         )
