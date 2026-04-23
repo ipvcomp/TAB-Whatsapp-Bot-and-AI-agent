@@ -2,7 +2,11 @@ import logging
 import re
 from typing import Optional
 
-from app.services.whatsapp_service import send_text_message, send_whatsapp_payload, get_welcome_image_media_id
+from app.services.whatsapp_service import (
+    send_text_message,
+    send_whatsapp_payload,
+    get_welcome_image_media_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -12,16 +16,16 @@ THANKS_PATTERNS = [r"\b(thank|thanks|shukria|shukriya)\b"]
 BYE_PATTERNS = [r"\b(bye|goodbye|see you|khuda hafiz)\b"]
 
 WELCOME_BODY = (
-    "Hi, My name is *Travel Assistant*\n"
-    "\U0001F44B Your Trusted Partner for Travel Disruption Compensation!\n"
+    "Hi, My name is *Travel Assistant abdullah test*\n"
+    "\U0001f44b Your Trusted Partner for Travel Disruption Compensation!\n"
     "My name is *TravelAssist*.\n"
     "Please select an option below so I can assist you!\n"
-    "\U0001F447\n\n"
+    "\U0001f447\n\n"
     "Type *help* if you need assistance."
 )
 
 HELP_REPLY = (
-    "We're here to help! \U0001F64F\n\n"
+    "We're here to help! \U0001f64f\n\n"
     "You can:\n"
     "\u2022 Type *policy* to create a new travel policy\n"
     "\u2022 Ask any question about travel insurance\n"
@@ -29,12 +33,12 @@ HELP_REPLY = (
     "How can we assist you today?"
 )
 
-THANKS_REPLY = "You're welcome! \U0001F60A If you need anything else, feel free to reach out anytime."
+THANKS_REPLY = "You're welcome! \U0001f60a If you need anything else, feel free to reach out anytime."
 
-BYE_REPLY = "Goodbye! \U0001F44B Have a great day. We're always here when you need us!"
+BYE_REPLY = "Goodbye! \U0001f44b Have a great day. We're always here when you need us!"
 
 DEFAULT_REPLY = (
-    "Thank you for your message! \U0001F64F\n\n"
+    "Thank you for your message! \U0001f64f\n\n"
     "I'm *TravelAssist*, your travel insurance companion.\n"
     "You can:\n"
     "\u2022 Type *policy* to create a new travel policy\n"
@@ -43,7 +47,7 @@ DEFAULT_REPLY = (
     "How can I help you?"
 )
 
-MEDIA_REPLY = "Thanks for sending that! \U0001F4CE We've received your media. Our team will review it shortly."
+MEDIA_REPLY = "Thanks for sending that! \U0001f4ce We've received your media. Our team will review it shortly."
 
 
 def is_greeting(text: str) -> bool:
@@ -81,41 +85,33 @@ async def send_welcome_message(
 
     interactive = {
         "type": "button",
-        "body": {
-            "text": WELCOME_BODY
-        },
+        "body": {"text": WELCOME_BODY},
         "action": {
             "buttons": [
                 {
                     "type": "reply",
                     "reply": {
                         "id": "welcome_purchase_policy",
-                        "title": "Purchase Policy"
-                    }
+                        "title": "Purchase Policy",
+                    },
                 },
                 {
                     "type": "reply",
                     "reply": {
                         "id": "welcome_submit_boarding",
-                        "title": "Submit Boarding Pass"
-                    }
+                        "title": "Submit Boarding Pass",
+                    },
                 },
                 {
                     "type": "reply",
-                    "reply": {
-                        "id": "welcome_get_support",
-                        "title": "Get Support"
-                    }
-                }
+                    "reply": {"id": "welcome_get_support", "title": "Get Support"},
+                },
             ]
-        }
+        },
     }
 
     if image_media_id:
-        interactive["header"] = {
-            "type": "image",
-            "image": {"id": image_media_id}
-        }
+        interactive["header"] = {"type": "image", "image": {"id": image_media_id}}
 
     payload = {
         "messaging_product": "whatsapp",
