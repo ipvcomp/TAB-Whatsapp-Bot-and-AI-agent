@@ -47,8 +47,16 @@ async def _reset(session: dict):
     await save_session(session)
 
 
+_UTILITY = (
+    "*Utility options:*\n"
+    "0 ↩️ Back  |  9 🆘 Help  |  00 🏠 Main menu\n"
+    "99 ❌ Cancel/Exit"
+)
+
+
 async def _send_text(to: str, body: str, phone_number_id: Optional[str]):
     await send_text_message(to=to, body=body, phone_number_id=phone_number_id, source="help_flow")
+    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="help_flow")
 
 
 async def _send_list(
@@ -74,6 +82,7 @@ async def _send_list(
         "interactive": interactive,
     }
     await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="help_flow")
+    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="help_flow")
 
 
 async def start_help_flow(

@@ -52,8 +52,16 @@ async def _reset(session: dict, wa_id: str):
     await save_session(session)
 
 
+_UTILITY = (
+    "*Utility options:*\n"
+    "0 ↩️ Back  |  9 🆘 Help  |  00 🏠 Main menu\n"
+    "99 ❌ Cancel/Exit"
+)
+
+
 async def _send_text(to: str, body: str, phone_number_id: Optional[str]):
     await send_text_message(to=to, body=body, phone_number_id=phone_number_id, source="buy_cover_flow")
+    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="buy_cover_flow")
 
 
 async def _send_buttons(to: str, body: str, buttons: list, phone_number_id: Optional[str]):
@@ -74,6 +82,7 @@ async def _send_buttons(to: str, body: str, buttons: list, phone_number_id: Opti
         },
     }
     await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="buy_cover_flow")
+    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="buy_cover_flow")
 
 
 async def _send_list(
@@ -100,6 +109,7 @@ async def _send_list(
         "interactive": interactive,
     }
     await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="buy_cover_flow")
+    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="buy_cover_flow")
 
 
 async def start_buy_cover_flow(
@@ -398,7 +408,7 @@ async def handle_buy_cover_flow(
         flow["step"] = "buy_cover_airline"
         await save_session(session)
         await _send_text(sender_wa_id,
-            "*🏢 Who are you flying with?*\n\n_Example: Itoim Air, Air Peace_",
+            "*✈️  Who are you flying with?*\n\n_Example: Ibom Air, Air Peace_",
             phone_number_id)
 
     # ── Airline ───────────────────────────────────────────────────────────────
