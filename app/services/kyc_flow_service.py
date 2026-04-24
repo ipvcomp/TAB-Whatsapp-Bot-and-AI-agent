@@ -22,6 +22,12 @@ async def _get_flow_state(wa_id: str) -> tuple[dict, dict]:
     return session, flow
 
 
+def _mask_id(val: str) -> str:
+    if len(val) <= 3:
+        return val
+    return "•" * (len(val) - 3) + val[-3:]
+
+
 _UTILITY = (
     "*Utility options:*\n"
     "0 ↩️ Back  |  9 🆘 Help  |  00 🏠 Main menu\n"
@@ -211,7 +217,7 @@ async def handle_kyc_flow(
                 sender_wa_id,
                 f"🔏 *Please enter your 11-digit {method}*\n\n"
                 f"_Example: 12345678901_\n\n"
-                f"_Your {method} will not be stored or echoed back_",
+                f"🔒 _Your {method} is handled securely — only the last 3 digits will be shown for confirmation_",
                 phone_number_id,
             )
 
@@ -222,7 +228,9 @@ async def handle_kyc_flow(
             return
         id_number = text.replace(" ", "")
         method = data.get("kyc_method", "BVN")
-        await _send_text(sender_wa_id, "🔍 *Checking your details...*\n_Please wait a moment_ ⏳", phone_number_id)
+        masked = _mask_id(id_number)
+        data["kyc_id"] = id_number
+        await _send_text(sender_wa_id, f"🔍 *Checking your details...*\n_{method}: {masked}_\n_Please wait a moment_ ⏳", phone_number_id)
 
         if id_number.isdigit() and len(id_number) == 11:
             data["kyc_verified"] = True
@@ -230,7 +238,8 @@ async def handle_kyc_flow(
             await save_session(session)
             await _send_list(
                 sender_wa_id,
-                "✅ *Identity Verified*\n\n"
+                f"✅ *Identity Verified*\n"
+                f"_{method}: {masked}_\n\n"
                 "Your identity has been confirmed. You can now continue to payment.\n\n"
                 "What would you like to do next?",
                 "Choose an option",
