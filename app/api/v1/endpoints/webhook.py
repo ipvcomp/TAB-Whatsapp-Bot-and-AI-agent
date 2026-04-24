@@ -23,6 +23,7 @@ from app.services.payment_flow_service import (
 )
 from app.services.bp_link_flow_service import (
     is_in_bp_link_flow, handle_bp_link_flow, start_bp_link_flow,
+    start_eligibility_check_flow,
 )
 from app.services.help_flow_service import (
     is_in_help_flow, handle_help_flow, start_help_flow,
@@ -36,8 +37,8 @@ from app.services.update_details_flow_service import (
 
 WELCOME_BUTTON_IDS = {
     "welcome_purchase_policy", "welcome_submit_boarding", "welcome_get_support",
-    "buy_cover", "check_policy", "update_details", "boarding_pass", "help",
-    "restart_buy", "go_main",
+    "buy_cover", "check_policy", "check_eligibility", "update_details",
+    "boarding_pass", "help", "restart_buy", "go_main",
 }
 
 logger = logging.getLogger(__name__)
@@ -627,6 +628,13 @@ async def _handle_welcome_button(
         from app.services.auto_reply_service import send_main_menu
         await send_main_menu(
             to=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+        )
+    elif reply_id == "check_eligibility":
+        log_event("WELCOME_BUTTON", {"action": "check_eligibility", "from": sender_wa_id})
+        await start_eligibility_check_flow(
+            wa_id=sender_wa_id,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
         )

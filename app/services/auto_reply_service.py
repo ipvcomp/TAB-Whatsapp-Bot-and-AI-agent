@@ -27,11 +27,12 @@ MENU_SECTIONS = [
     {
         "title": "Options",
         "rows": [
-            {"id": "buy_cover",      "title": "✈️ Buy cover"},
-            {"id": "check_policy",   "title": "📋 Check my policy"},
-            {"id": "update_details", "title": "✏️ Update my details"},
-            {"id": "boarding_pass",  "title": "🛫 Upload boarding pass"},
-            {"id": "help",           "title": "🆘 Help"},
+            {"id": "buy_cover",          "title": "✈️ Buy cover"},
+            {"id": "check_policy",       "title": "📋 Check my policy"},
+            {"id": "check_eligibility",  "title": "🔍 Check eligibility"},
+            {"id": "update_details",     "title": "✏️ Update my details"},
+            {"id": "boarding_pass",      "title": "🛫 Upload boarding pass"},
+            {"id": "help",               "title": "🆘 Help"},
         ],
     }
 ]

@@ -111,10 +111,15 @@ async def _go_home(wa_id: str, session: dict, phone_number_id: Optional[str]):
 async def _show_policy_list(wa_id: str, session: dict, flow: dict, action: str, phone_number_id: Optional[str]):
     flow["step"] = "bp_policy"
     await save_session(session)
+    if action == "upload":
+        action_label = "upload a boarding pass for:"
+    elif action == "eligibility":
+        action_label = "check eligibility for:"
+    else:
+        action_label = "link:"
     body = (
         f"We found *{len(DEMO_POLICIES)} policies* linked to your number.\n\n"
-        f"Please select the policy you would like to "
-        f"{'upload for:' if action == 'upload' else 'link:'}"
+        f"Please select the policy you would like to {action_label}"
     )
     rows = [
         {
@@ -157,11 +162,12 @@ async def _show_upload_confirmed(wa_id: str, session: dict, flow: dict, phone_nu
         f"✈️ Airline:    {airline}\n"
         f"🛫 Flight:     {flight}\n"
         f"📅 Date:       {date}\n"
-        f"👤 Traveller: {traveler}",
+        f"👤 Traveller: {traveler}\n\n"
+        "_Your boarding pass has been saved. You can check eligibility for a payout from the main menu after your flight._",
         "What next?",
         [{"title": "Options", "rows": [
-            {"id": "bp_eligibility", "title": "✅ Check eligibility"},
-            {"id": "bp_home",        "title": "🏠 Main menu"},
+            {"id": "bp_home",   "title": "🏠 Main menu"},
+            {"id": "bp_cancel", "title": "❌ Cancel"},
         ]}],
         phone_number_id,
         header="✅ Boarding pass confirmed")
@@ -322,6 +328,24 @@ async def start_bp_link_flow(
     )
 
 
+async def start_eligibility_check_flow(
+    wa_id: str,
+    phone_number_id: Optional[str],
+    in_reply_to: Optional[str] = None,
+):
+    session = await get_session(wa_id) or {}
+    session.setdefault("temp_data", {})[BP_LINK_FLOW_KEY] = {
+        "active": True,
+        "step":   "bp_policy",
+        "data":   {"bp_action": "eligibility"},
+    }
+    if "user_id" not in session:
+        session["user_id"] = wa_id
+    await save_session(session)
+    flow = session["temp_data"][BP_LINK_FLOW_KEY]
+    await _show_policy_list(wa_id, session, flow, "eligibility", phone_number_id)
+
+
 async def handle_bp_link_flow(
     message,
     sender_wa_id: str,
@@ -396,6 +420,8 @@ async def handle_bp_link_flow(
                     await save_session(session)
                     if action == "link":
                         await _show_link_confirm(sender_wa_id, session, flow, phone_number_id)
+                    elif action == "eligibility":
+                        await _show_eligibility(sender_wa_id, session, flow, phone_number_id)
                     else:
                         await _ask_upload(sender_wa_id, session, flow, pol, phone_number_id)
                 else:
@@ -419,9 +445,7 @@ async def handle_bp_link_flow(
 
     # ── Screen 4 (Path A): After upload confirmed ─────────────────────────────
     elif step == "bp_upload_done":
-        if reply_id == "bp_eligibility":
-            await _show_eligibility(sender_wa_id, session, flow, phone_number_id)
-        elif reply_id in ("bp_home", "bp_cancel"):
+        if reply_id in ("bp_home", "bp_cancel"):
             await _go_home(sender_wa_id, session, phone_number_id)
         else:
             await _show_upload_confirmed(sender_wa_id, session, flow, phone_number_id)
