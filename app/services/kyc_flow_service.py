@@ -121,9 +121,9 @@ async def start_kyc_flow(
 
     await _send_list(
         wa_id,
-        "For payment, we may need to verify your identity to ensure security "
-        "and accurate policy issuance. If you've already completed this, we'll "
-        "only ask again if your details have changed.\n\n"
+        "We may verify your identity to support any future payouts and ensure "
+        "security and accurate policy issuance. If you've already completed this, "
+        "we'll only carry out verification again if your details have changed.\n\n"
         "> 🔒 *Your privacy matters*\n"
         "> We only use your National Biometric ID to verify your identity for this "
         "purchase. Your data is handled securely and never shared.\n\n"
