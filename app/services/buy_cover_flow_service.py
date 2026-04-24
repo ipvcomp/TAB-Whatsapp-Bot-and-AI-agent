@@ -327,7 +327,7 @@ async def handle_buy_cover_flow(
         await save_session(session)
         await _send_list(
             sender_wa_id,
-            "*✈️ What airport are you flying from?*",
+            "*✈️ What airport are you flying from?*\nEnter first 3 characters of airport name or code\n_Example: LOS, Mur, NBO_",
             "Select airport",
             [{"title": "🛫 Departure Airports", "rows": [
                 {"id": f"dep_{code}", "title": f"{code}  {name}"[:24]}
@@ -341,7 +341,7 @@ async def handle_buy_cover_flow(
         if not reply_id or not reply_id.startswith("dep_"):
             await _send_list(
                 sender_wa_id,
-                "*✈️ What airport are you flying from?*",
+                "*✈️ What airport are you flying from?*\nEnter first 3 characters of airport name or code\n_Example: LOS, Mur, NBO_",
                 "Select airport",
                 [{"title": "🛫 Departure Airports", "rows": [
                     {"id": f"dep_{code}", "title": f"{code}  {name}"[:24]}
@@ -369,7 +369,7 @@ async def handle_buy_cover_flow(
         await save_session(session)
         await _send_list(
             sender_wa_id,
-            "*✈️ What airport are you arriving at?*",
+            "*✈️ What airport are you arriving at?*\nEnter first 3 characters of airport name or code\n_Example: LOS, Mur, NBO_",
             "Select airport",
             [{"title": "🛬 Arrival Airports", "rows": [
                 {"id": f"arr_{code}", "title": f"{code}  {name}"[:24]}
@@ -383,7 +383,7 @@ async def handle_buy_cover_flow(
         if not reply_id or not reply_id.startswith("arr_"):
             await _send_list(
                 sender_wa_id,
-                "*✈️ What airport are you arriving at?*",
+                "*✈️ What airport are you arriving at?*\nEnter first 3 characters of airport name or code\n_Example: LOS, Mur, NBO_",
                 "Select airport",
                 [{"title": "🛬 Arrival Airports", "rows": [
                     {"id": f"arr_{code}", "title": f"{code}  {name}"[:24]}
