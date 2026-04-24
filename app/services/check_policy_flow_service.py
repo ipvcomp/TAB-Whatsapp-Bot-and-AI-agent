@@ -22,6 +22,7 @@ DEMO_POLICIES = [
         "cover":     "Premium",
         "price":     "₦14,500",
         "travelers": ["Yusuf Usman"],
+        "doc_url":   "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/TA-238491/document",
     },
     {
         "id":        "pol_ltb",
@@ -36,6 +37,7 @@ DEMO_POLICIES = [
         "cover":     "Basic",
         "price":     "₦7,200",
         "travelers": ["Aminu Bola"],
+        "doc_url":   "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/TA-119823/document",
     },
 ]
 
@@ -118,6 +120,46 @@ async def _send_list(
     }
     await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="check_policy_flow")
     await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="check_policy_flow")
+
+
+async def _send_cta_document(
+    to: str,
+    pol: dict,
+    phone_number_id: Optional[str],
+):
+    ref      = pol.get("ref", "")
+    name     = pol.get("name", "Policy")
+    doc_url  = pol.get("doc_url", "")
+    filename = f"Policy_{ref}.pdf"
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type":    "individual",
+        "to":                to,
+        "type":              "interactive",
+        "interactive": {
+            "type": "cta_url",
+            "header": {"type": "text", "text": f"📄 {filename}"},
+            "body": {
+                "text": (
+                    f"*{name}*\n"
+                    f"Policy No: *{ref}*\n\n"
+                    "Tap the button below to view or download your full policy document."
+                )
+            },
+            "action": {
+                "name": "cta_url",
+                "parameters": {
+                    "display_text": "Download Policy Document",
+                    "url": doc_url,
+                },
+            },
+        },
+    }
+    await send_whatsapp_payload(
+        whatsapp_payload=payload,
+        phone_number_id=phone_number_id,
+        source="check_policy_flow",
+    )
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
@@ -463,21 +505,10 @@ async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Op
 
 async def _show_document(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_download")
-    travelers = ", ".join(pol.get("travelers", ["—"]))
-    filename  = f"Policy_{pol['ref']}.pdf"
+    await _send_cta_document(wa_id, pol, phone_number_id)
     await _send_list(wa_id,
-        f"📄 *{filename}*\n\n"
-        f"📋 *Policy Summary*\n"
-        f"────────────────────\n"
-        f"Ref:      {pol['ref']}\n"
-        f"Cover:   {pol['name']}\n"
-        f"Name:    {travelers}\n"
-        f"Date:     {pol['date']}\n"
-        f"Route:   {pol['origin']} → {pol['dest']}\n"
-        f"Flight:   {pol['flight']}\n"
-        f"Total:    {pol['price']}\n"
-        f"────────────────────\n\n"
-        "This policy document has also been sent to your registered email. 📧",
+        "📧 A copy has also been sent to your registered email address.\n\n"
+        "What would you like to do next?",
         "Select option",
         [{"title": "Options", "rows": [
             {"id": "pol_manage_alerts", "title": "🔔 Manage alerts"},
