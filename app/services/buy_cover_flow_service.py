@@ -1,6 +1,8 @@
 import logging
 from typing import Optional
 
+import httpx
+
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -276,7 +278,7 @@ async def handle_buy_cover_flow(
         flow["step"] = "buy_cover_booking_ref"
         await save_session(session)
         await _send_text(sender_wa_id,
-            "*📌 Please enter your booking reference*\n\n_Examples: AB1XY2, Z890F462_",
+            "*🎫 Please enter your booking reference*\n\n_Examples: AB1XY2, 2990FA62_",
             phone_number_id)
 
     # ── Booking reference ─────────────────────────────────────────────────────
