@@ -83,7 +83,8 @@ _UTILITY = (
 
 
 async def _send_text(to: str, body: str, phone_number_id: Optional[str]):
-    await send_text_message(to=to, body=f"{body}\n\n{_UTILITY}", phone_number_id=phone_number_id, source="payment_flow")
+    await send_text_message(to=to, body=body, phone_number_id=phone_number_id, source="payment_flow")
+    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="payment_flow")
 
 
 async def _send_buttons(to: str, body: str, buttons: list, phone_number_id: Optional[str]):
@@ -94,7 +95,7 @@ async def _send_buttons(to: str, body: str, buttons: list, phone_number_id: Opti
         "type": "interactive",
         "interactive": {
             "type": "button",
-            "body": {"text": f"{body}\n\n{_UTILITY}"},
+            "body": {"text": body},
             "action": {
                 "buttons": [
                     {"type": "reply", "reply": {"id": b["id"], "title": b["title"]}}
@@ -104,6 +105,7 @@ async def _send_buttons(to: str, body: str, buttons: list, phone_number_id: Opti
         },
     }
     await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="payment_flow")
+    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="payment_flow")
 
 
 async def _send_list(
@@ -116,7 +118,7 @@ async def _send_list(
 ):
     interactive = {
         "type": "list",
-        "body": {"text": f"{body}\n\n{_UTILITY}"},
+        "body": {"text": body},
         "action": {"button": button_label, "sections": sections},
     }
     if header:
@@ -129,6 +131,7 @@ async def _send_list(
         "interactive": interactive,
     }
     await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="payment_flow")
+    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="payment_flow")
 
 
 async def _send_bank_page(wa_id: str, pages: list, page_idx: int, all_banks: list, phone_number_id: Optional[str]):
