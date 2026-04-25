@@ -320,7 +320,7 @@ async def start_bp_link_flow(
         "Please choose an option:",
         "Select option",
         [{"title": "Options", "rows": [
-            {"id": "bp_upload_me", "title": "📋 Upload for an active policy"},
+            {"id": "bp_upload_me", "title": "📋 Upload boarding pass"},
             {"id": "bp_help",      "title": "🙋 Help"},
         ]}],
         phone_number_id,
