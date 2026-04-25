@@ -159,6 +159,18 @@ async def send_welcome_message(
     return result
 
 
+async def send_main_menu(
+    to: str,
+    phone_number_id: Optional[str],
+    in_reply_to: Optional[str] = None,
+) -> Optional[dict]:
+    return await send_welcome_message(
+        to=to,
+        phone_number_id=phone_number_id,
+        in_reply_to=in_reply_to,
+    )
+
+
 async def handle_auto_reply(
     to_wa_id: str,
     incoming_text: Optional[str],
