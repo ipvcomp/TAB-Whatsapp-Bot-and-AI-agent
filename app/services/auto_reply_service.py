@@ -135,7 +135,7 @@ async def send_welcome_message(
         "type": "interactive",
         "interactive": {
             "type": "list",
-            "body": {"text": "What would you like to do?"},
+            "body": {"text": f"What would you like to do?\n\n{UTILITY_TEXT}"},
             "action": {
                 "button": "Choose an option",
                 "sections": MENU_SECTIONS,
@@ -144,14 +144,6 @@ async def send_welcome_message(
     }
     result = await send_whatsapp_payload(
         whatsapp_payload=list_payload,
-        phone_number_id=phone_number_id,
-        source="auto_reply",
-    )
-
-    # 4. Send utility bar
-    await send_text_message(
-        to=to,
-        body=UTILITY_TEXT,
         phone_number_id=phone_number_id,
         source="auto_reply",
     )

@@ -55,8 +55,7 @@ _UTILITY = (
 
 
 async def _send_text(to: str, body: str, phone_number_id: Optional[str]):
-    await send_text_message(to=to, body=body, phone_number_id=phone_number_id, source="help_flow")
-    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="help_flow")
+    await send_text_message(to=to, body=f"{body}\n\n{_UTILITY}", phone_number_id=phone_number_id, source="help_flow")
 
 
 async def _send_list(
@@ -69,7 +68,7 @@ async def _send_list(
 ):
     interactive = {
         "type": "list",
-        "body": {"text": body},
+        "body": {"text": f"{body}\n\n{_UTILITY}"},
         "action": {"button": button_label, "sections": sections},
     }
     if header:
@@ -82,7 +81,6 @@ async def _send_list(
         "interactive": interactive,
     }
     await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="help_flow")
-    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="help_flow")
 
 
 async def start_help_flow(
