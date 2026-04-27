@@ -23,18 +23,16 @@ WELCOME_TEXT = (
     "🔔 get payout alerts for travel  disruptions"
 )
 
-MENU_SECTIONS = [
-    {
-        "title": "Options",
-        "rows": [
-            {"id": "buy_cover",          "title": "✈️ Buy cover"},
-            {"id": "check_policy",       "title": "📋 Check my policy"},
-            {"id": "check_eligibility",  "title": "🔍 Check eligibility"},
-            {"id": "update_details",     "title": "✏️ Update my details"},
-            {"id": "boarding_pass",      "title": "🛫 Upload boarding pass"},
-            {"id": "help",               "title": "🆘 Help"},
-        ],
-    }
+MENU_GROUP1_BUTTONS = [
+    {"type": "reply", "reply": {"id": "buy_cover",    "title": "✈️ Buy Cover"}},
+    {"type": "reply", "reply": {"id": "boarding_pass","title": "🛫 Boarding Pass"}},
+    {"type": "reply", "reply": {"id": "check_policy", "title": "📋 Check My Policy"}},
+]
+
+MENU_GROUP2_BUTTONS = [
+    {"type": "reply", "reply": {"id": "check_eligibility", "title": "🔍 Check Eligibility"}},
+    {"type": "reply", "reply": {"id": "update_details",    "title": "✏️ Update Details"}},
+    {"type": "reply", "reply": {"id": "help",              "title": "🆘 Help"}},
 ]
 
 UTILITY_TEXT = (
@@ -127,28 +125,43 @@ async def send_welcome_message(
         source="auto_reply",
     )
 
-    # 3. Send list menu
-    list_payload = {
+    # 3. Send button group 1: Buy Cover, Boarding Pass, Check My Policy
+    group1_payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
         "to": to,
         "type": "interactive",
         "interactive": {
-            "type": "list",
+            "type": "button",
             "body": {"text": "What would you like to do?"},
-            "action": {
-                "button": "Choose an option",
-                "sections": MENU_SECTIONS,
-            },
+            "action": {"buttons": MENU_GROUP1_BUTTONS},
         },
     }
-    result = await send_whatsapp_payload(
-        whatsapp_payload=list_payload,
+    await send_whatsapp_payload(
+        whatsapp_payload=group1_payload,
         phone_number_id=phone_number_id,
         source="auto_reply",
     )
 
-    # 4. Send utility bar
+    # 4. Send button group 2: Check Eligibility, Update Details, Help
+    group2_payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": "More options:"},
+            "action": {"buttons": MENU_GROUP2_BUTTONS},
+        },
+    }
+    result = await send_whatsapp_payload(
+        whatsapp_payload=group2_payload,
+        phone_number_id=phone_number_id,
+        source="auto_reply",
+    )
+
+    # 5. Send utility bar
     await send_text_message(
         to=to,
         body=UTILITY_TEXT,
