@@ -10,31 +10,11 @@ from app.services.session_service import (
     set_policy_cache,
 )
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
-from app.services.ipurvey_api import fetch_policies_by_msisdn
+from app.services.ipurvey_api import fetch_policies_by_msisdn, _normalize_policy
 
 logger = logging.getLogger(__name__)
 
 CHECK_POLICY_FLOW_KEY = "check_policy_flow"
-
-
-def _normalize_pol(p: dict) -> dict:
-    if "name" not in p and ("productName" in p or "policyCode" in p):
-        return {
-            "id":        p.get("id") or p.get("policyId") or "",
-            "ref":       p.get("ref") or p.get("policyCode") or p.get("id") or "",
-            "name":      p.get("name") or p.get("productName") or "Policy",
-            "status":    p.get("status") or "Active",
-            "airline":   p.get("airline") or p.get("carrierName") or "—",
-            "flight":    p.get("flight") or p.get("flightNumber") or "—",
-            "date":      p.get("date") or p.get("departureDate") or "—",
-            "origin":    p.get("origin") or p.get("departureAirport") or "—",
-            "dest":      p.get("dest") or p.get("arrivalAirport") or "—",
-            "cover":     p.get("cover") or p.get("coverType") or "—",
-            "price":     p.get("price") or p.get("premiumAmount") or "—",
-            "travelers": p.get("travelers") or [p.get("primaryPassenger") or "—"],
-            "doc_url":   p.get("doc_url") or p.get("documentUrl") or "",
-        }
-    return p
 
 
 def _match_flight(flight: str, policies: list) -> list:
@@ -248,7 +228,7 @@ async def handle_check_policy_flow(
             phone_policies = data.get("pol_phone_results", [])
             idx = int(reply_id.split("_")[1])
             if 0 <= idx < len(phone_policies):
-                pol = _normalize_pol(phone_policies[idx])
+                pol = _normalize_policy(phone_policies[idx])
                 await _save_data(session, "pol_selected", pol)
                 await _show_detail(session, sender_wa_id, pol, phone_number_id)
         elif reply_id == "pol_home":
@@ -271,9 +251,9 @@ async def handle_check_policy_flow(
             all_pols = await ipurvey_service.search_policies(msisdn)
             if all_pols:
                 matched = [
-                    _normalize_pol(p) for p in all_pols
+                    _normalize_policy(p) for p in all_pols
                     if flight in (p.get("flight") or p.get("flightNumber") or "").upper()
-                ] or [_normalize_pol(p) for p in all_pols]
+                ] or [_normalize_policy(p) for p in all_pols]
         except Exception:
             pass
             
@@ -322,7 +302,7 @@ async def handle_check_policy_flow(
         try:
             api_pol = await ipurvey_service.get_policy_by_code(ref)
             if api_pol and isinstance(api_pol, dict):
-                pol = _normalize_pol(api_pol)
+                pol = _normalize_policy(api_pol)
         except Exception:
             pass
             
@@ -525,7 +505,7 @@ async def _show_phone_policies(session: dict, wa_id: str, policies: list, phone_
 
     rows = []
     for i, p in enumerate(phone_pols):
-        pol = _normalize_pol(p)
+        pol = _normalize_policy(p)
         rows.append({
             "id": f"psel_{i}",
             "title": f"{pol['name']}"[:24],
@@ -550,7 +530,7 @@ async def _ask_flight_number(session: dict, wa_id: str, phone_number_id: Optiona
 
 async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_detail")
-    p = _normalize_pol(pol)
+    p = _normalize_policy(pol)
     
     status_emoji = "✅" if p['status'].lower() == "active" else "ℹ️"
     
@@ -586,7 +566,7 @@ async def _show_all_policies(session: dict, wa_id: str, policies: list, phone_nu
 
     rows = []
     for i, p in enumerate(policies):
-        pol = _normalize_pol(p)
+        pol = _normalize_policy(p)
         rows.append({
             "id": f"pall_{i}",
             "title": f"{pol['name']}"[:24],
@@ -603,7 +583,7 @@ async def _show_all_policies(session: dict, wa_id: str, policies: list, phone_nu
 
 async def _show_document(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_download")
-    p = _normalize_pol(pol)
+    p = _normalize_policy(pol)
     
     if p.get("doc_url"):
         await _send_cta_document(wa_id, p, phone_number_id)
@@ -626,7 +606,7 @@ async def _show_document(session: dict, wa_id: str, pol: dict, phone_number_id: 
 
 async def _show_manage_alerts(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_alerts_manage")
-    p = _normalize_pol(pol)
+    p = _normalize_policy(pol)
     
     await _send_list(wa_id,
         f"🔔 *Manage Alerts*\nPolicy: {p['ref']}\n\n"
@@ -673,7 +653,7 @@ async def _show_alerts_off_done(session: dict, wa_id: str, pol: dict, phone_numb
 
 async def _show_link_confirm(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_link_confirm")
-    p = _normalize_pol(pol)
+    p = _normalize_policy(pol)
     await _send_list(wa_id,
         f"🔗 *Link Boarding Pass*\n\nConfirm you want to link your boarding pass to policy *{p['ref']}*?",
         "Confirm",
@@ -700,7 +680,7 @@ async def _show_linked(session: dict, wa_id: str, pol: dict, phone_number_id: Op
 
 async def _show_eligibility(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_eligibility")
-    p = _normalize_pol(pol)
+    p = _normalize_policy(pol)
     
     await _send_text(wa_id, "🔍 *Checking eligibility...*", phone_number_id)
     
