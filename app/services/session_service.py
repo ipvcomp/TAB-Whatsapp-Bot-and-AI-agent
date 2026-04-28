@@ -42,6 +42,12 @@ def build_default_session(
     }
 
 
+async def update_api_data(wa_id: str, updates: dict) -> None:
+    session = await get_session(wa_id) or {"user_id": wa_id, "temp_data": {}}
+    session.setdefault("api_data", {}).update(updates)
+    await save_session(session)
+
+
 async def get_session(user_id: str) -> Optional[dict]:
     db = get_database()
     if db is None:

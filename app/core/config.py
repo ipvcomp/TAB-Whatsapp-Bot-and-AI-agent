@@ -33,6 +33,8 @@ class Settings(BaseSettings):
 
     APP_BASE_URL: str = ""
 
+    IPURVEY_BASE_URL: str = "https://dev-ilekun-ipv.ipurvey.com"
+
     @property
     def ENV(self) -> str:
         return self.APP_ENV

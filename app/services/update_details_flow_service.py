@@ -1,6 +1,8 @@
 import logging
 from typing import Optional
 
+import app.services.ipurvey_service as ipurvey_service
+
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -260,6 +262,12 @@ async def handle_update_details_flow(
 
         travelers: list = data.get("travelers", [])
         idx = data.get("upd_name_idx")
+        parts = name.strip().split(None, 1)
+        fn    = parts[0] if parts else name
+        ln    = parts[1] if len(parts) > 1 else ""
+        user_id    = session.get("api_data", {}).get("user_id")
+        policy_id  = session.get("api_data", {}).get("policy_id")
+        pax_ids    = session.get("api_data", {}).get("passenger_ids") or []
 
         if idx is not None and travelers:
             old_name = travelers[int(idx)]
@@ -267,6 +275,16 @@ async def handle_update_details_flow(
             await _save_data(session, "travelers", travelers)
             if int(idx) == 0:
                 await _save_data(session, "name", name)
+                if user_id:
+                    try:
+                        await ipurvey_service.update_user(user_id, {"firstName": fn, "lastName": ln})
+                    except Exception:
+                        pass
+            if policy_id and pax_ids and int(idx) < len(pax_ids):
+                try:
+                    await ipurvey_service.update_passenger(policy_id, pax_ids[int(idx)], fn, ln)
+                except Exception:
+                    pass
             await _send_success(session, sender_wa_id,
                 f"✅ {old_name} successfully updated!",
                 f"New name: *{name}*",
@@ -274,6 +292,16 @@ async def handle_update_details_flow(
                 multi_traveler=True)
         else:
             await _save_data(session, "name", name)
+            if user_id:
+                try:
+                    await ipurvey_service.update_user(user_id, {"firstName": fn, "lastName": ln})
+                except Exception:
+                    pass
+            if policy_id and pax_ids:
+                try:
+                    await ipurvey_service.update_passenger(policy_id, pax_ids[0], fn, ln)
+                except Exception:
+                    pass
             await _send_success(session, sender_wa_id,
                 "✅ Name updated successfully!",
                 f"New name: *{name}*",
@@ -290,6 +318,12 @@ async def handle_update_details_flow(
                 phone_number_id)
             return
         await _save_data(session, "email", email)
+        policy_id = session.get("api_data", {}).get("policy_id")
+        if policy_id:
+            try:
+                await ipurvey_service.set_policy_email(policy_id, email)
+            except Exception:
+                pass
         await _send_success(session, sender_wa_id,
             "✅ Email updated successfully!",
             f"Email: *{email}*",
@@ -355,9 +389,28 @@ async def handle_update_details_flow(
             idx = int(reply_id.split("_")[2])
             if 0 <= idx < len(banks):
                 bank_name = banks[idx]
+                bank_code = ipurvey_service.get_bank_code(bank_name)
                 acct      = data.get("upd_acct", "0000000000")
                 await _save_data(session, "bank_name", bank_name)
                 await _save_data(session, "bank_acct", acct)
+                api_data     = session.get("api_data", {})
+                user_id      = api_data.get("user_id") or ""
+                account_name = session.get("data", {}).get("name") or ""
+                if user_id:
+                    try:
+                        payout_result = await ipurvey_service.create_payout_method_bank(
+                            user_id=user_id,
+                            account_number=acct,
+                            account_name=account_name,
+                            bank_code=bank_code,
+                            bank_name=bank_name,
+                        )
+                        if payout_result and isinstance(payout_result, dict):
+                            pm_id = payout_result.get("id") or payout_result.get("payoutMethodId")
+                            if pm_id:
+                                session.setdefault("api_data", {})["payout_method_id"] = pm_id
+                    except Exception as exc:
+                        logger.error(f"[upd_details] create_payout_method_bank failed: {exc}")
                 await _send_success(session, sender_wa_id,
                     "✅ Payout details updated successfully!",
                     f"Bank: *{bank_name}*\nAccount: ****{acct[-4:]}",
@@ -401,6 +454,23 @@ async def handle_update_details_flow(
         wtype  = data.get("upd_wallet_type", "Wallet")
         masked = digits[:4] + "****" + digits[-3:]
         await _save_data(session, "wallet_phone", digits)
+        api_data     = session.get("api_data", {})
+        user_id      = api_data.get("user_id") or ""
+        account_name = session.get("data", {}).get("name") or ""
+        if user_id:
+            try:
+                payout_result = await ipurvey_service.create_payout_method_wallet(
+                    user_id=user_id,
+                    phone_number=digits,
+                    account_name=account_name,
+                    network=wtype,
+                )
+                if payout_result and isinstance(payout_result, dict):
+                    pm_id = payout_result.get("id") or payout_result.get("payoutMethodId")
+                    if pm_id:
+                        session.setdefault("api_data", {})["payout_method_id"] = pm_id
+            except Exception as exc:
+                logger.error(f"[upd_details] create_payout_method_wallet failed: {exc}")
         await _send_success(session, sender_wa_id,
             "✅ Wallet payout updated successfully!",
             f"Wallet: *{wtype}*\nPhone: *{masked}*",

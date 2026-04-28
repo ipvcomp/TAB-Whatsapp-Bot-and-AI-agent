@@ -1,7 +1,9 @@
 import logging
+import re
+from datetime import datetime
 from typing import Optional
 
-import httpx
+import app.services.ipurvey_service as ipurvey_service
 
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
@@ -22,6 +24,33 @@ AIRPORTS = [
     ("YOL", "Yola"),
     ("QOW", "Owerri Sam Mbakwe"),
 ]
+
+
+def _parse_date_to_iso(date_str: str) -> str:
+    for fmt in ["%d %B %Y", "%d/%m/%Y", "%d-%m-%Y", "%B %d, %Y", "%d %b %Y"]:
+        try:
+            return datetime.strptime(date_str.strip(), fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return date_str.strip()
+
+
+def _parse_time_to_hhmm(time_str: str) -> str:
+    ts = time_str.strip()
+    if re.match(r"^\d{1,2}:\d{2}$", ts):
+        h, m = ts.split(":")
+        return f"{int(h):02d}:{m}"
+    for fmt in ["%I:%M %p", "%I %p"]:
+        try:
+            return datetime.strptime(ts, fmt).strftime("%H:%M")
+        except ValueError:
+            continue
+    return ts
+
+
+def _split_name(full: str) -> tuple[str, str]:
+    parts = full.strip().split(None, 1)
+    return (parts[0], parts[1] if len(parts) > 1 else "")
 
 
 def is_in_buy_cover_flow(session: Optional[dict]) -> bool:
@@ -123,6 +152,24 @@ async def start_buy_cover_flow(
         session["user_id"] = wa_id
     await save_session(session)
 
+    msisdn = f"+{wa_id}" if not wa_id.startswith("+") else wa_id
+    try:
+        api_data = session.setdefault("api_data", {})
+        user = await ipurvey_service.check_user_exists(msisdn)
+        if user and isinstance(user, dict):
+            uid = user.get("userId") or user.get("id") or user.get("user_id")
+            api_data["user_id"]     = uid
+            api_data["user_exists"] = True
+        else:
+            api_data["user_exists"] = False
+        if not api_data.get("policy_id"):
+            policy_id = await ipurvey_service.create_draft_policy(msisdn)
+            if policy_id:
+                api_data["policy_id"] = policy_id
+        await save_session(session)
+    except Exception as exc:
+        logger.error(f"[buy_cover] start API calls failed: {exc}")
+
     await _send_buttons(
         to=wa_id,
         body=(
@@ -169,6 +216,12 @@ async def handle_buy_cover_flow(
             data["who"] = "just_me"
             flow["step"] = "buy_cover_name"
             await save_session(session)
+            policy_id = session.get("api_data", {}).get("policy_id")
+            if policy_id:
+                try:
+                    await ipurvey_service.set_traveler_count(policy_id, 1)
+                except Exception:
+                    pass
             await _send_text(sender_wa_id, (
                 "*👤 Please enter your name*\n"
                 "Enter your first name and surname, as it appears on your ticket\n\n"
@@ -199,6 +252,12 @@ async def handle_buy_cover_flow(
         data["travelers"] = []
         flow["step"] = "buy_cover_name"
         await save_session(session)
+        policy_id = session.get("api_data", {}).get("policy_id")
+        if policy_id:
+            try:
+                await ipurvey_service.set_traveler_count(policy_id, others_count + 1)
+            except Exception:
+                pass
         await _send_text(sender_wa_id, (
             "*👤 Lead traveler — please enter your name*\n"
             "Enter your first name and surname, as it appears on your ticket\n\n"
@@ -211,6 +270,22 @@ async def handle_buy_cover_flow(
             await _send_text(sender_wa_id, "Please type your name to continue.", phone_number_id)
             return
         data["name"] = text
+        policy_id = session.get("api_data", {}).get("policy_id")
+        if policy_id:
+            try:
+                fn, ln = _split_name(text)
+                result = await ipurvey_service.add_passenger(policy_id, fn, ln, is_primary=True)
+                if result and isinstance(result, dict):
+                    pax_id = result.get("passengerId") or result.get("id")
+                    if pax_id:
+                        api_data = session.setdefault("api_data", {})
+                        pids = api_data.setdefault("passenger_ids", [])
+                        if pids:
+                            pids[0] = pax_id
+                        else:
+                            pids.append(pax_id)
+            except Exception:
+                pass
         if data.get("who") == "me_and_others":
             travelers = data.get("travelers", [])
             travelers.append(text)
@@ -241,6 +316,17 @@ async def handle_buy_cover_flow(
         travelers = data.get("travelers", [])
         travelers.append(text)
         data["travelers"] = travelers
+        policy_id = session.get("api_data", {}).get("policy_id")
+        if policy_id:
+            try:
+                fn, ln = _split_name(text)
+                result = await ipurvey_service.add_passenger(policy_id, fn, ln, is_primary=False)
+                if result and isinstance(result, dict):
+                    pax_id = result.get("passengerId") or result.get("id")
+                    if pax_id:
+                        session.setdefault("api_data", {}).setdefault("passenger_ids", []).append(pax_id)
+            except Exception:
+                pass
         others_count = data.get("others_count", 1)
         others_collected = len(travelers) - 1
         if others_collected < others_count:
@@ -269,6 +355,12 @@ async def handle_buy_cover_flow(
             await _send_text(sender_wa_id, "Please type your email address to continue.", phone_number_id)
             return
         data["email"] = text
+        policy_id = session.get("api_data", {}).get("policy_id")
+        if policy_id:
+            try:
+                await ipurvey_service.set_policy_email(policy_id, text.strip().lower())
+            except Exception:
+                pass
         flow["step"] = "buy_cover_trip_type"
         await save_session(session)
         await _send_buttons(
@@ -454,24 +546,127 @@ async def handle_buy_cover_flow(
             await _reset(session, sender_wa_id)
             await start_buy_cover_flow(sender_wa_id, phone_number_id)
             return
-        data["cover"] = "Local Travel Premium 🔥"
+
+        await _send_text(
+            sender_wa_id,
+            "⏳ *Fetching available covers for your trip...*\n_Please wait a moment_",
+            phone_number_id,
+        )
+
+        policy_id = session.get("api_data", {}).get("policy_id")
+        quotes = None
+        if policy_id:
+            try:
+                dep_code  = data.get("depart_airport", "").split("—")[0].strip().split()[0] if data.get("depart_airport") else ""
+                arr_code  = data.get("arrive_airport", "").split("—")[0].strip().split()[0] if data.get("arrive_airport") else ""
+                dep_date  = _parse_date_to_iso(data.get("date", ""))
+                dep_time  = _parse_time_to_hhmm(data.get("depart_time", ""))
+                arr_time  = _parse_time_to_hhmm(data.get("arrive_time", ""))
+                flight_num = data.get("flight_num", "").upper().replace(" ", "")
+                carrier   = flight_num[:2] if len(flight_num) >= 2 else flight_num
+                trip_raw  = data.get("trip_type", "One-way 🗺️")
+                trip_type = "RETURN" if "return" in trip_raw.lower() else "ONE_WAY"
+                arr_date  = dep_date if trip_type == "ONE_WAY" else dep_date
+                flight_id = f"{flight_num}-{dep_date}T{dep_time}"
+                session.setdefault("api_data", {})["flight_id"] = flight_id
+                legs = [{
+                    "flightNumber":                  flight_num,
+                    "carrier":                       carrier,
+                    "departureAirport":              dep_code,
+                    "arrivalAirport":                arr_code,
+                    "scheduledDepartureDateLocal":   dep_date,
+                    "scheduledDepartureTimeLocal":   dep_time,
+                    "scheduledArrivalDateLocal":     arr_date,
+                    "scheduledArrivalTimeLocal":     arr_time,
+                }]
+                await ipurvey_service.submit_itinerary(
+                    policy_id, trip_type, data.get("booking_ref", ""), legs
+                )
+                quotes = await ipurvey_service.fetch_quotes(policy_id)
+            except Exception as exc:
+                logger.error(f"[buy_cover] itinerary/quotes API failed: {exc}")
+
+        if quotes:
+            session.setdefault("api_data", {})["quotes"] = quotes
+            await save_session(session)
+            rows = []
+            for i, q in enumerate(quotes[:8]):
+                q_name  = str(q.get("name") or q.get("productName") or "Cover option")[:24]
+                q_price = q.get("price") or q.get("premiumAmount") or 0
+                coverage = q.get("coverageTypes") or []
+                desc    = f"₦{float(q_price):,.0f}" + (f" - {', '.join(str(c) for c in coverage[:2])}" if coverage else "")
+                rows.append({"id": f"cov_{i}", "title": q_name, "description": desc[:72]})
+            flow["step"] = "buy_cover_select_cover"
+            await save_session(session)
+            await _send_list(
+                sender_wa_id,
+                (
+                    "🎁 *With TravelAssist you get:*\n"
+                    "📄 Policy on WhatsApp\n🔔 Flight alerts\n🤝 Support if disruption happens\n\n"
+                    "Please select a cover option below:"
+                ),
+                "Select cover",
+                [{"title": "Available Covers", "rows": rows}],
+                phone_number_id,
+                header="🛡️ Select from available cover(s)",
+            )
+        else:
+            data["cover"] = "Local Travel Premium 🔥"
+            flow["step"] = "buy_cover_next_steps"
+            await save_session(session)
+            await _send_list(
+                sender_wa_id,
+                (
+                    "📋 *Local Travel Basic*\n"
+                    "🛡️ Your trip can be protected against:\n"
+                    "✅ Major delay\n✅ Cancellation\n✅ Covered travel disruption\n\n"
+                    "*₦2,500*\n🏢 Tangerine Insurance  •  ⏱️ Single trip\n\n"
+                    "📋 *Local Travel Premium* 🔥 *POPULAR*\n"
+                    "🛡️ Your trip can be protected against:\n"
+                    "✅ Major delay\n✅ Cancellation\n✅ Covered travel disruption\n\n"
+                    "*₦3,500*\n🏢 Tangerine Insurance  •  ⏱️ Multi Trip\n\n"
+                    "🎁 *With TravelAssist you get:*\n"
+                    "📄 Policy on WhatsApp\n🔔 Flight alerts\n🤝 Support if disruption happens\n\n"
+                    "What would you like to do next?"
+                ),
+                "Select option",
+                [{"title": "Next Steps", "rows": [
+                    {"id": "next_kyc",    "title": "1. 🗂️ Continue to KYC"},
+                    {"id": "next_ask",    "title": "2. ❓ Ask a question"},
+                    {"id": "next_cancel", "title": "3. ❌ Cancel purchase"},
+                ]}],
+                phone_number_id,
+                header="🛡️ Select from available cover(s)",
+            )
+
+    # ── Select cover (from real quotes) ───────────────────────────────────────
+    elif step == "buy_cover_select_cover":
+        quotes = session.get("api_data", {}).get("quotes") or []
+        if reply_id and reply_id.startswith("cov_"):
+            try:
+                idx = int(reply_id.split("_")[1])
+                if 0 <= idx < len(quotes):
+                    q = quotes[idx]
+                    prod_id  = q.get("productId") or q.get("id") or ""
+                    q_name   = str(q.get("name") or q.get("productName") or "Selected cover")
+                    q_price  = q.get("price") or q.get("premiumAmount") or 0
+                    data["cover"]       = q_name
+                    data["cover_price"] = q_price
+                    policy_id = session.get("api_data", {}).get("policy_id")
+                    if policy_id and prod_id:
+                        try:
+                            await ipurvey_service.select_cover(policy_id, prod_id)
+                        except Exception:
+                            pass
+            except (ValueError, IndexError):
+                pass
+        else:
+            data["cover"] = "Local Travel Premium 🔥"
         flow["step"] = "buy_cover_next_steps"
         await save_session(session)
         await _send_list(
             sender_wa_id,
-            (
-                "📋 *Local Travel Basic*\n"
-                "🛡️ Your trip can be protected against:\n"
-                "✅ Major delay\n✅ Cancellation\n✅ Covered travel disruption\n\n"
-                "*₦2,500*\n🏢 Tangerine Insurance  •  ⏱️ Single trip\n\n"
-                "📋 *Local Travel Premium* 🔥 *POPULAR*\n"
-                "🛡️ Your trip can be protected against:\n"
-                "✅ Major delay\n✅ Cancellation\n✅ Covered travel disruption\n\n"
-                "*₦3,500*\n🏢 Tangerine Insurance  •  ⏱️ Multi Trip\n\n"
-                "🎁 *With TravelAssist you get:*\n"
-                "📄 Policy on WhatsApp\n🔔 Flight alerts\n🤝 Support if disruption happens\n\n"
-                "What would you like to do next?"
-            ),
+            "What would you like to do next?",
             "Select option",
             [{"title": "Next Steps", "rows": [
                 {"id": "next_kyc",    "title": "1. 🗂️ Continue to KYC"},

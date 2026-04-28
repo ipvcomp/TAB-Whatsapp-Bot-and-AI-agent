@@ -1,6 +1,8 @@
 import logging
 from typing import Optional
 
+import app.services.ipurvey_service as ipurvey_service
+
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -125,6 +127,31 @@ async def start_kyc_flow(
         session["user_id"] = wa_id
     await save_session(session)
 
+    policy_id = session.get("api_data", {}).get("policy_id")
+    if policy_id:
+        try:
+            kyc_status = await ipurvey_service.check_kyc_status(policy_id)
+            if kyc_status and isinstance(kyc_status, dict):
+                status_val = (kyc_status.get("status") or kyc_status.get("kycStatus") or "").upper()
+                if status_val in ("VERIFIED", "COMPLETED", "SUCCESS", "PASSED"):
+                    session["temp_data"][KYC_FLOW_KEY]["step"] = "kyc_verified"
+                    session["temp_data"][KYC_FLOW_KEY]["data"]["kyc_verified"] = True
+                    await save_session(session)
+                    from app.services.payment_flow_service import start_payment_flow
+                    await _send_list(
+                        wa_id,
+                        "✅ *Identity Already Verified*\nYour identity is confirmed. Proceeding to payment.",
+                        "Continue",
+                        [{"title": "Next Steps", "rows": [
+                            {"id": "kyc_pay",  "title": "1. Continue to payment"},
+                            {"id": "kyc_home", "title": "2. Main menu"},
+                        ]}],
+                        phone_number_id,
+                    )
+                    return
+        except Exception as exc:
+            logger.error(f"[kyc] check_kyc_status failed: {exc}")
+
     await _send_list(
         wa_id,
         "We may verify your identity to support any future payouts and ensure "
@@ -230,9 +257,106 @@ async def handle_kyc_flow(
         method = data.get("kyc_method", "BVN")
         masked = _mask_id(id_number)
         data["kyc_id"] = id_number
-        await _send_text(sender_wa_id, f"🔍 *Checking your details...*\n_{method}: {masked}_\n_Please wait a moment_ ⏳", phone_number_id)
+        await _send_text(
+            sender_wa_id,
+            f"🔍 *Checking your details...*\n_{method}: {masked}_\n_Please wait a moment_ ⏳",
+            phone_number_id,
+        )
 
-        if id_number.isdigit() and len(id_number) == 11:
+        api_verified   = False
+        api_session_id = None
+        api_call_done  = False
+        policy_id = session.get("api_data", {}).get("policy_id")
+        user_id   = session.get("api_data", {}).get("user_id")
+
+        if policy_id:
+            try:
+                bc_data  = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
+                msisdn   = f"+{sender_wa_id}" if not sender_wa_id.startswith("+") else sender_wa_id
+                raw_name = bc_data.get("name", "")
+                parts    = raw_name.strip().split(None, 1)
+                fn       = parts[0] if parts else raw_name
+                ln       = parts[1] if len(parts) > 1 else ""
+                email    = bc_data.get("email", "")
+
+                if not user_id:
+                    user_result = await ipurvey_service.create_user(
+                        msisdn=msisdn, first_name=fn, last_name=ln, email=email,
+                        identity_type=method, identity_number=id_number,
+                    )
+                    if user_result and isinstance(user_result, dict):
+                        uid = user_result.get("userId") or user_result.get("id")
+                        if uid:
+                            session.setdefault("api_data", {})["user_id"] = uid
+                            user_id = uid
+                            await ipurvey_service.link_user_to_policy(policy_id, uid)
+
+                if user_id:
+                    kyc_result = await ipurvey_service.initiate_kyc(user_id, method, id_number)
+                    api_call_done = True
+                    if kyc_result and isinstance(kyc_result, dict):
+                        sid    = kyc_result.get("sessionId") or kyc_result.get("session_id")
+                        status = (kyc_result.get("status") or "").upper()
+                        if sid:
+                            api_session_id = sid
+                            session.setdefault("api_data", {})["kyc_session_id"] = sid
+                        if status in ("VERIFIED", "SUCCESS", "COMPLETED", "PASSED"):
+                            api_verified = True
+
+                await save_session(session)
+            except Exception as exc:
+                logger.error(f"[kyc] id_input API calls failed: {exc}")
+
+        if api_verified:
+            data["kyc_verified"] = True
+            flow["step"] = "kyc_verified"
+            await save_session(session)
+            await _send_list(
+                sender_wa_id,
+                f"✅ *Identity Verified*\n_{method}: {masked}_\n\n"
+                "Your identity has been confirmed. You can now continue to payment.\n\n"
+                "What would you like to do next?",
+                "Choose an option",
+                [{"title": "Next Steps", "rows": [
+                    {"id": "kyc_pay",    "title": "1. Continue to payment"},
+                    {"id": "kyc_review", "title": "2. Review trip details"},
+                    {"id": "kyc_home",   "title": "3. Main menu"},
+                ]}],
+                phone_number_id,
+            )
+        elif api_session_id:
+            flow["step"] = "kyc_otp_input"
+            await save_session(session)
+            await _send_list(
+                sender_wa_id,
+                f"🔐 *OTP Sent*\n"
+                f"A one-time PIN has been sent to the phone number linked to your *{method}*.\n\n"
+                "Please enter the *6-digit OTP* to verify your identity:",
+                "Options",
+                [{"title": "Options", "rows": [
+                    {"id": "kyc_otp_resend", "title": "📲 Resend OTP"},
+                    {"id": "kyc_help",       "title": "🆘 Get help"},
+                ]}],
+                phone_number_id,
+            )
+        elif api_call_done:
+            data["kyc_verified"] = False
+            flow["step"] = "kyc_failed"
+            await save_session(session)
+            await _send_list(
+                sender_wa_id,
+                "⚠️ *Verification Incomplete*\n"
+                "> We could not complete verification automatically.\n\n"
+                "Please choose:",
+                "Choose",
+                [{"title": "Options", "rows": [
+                    {"id": "kyc_try_bvn", "title": "🪪 Try BVN again"},
+                    {"id": "kyc_try_nin", "title": "🪪 Try NIN instead"},
+                    {"id": "kyc_help",    "title": "🆘 Get help"},
+                ]}],
+                phone_number_id,
+            )
+        elif id_number.isdigit() and len(id_number) == 11:
             data["kyc_verified"] = True
             flow["step"] = "kyc_verified"
             await save_session(session)
@@ -264,6 +388,74 @@ async def handle_kyc_flow(
                     {"id": "kyc_try_bvn", "title": "🪪 Try BVN again"},
                     {"id": "kyc_try_nin", "title": "🪪 Try NIN instead"},
                     {"id": "kyc_help",    "title": "🆘 Get help"},
+                ]}],
+                phone_number_id,
+            )
+
+    # ── OTP input (after API initiates KYC) ───────────────────────────────────
+    elif step == "kyc_otp_input":
+        method     = data.get("kyc_method", "BVN")
+        masked     = _mask_id(data.get("kyc_id", ""))
+        user_id    = session.get("api_data", {}).get("user_id")
+        session_id = session.get("api_data", {}).get("kyc_session_id")
+
+        if reply_id == "kyc_otp_resend":
+            resent = False
+            if user_id and session_id:
+                try:
+                    resent = await ipurvey_service.resend_kyc_otp(user_id, session_id)
+                except Exception:
+                    pass
+            msg = (
+                "📲 *OTP Resent!*\nA new OTP has been sent to your phone.\n\nEnter the 6-digit code:"
+                if resent else
+                "📲 *OTP Resend Requested*\nCheck your phone for the OTP.\n\nEnter the 6-digit code:"
+            )
+            await _send_text(sender_wa_id, msg, phone_number_id)
+            return
+
+        if reply_id == "kyc_help":
+            await _send_help(sender_wa_id, session, phone_number_id)
+            return
+
+        otp = text.strip()
+        if not otp or not otp.isdigit():
+            await _send_text(sender_wa_id, "Please enter the *6-digit OTP* sent to your phone:", phone_number_id)
+            return
+
+        verified = False
+        if user_id and session_id:
+            try:
+                verified = await ipurvey_service.verify_kyc_otp(user_id, session_id, otp)
+            except Exception:
+                pass
+
+        if verified:
+            data["kyc_verified"] = True
+            flow["step"] = "kyc_verified"
+            await save_session(session)
+            await _send_list(
+                sender_wa_id,
+                f"✅ *Identity Verified*\n_{method}: {masked}_\n\n"
+                "Your identity has been confirmed. You can now continue to payment.\n\n"
+                "What would you like to do next?",
+                "Choose an option",
+                [{"title": "Next Steps", "rows": [
+                    {"id": "kyc_pay",    "title": "1. Continue to payment"},
+                    {"id": "kyc_review", "title": "2. Review trip details"},
+                    {"id": "kyc_home",   "title": "3. Main menu"},
+                ]}],
+                phone_number_id,
+            )
+        else:
+            await _send_list(
+                sender_wa_id,
+                "❌ *Incorrect OTP*\n\nThe code you entered is incorrect or has expired.\n\n"
+                "Please try again or request a new OTP:",
+                "Choose",
+                [{"title": "Options", "rows": [
+                    {"id": "kyc_otp_resend", "title": "📲 Resend OTP"},
+                    {"id": "kyc_help",       "title": "🆘 Get help"},
                 ]}],
                 phone_number_id,
             )

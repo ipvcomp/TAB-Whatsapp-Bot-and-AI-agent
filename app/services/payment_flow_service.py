@@ -3,6 +3,8 @@ import random
 import string
 from typing import Optional
 
+import app.services.ipurvey_service as ipurvey_service
+
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -407,11 +409,31 @@ async def handle_payment_flow(
             try:
                 idx = int(reply_id.split("_")[1])
                 if 0 <= idx < len(banks):
-                    data["pay_bank_name"] = banks[idx]
-                    flow["step"] = "pay_wallet_payout_select"
+                    bank_name = banks[idx]
+                    data["pay_bank_name"] = bank_name
+                    bank_code = ipurvey_service.get_bank_code(bank_name)
+                    data["pay_bank_code"] = bank_code
+                    api_data   = session.get("api_data", {})
+                    user_id    = api_data.get("user_id") or ""
+                    account_no = data.get("pay_user_acct", "")
+                    account_name = data.get("name") or ""
+                    if user_id:
+                        try:
+                            payout_result = await ipurvey_service.create_payout_method_bank(
+                                user_id=user_id,
+                                account_number=account_no,
+                                account_name=account_name,
+                                bank_code=bank_code,
+                                bank_name=bank_name,
+                            )
+                            if payout_result and isinstance(payout_result, dict):
+                                pm_id = payout_result.get("id") or payout_result.get("payoutMethodId")
+                                if pm_id:
+                                    session.setdefault("api_data", {})["payout_method_id"] = pm_id
+                        except Exception as exc:
+                            logger.error(f"[payment] create_payout_method_bank failed: {exc}")
                     await save_session(session)
-                    await _send_list(sender_wa_id, "Choose wallet option:", "Select wallet",
-                        [{"title": "👛 Wallet", "rows": WALLET_OPTIONS}], phone_number_id, header="👛 Wallet")
+                    await _show_payment_summary(sender_wa_id, session, flow, phone_number_id)
             except (ValueError, IndexError):
                 await _send_text(sender_wa_id, "⚠️ Please select a bank from the list.", phone_number_id)
         else:
@@ -435,6 +457,24 @@ async def handle_payment_flow(
         digits = text.replace(" ", "").replace("-", "")
         if digits.isdigit() and len(digits) >= 10:
             data["pay_wallet_phone"] = digits
+            wallet_type  = data.get("pay_wallet_type", "")
+            api_data     = session.get("api_data", {})
+            user_id      = api_data.get("user_id") or ""
+            account_name = data.get("name") or ""
+            if user_id:
+                try:
+                    payout_result = await ipurvey_service.create_payout_method_wallet(
+                        user_id=user_id,
+                        phone_number=digits,
+                        account_name=account_name,
+                        network=wallet_type,
+                    )
+                    if payout_result and isinstance(payout_result, dict):
+                        pm_id = payout_result.get("id") or payout_result.get("payoutMethodId")
+                        if pm_id:
+                            session.setdefault("api_data", {})["payout_method_id"] = pm_id
+                except Exception as exc:
+                    logger.error(f"[payment] create_payout_method_wallet failed: {exc}")
             await save_session(session)
             await _show_payment_summary(sender_wa_id, session, flow, phone_number_id)
         else:
@@ -447,6 +487,23 @@ async def handle_payment_flow(
         if reply_id == "pay_m_bank":
             ref = "TA" + "".join(random.choices(string.digits, k=6))
             data["pay_m_bank_ref"] = ref
+            policy_id = session.get("api_data", {}).get("policy_id")
+            if policy_id:
+                try:
+                    pay_result = await ipurvey_service.initiate_payment(
+                        policy_id=policy_id,
+                        payment_method="BANK_TRANSFER",
+                    )
+                    if pay_result and isinstance(pay_result, dict):
+                        api_ref = pay_result.get("reference") or pay_result.get("paymentReference")
+                        if api_ref:
+                            ref = api_ref
+                            data["pay_m_bank_ref"] = api_ref
+                        payment_id = pay_result.get("paymentId") or pay_result.get("id")
+                        if payment_id:
+                            session.setdefault("api_data", {})["payment_id"] = payment_id
+                except Exception as exc:
+                    logger.error(f"[payment] initiate_payment bank failed: {exc}")
             flow["step"] = "pay_m_bank_pending"
             await save_session(session)
             await _send_list(sender_wa_id,
@@ -499,9 +556,45 @@ async def handle_payment_flow(
     # ── Bank pending ──────────────────────────────────────────────────────────
     elif step == "pay_m_bank_pending":
         ref = data.get("pay_m_bank_ref", "TA000000")
-        if reply_id == "pay_m_done":
-            policy = _gen_policy()
-            await _send_success(sender_wa_id, session, flow, amount, ref, policy, cname, phone_number_id)
+        if reply_id in ("pay_m_done", "pay_m_refresh"):
+            payment_confirmed = False
+            policy_ref = None
+            policy_id  = session.get("api_data", {}).get("policy_id")
+            payment_id = session.get("api_data", {}).get("payment_id")
+            if policy_id:
+                msisdn = f"+{sender_wa_id}" if not sender_wa_id.startswith("+") else sender_wa_id
+                try:
+                    status_result = await ipurvey_service.get_payment_status(
+                        policy_code=policy_id, msisdn=msisdn
+                    )
+                    if status_result and isinstance(status_result, dict):
+                        status_val = (status_result.get("status") or "").upper()
+                        if status_val in ("PAID", "SUCCESS", "COMPLETED", "CONFIRMED"):
+                            payment_confirmed = True
+                            policy_ref = (
+                                status_result.get("policyReference")
+                                or status_result.get("policyCode")
+                                or status_result.get("policyNumber")
+                            )
+                except Exception as exc:
+                    logger.error(f"[payment] get_payment_status failed: {exc}")
+            if reply_id == "pay_m_done" or payment_confirmed:
+                pol = policy_ref or _gen_policy()
+                await _send_success(sender_wa_id, session, flow, amount, ref, pol, cname, phone_number_id)
+            else:
+                await _send_list(sender_wa_id,
+                    f"⏳ *Payment not yet confirmed*\n\nPlease transfer *₦{amount:,}* to:\n\n"
+                    f"Bank             Example Bank\n"
+                    f"Account Name     TravelAssist Payments\n"
+                    f"Account No.      0123456789\n\n"
+                    f"🔑 Reference: {ref}\n\nAfter payment, reply with:",
+                    "Select",
+                    [{"title": "Action", "rows": [
+                        {"id": "pay_m_done",    "title": "✅ I have paid"},
+                        {"id": "pay_m_refresh", "title": "🔄 Refresh status"},
+                    ]}],
+                    phone_number_id,
+                    header="🏦 Bank Transfer")
         else:
             await _send_list(sender_wa_id,
                 f"Please transfer *₦{amount:,}* to:\n\n"

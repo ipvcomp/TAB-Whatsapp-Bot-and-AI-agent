@@ -1,6 +1,9 @@
 import logging
 from typing import Optional
 
+import app.services.ipurvey_service as ipurvey_service
+from app.services.whatsapp_service import download_whatsapp_media
+
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -110,25 +113,37 @@ async def _go_home(wa_id: str, session: dict, phone_number_id: Optional[str]):
 
 async def _show_policy_list(wa_id: str, session: dict, flow: dict, action: str, phone_number_id: Optional[str]):
     flow["step"] = "bp_policy"
-    await save_session(session)
     if action == "upload":
         action_label = "upload a boarding pass for:"
     elif action == "eligibility":
         action_label = "check eligibility for:"
     else:
         action_label = "link:"
-    body = (
-        f"We found *{len(DEMO_POLICIES)} policies* linked to your number.\n\n"
-        f"Please select the policy you would like to {action_label}"
-    )
+
+    msisdn = f"+{wa_id}" if not wa_id.startswith("+") else wa_id
+    policies = None
+    try:
+        policies = await ipurvey_service.search_policies(msisdn)
+    except Exception as exc:
+        logger.error(f"[bp_link] search_policies failed: {exc}")
+    if not policies:
+        policies = DEMO_POLICIES
+
+    flow.setdefault("data", {})["bp_policies_list"] = policies
+    await save_session(session)
+
     rows = [
         {
             "id":          f"bpp_{i}",
-            "title":       pol["name"][:24],
-            "description": f"{pol['status']} · {pol['ref']}",
+            "title":       str(pol.get("name") or pol.get("productName") or "Policy")[:24],
+            "description": f"{pol.get('status','Active')} · {pol.get('ref') or pol.get('policyCode') or pol.get('id','')}",
         }
-        for i, pol in enumerate(DEMO_POLICIES)
+        for i, pol in enumerate(policies[:10])
     ]
+    body = (
+        f"We found *{len(policies)} {'policy' if len(policies)==1 else 'policies'}* linked to your number.\n\n"
+        f"Please select the policy you would like to {action_label}"
+    )
     await _send_list(wa_id, body, "Select policy",
         [{"title": "Your Active Policies", "rows": rows}],
         phone_number_id,
@@ -256,21 +271,57 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
     flow["step"] = "bp_eligibility_result"
     data = flow.get("data", {})
     await save_session(session)
-    ref     = data.get("bp_sel_ref",     "LTP-20240412")
-    airline = data.get("bp_sel_airline", "Air Peace")
-    flight  = data.get("bp_sel_flight",  "P47123")
+    ref      = data.get("bp_sel_ref",      "LTP-20240412")
+    airline  = data.get("bp_sel_airline",  "Air Peace")
+    flight   = data.get("bp_sel_flight",   "P47123")
+    pol_id   = data.get("bp_sel_policy_id", "")
 
     await _send_text(wa_id,
         "🔍 *Checking your eligibility...*\n"
         "_Verifying policy, flight delay and cover details_\n\n• • •",
         phone_number_id)
+
+    eligibility = None
+    if pol_id:
+        try:
+            eligibility = await ipurvey_service.check_eligibility(pol_id)
+        except Exception as exc:
+            logger.error(f"[bp_link] check_eligibility failed: {exc}")
+
+    if eligibility and isinstance(eligibility, dict):
+        eligible    = eligibility.get("eligible", False)
+        delay_str   = eligibility.get("delayDuration") or eligibility.get("delay") or "3hrs 20mins"
+        payout_amt  = eligibility.get("payoutAmount") or eligibility.get("amount") or 2500
+        try:
+            payout_fmt = f"₦{float(payout_amt):,.0f}"
+        except (ValueError, TypeError):
+            payout_fmt = f"₦{payout_amt}"
+        if not eligible:
+            await _send_list(wa_id,
+                "❌ *Not yet eligible for a payout*\n\n"
+                f"✈️  Flight\t\t{flight} — {airline}\n"
+                f"📋  Policy\t\t{ref}\n\n"
+                "_The flight delay threshold has not been met or no disruption was recorded._",
+                "Select option",
+                [{"title": "Options", "rows": [
+                    {"id": "bp_upload_first", "title": "📤 Upload pass"},
+                    {"id": "bp_home",         "title": "🏠 Main menu"},
+                ]}],
+                phone_number_id)
+            return
+        delay_display = delay_str
+        payout_display = payout_fmt
+    else:
+        delay_display  = "3hrs 20mins"
+        payout_display = "₦2,500"
+
     await _send_list(wa_id,
         "✅ *You are eligible for a payout!*\n"
         "_Your flight delay meets the cover threshold_\n\n"
         f"✈️  Flight\t\t{flight} — {airline}\n"
-        f"⏱️  Delay\t\t3hrs 20mins\n"
+        f"⏱️  Delay\t\t{delay_display}\n"
         f"📋  Policy\t\t{ref}\n"
-        f"💰  Payout amount\t*₦2,500*\n\n"
+        f"💰  Payout amount\t*{payout_display}*\n\n"
         "Your payout will be sent to your registered\nbank account or wallet automatically.",
         "Select option",
         [{"title": "Options", "rows": [
@@ -404,19 +455,21 @@ async def handle_bp_link_flow(
     # ── Screen 2: Select policy ───────────────────────────────────────────────
     elif step == "bp_policy":
         action = data.get("bp_action", "upload")
+        policies = data.get("bp_policies_list", DEMO_POLICIES)
         if reply_id and reply_id.startswith("bpp_"):
             try:
                 idx = int(reply_id.split("_")[1])
-                if 0 <= idx < len(DEMO_POLICIES):
-                    pol = DEMO_POLICIES[idx]
-                    data["bp_sel_name"]    = pol["name"]
-                    data["bp_sel_ref"]     = pol["ref"]
-                    data["bp_sel_airline"] = pol["airline"]
-                    data["bp_sel_flight"]  = pol["flight"]
-                    data["bp_sel_date"]    = pol["date"]
-                    data["bp_sel_traveler"]= pol["traveler"]
-                    data["bp_sel_origin"]  = pol["origin"]
-                    data["bp_sel_dest"]    = pol["dest"]
+                if 0 <= idx < len(policies):
+                    pol = policies[idx]
+                    data["bp_sel_name"]    = pol.get("name") or pol.get("productName") or "Policy"
+                    data["bp_sel_ref"]     = pol.get("ref") or pol.get("policyCode") or pol.get("id", "")
+                    data["bp_sel_airline"] = pol.get("airline") or pol.get("carrierName") or "—"
+                    data["bp_sel_flight"]  = pol.get("flight") or pol.get("flightNumber") or "—"
+                    data["bp_sel_date"]    = pol.get("date") or pol.get("departureDate") or "—"
+                    data["bp_sel_traveler"]= pol.get("traveler") or pol.get("primaryPassenger") or "—"
+                    data["bp_sel_origin"]  = pol.get("origin") or pol.get("departureAirport") or "—"
+                    data["bp_sel_dest"]    = pol.get("dest") or pol.get("arrivalAirport") or "—"
+                    data["bp_sel_policy_id"] = pol.get("id") or pol.get("policyId") or ""
                     await save_session(session)
                     if action == "link":
                         await _show_link_confirm(sender_wa_id, session, flow, phone_number_id)
@@ -434,7 +487,62 @@ async def handle_bp_link_flow(
     # ── Screen 3 (Path A): Awaiting file ─────────────────────────────────────
     elif step == "bp_awaiting_doc":
         if media:
-            data["bp_filename"] = media.get("filename", f"boarding_pass_{data.get('bp_sel_flight','')}.jpg")
+            media_id   = media.get("id") or ""
+            mime_type  = media.get("mime_type") or ""
+            filename   = media.get("filename") or f"boarding_pass_{data.get('bp_sel_flight','')}.jpg"
+            data["bp_filename"] = filename
+            pol_id     = data.get("bp_sel_policy_id") or ""
+            pol_code   = data.get("bp_sel_ref") or ""
+
+            if media_id and (pol_id or pol_code):
+                try:
+                    await _send_text(
+                        sender_wa_id,
+                        "⏳ *Uploading your boarding pass...*\n_Please wait a moment_",
+                        phone_number_id,
+                    )
+                    media_result  = await download_whatsapp_media(media_id)
+                    file_bytes    = media_result["bytes"] if media_result else None
+                    detected_mime = media_result.get("mime_type", "") if media_result else ""
+                    if file_bytes:
+                        passenger_id = ""
+                        effective_pol_id = pol_id
+                        if not effective_pol_id:
+                            api_pol = await ipurvey_service.get_policy_by_code(pol_code)
+                            if api_pol and isinstance(api_pol, dict):
+                                effective_pol_id = api_pol.get("id") or api_pol.get("policyId") or ""
+                                passengers = api_pol.get("passengers") or []
+                                if passengers:
+                                    passenger_id = passengers[0].get("id") or passengers[0].get("passengerId") or ""
+                        else:
+                            api_pol = await ipurvey_service.get_policy_by_code(pol_code or pol_id)
+                            if api_pol and isinstance(api_pol, dict):
+                                passengers = api_pol.get("passengers") or []
+                                if passengers:
+                                    passenger_id = passengers[0].get("id") or passengers[0].get("passengerId") or ""
+                        flight_id = (
+                            session.get("api_data", {}).get("flight_id")
+                            or data.get("bp_sel_flight", "")
+                        )
+                        if effective_pol_id and passenger_id:
+                            upload_result = await ipurvey_service.upload_boarding_pass(
+                                policy_id=effective_pol_id,
+                                passenger_id=passenger_id,
+                                file_bytes=file_bytes,
+                                file_name=filename,
+                                flight_id=flight_id,
+                            )
+                            if upload_result:
+                                logger.info(f"[bp_link] boarding pass uploaded OK for {pol_code}")
+                            else:
+                                logger.warning(f"[bp_link] boarding pass upload returned falsy for {pol_code}")
+                        else:
+                            logger.warning(f"[bp_link] missing pol_id={effective_pol_id} or passenger_id={passenger_id} for BP upload")
+                    else:
+                        logger.warning(f"[bp_link] could not download media {media_id}")
+                except Exception as exc:
+                    logger.error(f"[bp_link] boarding pass upload failed: {exc}")
+
             await save_session(session)
             await _show_upload_confirmed(sender_wa_id, session, flow, phone_number_id)
         else:

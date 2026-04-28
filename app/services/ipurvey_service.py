@@ -1,0 +1,685 @@
+import logging
+from typing import Optional
+from urllib.parse import quote
+
+import httpx
+
+from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+TIMEOUT = 15
+
+NIGERIAN_BANK_CODES: dict[str, str] = {
+    "Access Bank":             "044",
+    "Carbon":                  "565",
+    "Citibank Nigeria":        "023",
+    "Coronation Bank":         "559",
+    "Ecobank Nigeria":         "050",
+    "Fidelity Bank":           "070",
+    "First Bank":              "011",
+    "First City Monument Bank": "214",
+    "Globus Bank":             "103",
+    "GT Bank":                 "058",
+    "Heritage Bank":           "030",
+    "Jaiz Bank":               "301",
+    "Keystone Bank":           "082",
+    "Kuda Bank":               "50211",
+    "Lotus Bank":              "303",
+    "Moniepoint":              "50515",
+    "Opay":                    "999992",
+    "Palmpay":                 "999991",
+    "Parallex Bank":           "526",
+    "Polaris Bank":            "076",
+    "Providus Bank":           "101",
+    "Stanbic IBTC Bank":       "221",
+    "Standard Chartered":      "068",
+    "Sterling Bank":           "232",
+    "SunTrust Bank":           "100",
+    "Taj Bank":                "302",
+    "Titan Trust Bank":        "102",
+    "Union Bank":              "032",
+    "United Bank for Africa":  "033",
+    "Unity Bank":              "215",
+    "VFD Microfinance Bank":   "566",
+    "Wema Bank":               "035",
+    "Zenith Bank":             "057",
+}
+
+
+def get_bank_code(bank_name: str) -> str:
+    return NIGERIAN_BANK_CODES.get(bank_name, "")
+
+
+def _base() -> str:
+    return get_settings().IPURVEY_BASE_URL
+
+
+def _extract(resp: dict):
+    return resp.get("data") if resp.get("data") is not None else resp
+
+
+# ── USER MANAGEMENT ───────────────────────────────────────────────────────────
+
+async def check_user_exists(msisdn: str) -> Optional[dict]:
+    try:
+        encoded = quote(msisdn, safe="")
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(f"{_base()}/api/tab-ums/users/{encoded}")
+            if r.status_code == 200:
+                return _extract(r.json())
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] check_user_exists failed: {e}")
+        return None
+
+
+async def create_user(
+    msisdn: str,
+    first_name: str,
+    last_name: str,
+    email: str,
+    identity_type: str,
+    identity_number: str,
+    country_code: str = "NG",
+) -> Optional[dict]:
+    try:
+        body = {
+            "msisdn": msisdn,
+            "firstName": first_name,
+            "lastName": last_name,
+            "email": email,
+            "marketingConsent": True,
+            "policyUpdatesConsent": True,
+            "payoutAlertsConsent": True,
+            "kycConsent": True,
+            "nationalityCountryCode": country_code,
+            "identityType": identity_type,
+            "identityNumber": identity_number,
+        }
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.post(f"{_base()}/api/tab-ums/users", json=body)
+            if r.status_code in (200, 201):
+                return _extract(r.json())
+            logger.error(f"[ipurvey] create_user {r.status_code}: {r.text[:200]}")
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] create_user failed: {e}")
+        return None
+
+
+async def update_user(user_id: str, fields: dict) -> Optional[dict]:
+    try:
+        clean = {k: v for k, v in fields.items() if v is not None}
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.patch(f"{_base()}/api/tab-ums/users/{user_id}", json=clean)
+            if r.status_code in (200, 204):
+                return _extract(r.json()) if r.text else {}
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] update_user failed: {e}")
+        return None
+
+
+# ── POLICY MANAGEMENT ─────────────────────────────────────────────────────────
+
+async def create_draft_policy(msisdn: str) -> Optional[str]:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.post(
+                f"{_base()}/api/tab-plc/policies/draft",
+                json={"msisdn": msisdn, "channel": "WHATSAPP"},
+            )
+            if r.status_code in (200, 201):
+                data = _extract(r.json())
+                if isinstance(data, dict):
+                    return (
+                        data.get("policyId")
+                        or data.get("id")
+                        or data.get("policy_id")
+                    )
+            logger.error(f"[ipurvey] create_draft_policy {r.status_code}: {r.text[:200]}")
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] create_draft_policy failed: {e}")
+        return None
+
+
+async def resume_draft_policy(msisdn: str) -> Optional[dict]:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(
+                f"{_base()}/api/tab-plc/policies/draft/resume",
+                params={"msisdn": msisdn},
+            )
+            if r.status_code == 200:
+                return _extract(r.json())
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] resume_draft_policy failed: {e}")
+        return None
+
+
+async def set_traveler_count(policy_id: str, count: int) -> Optional[list]:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.put(
+                f"{_base()}/api/tab-plc/policies/{policy_id}/traveler-count",
+                json={"travelerCount": count},
+            )
+            if r.status_code in (200, 204):
+                resp = r.json() if r.text else {}
+                data = _extract(resp)
+                return data if isinstance(data, list) else []
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] set_traveler_count failed: {e}")
+        return None
+
+
+async def add_passenger(
+    policy_id: str,
+    first_name: str,
+    surname: str,
+    is_primary: bool = False,
+) -> Optional[dict]:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.post(
+                f"{_base()}/api/tab-plc/policies/{policy_id}/passengers",
+                json={
+                    "firstName": first_name,
+                    "surname": surname,
+                    "isPrimaryTraveller": is_primary,
+                },
+            )
+            if r.status_code in (200, 201):
+                return _extract(r.json())
+            logger.error(f"[ipurvey] add_passenger {r.status_code}: {r.text[:200]}")
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] add_passenger failed: {e}")
+        return None
+
+
+async def update_passenger(
+    policy_id: str,
+    passenger_id: str,
+    first_name: str,
+    surname: str,
+    is_primary: bool = False,
+) -> bool:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.put(
+                f"{_base()}/api/tab-plc/policies/{policy_id}/passengers/{passenger_id}",
+                json={
+                    "firstName": first_name,
+                    "surname": surname,
+                    "isPrimaryTraveller": is_primary,
+                },
+            )
+            return r.status_code in (200, 204)
+    except Exception as e:
+        logger.error(f"[ipurvey] update_passenger failed: {e}")
+        return False
+
+
+async def set_policy_email(policy_id: str, email: str) -> bool:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.put(
+                f"{_base()}/api/tab-plc/policies/{policy_id}/email",
+                json={"email": email},
+            )
+            return r.status_code in (200, 204)
+    except Exception as e:
+        logger.error(f"[ipurvey] set_policy_email failed: {e}")
+        return False
+
+
+async def submit_itinerary(
+    policy_id: str,
+    trip_type: str,
+    booking_ref: str,
+    legs: list,
+) -> bool:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.put(
+                f"{_base()}/api/tab-plc/policies/{policy_id}/itinerary",
+                json={
+                    "tripType": trip_type,
+                    "bookingReference": booking_ref,
+                    "legs": legs,
+                },
+            )
+            return r.status_code in (200, 204)
+    except Exception as e:
+        logger.error(f"[ipurvey] submit_itinerary failed: {e}")
+        return False
+
+
+async def fetch_quotes(policy_id: str) -> Optional[list]:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(f"{_base()}/api/tab-plc/policies/{policy_id}/quotes")
+            if r.status_code == 200:
+                data = _extract(r.json())
+                if isinstance(data, list):
+                    return data
+                if isinstance(data, dict):
+                    return data.get("products") or data.get("quotes") or None
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] fetch_quotes failed: {e}")
+        return None
+
+
+async def select_cover(policy_id: str, product_id: str) -> bool:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.put(
+                f"{_base()}/api/tab-plc/policies/{policy_id}/selected-cover",
+                json={"productId": product_id},
+            )
+            return r.status_code in (200, 204)
+    except Exception as e:
+        logger.error(f"[ipurvey] select_cover failed: {e}")
+        return False
+
+
+async def link_user_to_policy(policy_id: str, user_id: str) -> bool:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.put(
+                f"{_base()}/api/tab-plc/policies/{policy_id}/user-id",
+                json={"userId": user_id},
+            )
+            return r.status_code in (200, 204)
+    except Exception as e:
+        logger.error(f"[ipurvey] link_user_to_policy failed: {e}")
+        return False
+
+
+async def search_policies(
+    msisdn: Optional[str] = None,
+    policy_code: Optional[str] = None,
+    flight_number: Optional[str] = None,
+) -> Optional[list]:
+    try:
+        params: dict = {"page": 0, "size": 10}
+        if msisdn:
+            params["msisdn"] = msisdn.lstrip("+")
+        if policy_code:
+            params["policyCode"] = policy_code
+        if flight_number:
+            params["flightNumber"] = flight_number
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(
+                f"{_base()}/api/tab-plc/policies/search/user",
+                params=params,
+            )
+            if r.status_code == 200:
+                data = _extract(r.json())
+                if isinstance(data, list):
+                    return data
+                if isinstance(data, dict):
+                    return (
+                        data.get("content")
+                        or data.get("policies")
+                        or data.get("items")
+                        or []
+                    )
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] search_policies failed: {e}")
+        return None
+
+
+async def get_policy_by_code(policy_code: str) -> Optional[dict]:
+    try:
+        results = await search_policies(policy_code=policy_code)
+        if results:
+            return results[0]
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(f"{_base()}/api/tab-plc/policies/{policy_code}")
+            if r.status_code == 200:
+                return _extract(r.json())
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] get_policy_by_code failed: {e}")
+        return None
+
+
+async def get_policy_document_url(policy_code: str) -> Optional[str]:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(f"{_base()}/api/tab-plc/policies/{policy_code}/document")
+            if r.status_code == 200:
+                data = _extract(r.json())
+                if isinstance(data, dict):
+                    return (
+                        data.get("downloadUrl")
+                        or data.get("url")
+                        or data.get("documentUrl")
+                    )
+                if isinstance(data, str):
+                    return data
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] get_policy_document_url failed: {e}")
+        return None
+
+
+async def check_eligibility(
+    policy_id: str,
+    delay_minutes: int = 90,
+) -> Optional[dict]:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(
+                f"{_base()}/api/tab-plc/policies/{policy_id}/checkEligibility",
+                params={"triggerType": "DELAY", "delayMinutes": delay_minutes},
+            )
+            if r.status_code == 200:
+                return _extract(r.json())
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] check_eligibility failed: {e}")
+        return None
+
+
+# ── KYC ──────────────────────────────────────────────────────────────────────
+
+async def check_kyc_status(policy_id: str) -> Optional[dict]:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(
+                f"{_base()}/api/tab-plc/policies/{policy_id}/kyc-status"
+            )
+            if r.status_code == 200:
+                return _extract(r.json())
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] check_kyc_status failed: {e}")
+        return None
+
+
+async def initiate_kyc(
+    user_id: str,
+    identity_type: str,
+    identity_number: str,
+) -> Optional[dict]:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.post(
+                f"{_base()}/api/tab-ums/users/{user_id}/kyc/initiate",
+                json={"identityType": identity_type, "identityNumber": identity_number},
+            )
+            if r.status_code in (200, 201):
+                return _extract(r.json())
+            logger.error(f"[ipurvey] initiate_kyc {r.status_code}: {r.text[:200]}")
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] initiate_kyc failed: {e}")
+        return None
+
+
+async def verify_kyc_otp(user_id: str, session_id: str, otp: str) -> bool:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.post(
+                f"{_base()}/api/tab-ums/users/{user_id}/kyc/verify",
+                json={"sessionId": session_id, "otp": otp},
+            )
+            return r.status_code in (200, 204)
+    except Exception as e:
+        logger.error(f"[ipurvey] verify_kyc_otp failed: {e}")
+        return False
+
+
+async def resend_kyc_otp(user_id: str, session_id: str) -> bool:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.post(
+                f"{_base()}/api/tab-ums/users/{user_id}/kyc/resend-otp",
+                json={"sessionId": session_id},
+            )
+            return r.status_code in (200, 204)
+    except Exception as e:
+        logger.error(f"[ipurvey] resend_kyc_otp failed: {e}")
+        return False
+
+
+# ── PAYOUT METHODS ─────────────────────────────────────────────────────────────
+
+async def get_payout_methods(user_id: str) -> Optional[list]:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(f"{_base()}/api/tab-ums/users/{user_id}/payout-methods")
+            if r.status_code == 200:
+                data = _extract(r.json())
+                return data if isinstance(data, list) else None
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] get_payout_methods failed: {e}")
+        return None
+
+
+async def create_payout_method_bank(
+    user_id: str,
+    account_number: str,
+    account_name: str,
+    bank_code: str,
+    bank_name: str,
+    is_default: bool = True,
+) -> Optional[dict]:
+    try:
+        body = {
+            "type": "BANK_ACCOUNT",
+            "accountNumber": account_number,
+            "accountName": account_name,
+            "isDefault": is_default,
+            "active": True,
+            "config": {
+                "bank_code": bank_code,
+                "bank_name": bank_name,
+                "country": "NG",
+                "currency": "NGN",
+            },
+        }
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.post(
+                f"{_base()}/api/tab-ums/users/{user_id}/payout-methods",
+                json=body,
+            )
+            if r.status_code in (200, 201):
+                return _extract(r.json())
+            logger.error(f"[ipurvey] create_payout_method_bank {r.status_code}: {r.text[:200]}")
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] create_payout_method_bank failed: {e}")
+        return None
+
+
+async def create_payout_method_wallet(
+    user_id: str,
+    phone_number: str,
+    account_name: str,
+    network: str,
+    is_default: bool = False,
+) -> Optional[dict]:
+    try:
+        body = {
+            "type": "MOBILE_MONEY",
+            "accountNumber": phone_number,
+            "accountName": account_name,
+            "isDefault": is_default,
+            "active": True,
+            "config": {
+                "network": network,
+                "country": "NG",
+                "currency": "NGN",
+            },
+        }
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.post(
+                f"{_base()}/api/tab-ums/users/{user_id}/payout-methods",
+                json=body,
+            )
+            if r.status_code in (200, 201):
+                return _extract(r.json())
+            logger.error(f"[ipurvey] create_payout_method_wallet {r.status_code}: {r.text[:200]}")
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] create_payout_method_wallet failed: {e}")
+        return None
+
+
+# ── PAYMENT ───────────────────────────────────────────────────────────────────
+
+async def initiate_payment(
+    policy_id: str,
+    payment_method: str = "CARD",
+) -> Optional[dict]:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.post(
+                f"{_base()}/api/tab-plc/policies/{policy_id}/payment/initiate",
+                params={"preferredPaymentMethod": payment_method},
+            )
+            if r.status_code in (200, 201):
+                return _extract(r.json())
+            logger.error(f"[ipurvey] initiate_payment {r.status_code}: {r.text[:200]}")
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] initiate_payment failed: {e}")
+        return None
+
+
+async def get_payment_status(policy_code: str, msisdn: str) -> Optional[dict]:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(
+                f"{_base()}/api/tab-plc/policies/{policy_code}/payment-status",
+                params={"msisdn": msisdn},
+            )
+            if r.status_code == 200:
+                return _extract(r.json())
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] get_payment_status failed: {e}")
+        return None
+
+
+# ── BOARDING PASS ─────────────────────────────────────────────────────────────
+
+async def upload_boarding_pass(
+    policy_id: str,
+    passenger_id: str,
+    file_bytes: bytes,
+    file_name: str,
+    flight_id: str,
+) -> bool:
+    try:
+        ext = file_name.lower().rsplit(".", 1)[-1] if "." in file_name else ""
+        content_type_map = {
+            "pdf":  "application/pdf",
+            "png":  "image/png",
+            "jpg":  "image/jpeg",
+            "jpeg": "image/jpeg",
+            "webp": "image/webp",
+        }
+        content_type = content_type_map.get(ext, "application/octet-stream")
+        async with httpx.AsyncClient(timeout=60) as c:
+            r = await c.post(
+                f"{_base()}/api/tab-plc/policies/{policy_id}/passengers/{passenger_id}/boarding-pass",
+                files={"file": (file_name, file_bytes, content_type)},
+                data={"flightId": flight_id},
+            )
+            return r.status_code in (200, 201, 204)
+    except Exception as e:
+        logger.error(f"[ipurvey] upload_boarding_pass failed: {e}")
+        return False
+
+
+async def poll_boarding_pass_status(
+    policy_id: str,
+    passenger_id: str,
+) -> Optional[dict]:
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(
+                f"{_base()}/api/tab-plc/policies/{policy_id}/passengers/{passenger_id}/boarding-pass/status"
+            )
+            if r.status_code == 200:
+                return _extract(r.json())
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] poll_boarding_pass_status failed: {e}")
+        return None
+
+
+# ── POLICY FIELD MAPPER ───────────────────────────────────────────────────────
+
+def map_api_policy(p: dict) -> dict:
+    """Map an Ipurvey API policy object to the internal display dict format."""
+    legs = []
+    itin = p.get("itinerary") or {}
+    if isinstance(itin, dict):
+        legs = itin.get("legs") or []
+    leg0 = legs[0] if legs else {}
+
+    raw_status = (p.get("status") or "").upper()
+    if raw_status in ("ACTIVE", "APPROVED", "ISSUED"):
+        status = "Active"
+    elif raw_status in ("EXPIRED", "LAPSED"):
+        status = "Expired"
+    else:
+        status = raw_status.capitalize() or "Pending"
+
+    flight   = (
+        leg0.get("flightNo")
+        or leg0.get("flightNumber")
+        or p.get("flightNo")
+        or p.get("flightNumber")
+        or "—"
+    )
+    dep_date = (
+        leg0.get("scheduledDepartureDateLocal")
+        or leg0.get("departureDate")
+        or p.get("departureDate")
+        or "—"
+    )
+    dep_airport = (
+        leg0.get("departureAirport") or "—"
+    )
+    arr_airport = (
+        leg0.get("arrivalAirport") or "—"
+    )
+    first  = p.get("passengerFirstName") or ""
+    last   = p.get("passengerSurname") or ""
+    traveler = f"{first} {last}".strip() or "—"
+
+    return {
+        "id":        p.get("id") or p.get("policyId") or "",
+        "ref":       p.get("policyCode") or p.get("ref") or "—",
+        "name":      p.get("productName") or p.get("name") or "Policy",
+        "status":    status,
+        "airline":   p.get("airlineName") or p.get("airline") or "—",
+        "flight":    flight,
+        "date":      dep_date,
+        "origin":    f"{dep_airport}" if dep_airport != "—" else "—",
+        "dest":      f"{arr_airport}" if arr_airport != "—" else "—",
+        "cover":     p.get("productName") or "—",
+        "price":     f"₦{p['premiumAmount']:,.0f}" if p.get("premiumAmount") else "—",
+        "travelers": [traveler],
+        "doc_url":   (
+            p.get("documentUrl")
+            or p.get("doc_url")
+            or f"{get_settings().IPURVEY_BASE_URL}/api/tab-plc/policies/{p.get('policyCode', '')}/document"
+        ),
+        "payment_status": p.get("paymentStatus") or "—",
+        "policy_id_raw":  p.get("id") or p.get("policyId") or "",
+    }

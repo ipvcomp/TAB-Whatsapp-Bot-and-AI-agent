@@ -1,6 +1,8 @@
 import logging
 from typing import Optional
 
+import app.services.ipurvey_service as ipurvey_service
+
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -40,6 +42,26 @@ DEMO_POLICIES = [
         "doc_url":   "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/TA-119823/document",
     },
 ]
+
+
+def _normalize_pol(p: dict) -> dict:
+    if "name" not in p and ("productName" in p or "policyCode" in p):
+        return {
+            "id":        p.get("id") or p.get("policyId") or "",
+            "ref":       p.get("ref") or p.get("policyCode") or p.get("id") or "",
+            "name":      p.get("name") or p.get("productName") or "Policy",
+            "status":    p.get("status") or "Active",
+            "airline":   p.get("airline") or p.get("carrierName") or "—",
+            "flight":    p.get("flight") or p.get("flightNumber") or "—",
+            "date":      p.get("date") or p.get("departureDate") or "—",
+            "origin":    p.get("origin") or p.get("departureAirport") or "—",
+            "dest":      p.get("dest") or p.get("arrivalAirport") or "—",
+            "cover":     p.get("cover") or p.get("coverType") or "—",
+            "price":     p.get("price") or p.get("premiumAmount") or "—",
+            "travelers": p.get("travelers") or [p.get("primaryPassenger") or "—"],
+            "doc_url":   p.get("doc_url") or p.get("documentUrl") or "",
+        }
+    return p
 
 
 def _match_flight(flight: str) -> list:
@@ -238,9 +260,10 @@ async def handle_check_policy_flow(
     # ── Phone: select from list ────────────────────────────────────────────────
     elif step == "pol_phone_list":
         if reply_id and reply_id.startswith("psel_"):
+            phone_policies = data.get("pol_phone_results", DEMO_POLICIES)
             idx = int(reply_id.split("_")[1])
-            if 0 <= idx < len(DEMO_POLICIES):
-                pol = DEMO_POLICIES[idx]
+            if 0 <= idx < len(phone_policies):
+                pol = _normalize_pol(phone_policies[idx])
                 await _save_data(session, "pol_selected", pol)
                 await _show_detail(session, sender_wa_id, pol, phone_number_id)
         elif reply_id == "pol_home":
@@ -256,7 +279,18 @@ async def handle_check_policy_flow(
                 "⚠️ Enter a valid flight number:\n_Example: P47123_", phone_number_id)
             return
         await _save_data(session, "pol_flight_search", flight)
-        matched = _match_flight(flight)
+        api_results = None
+        msisdn = f"+{sender_wa_id}" if not sender_wa_id.startswith("+") else sender_wa_id
+        try:
+            all_pols = await ipurvey_service.search_policies(msisdn)
+            if all_pols:
+                api_results = [
+                    _normalize_pol(p) for p in all_pols
+                    if flight in (p.get("flight") or p.get("flightNumber") or "").upper()
+                ] or [_normalize_pol(p) for p in all_pols]
+        except Exception:
+            pass
+        matched = api_results if api_results else _match_flight(flight)
         if len(matched) == 1:
             await _save_data(session, "pol_selected", matched[0])
             await _show_detail(session, sender_wa_id, matched[0], phone_number_id)
@@ -289,7 +323,15 @@ async def handle_check_policy_flow(
             await _send_text(sender_wa_id,
                 "⚠️ Enter a valid policy number:\n_Example: TA-238491_", phone_number_id)
             return
-        pol = _match_ref(ref)
+        pol = None
+        try:
+            api_pol = await ipurvey_service.get_policy_by_code(ref)
+            if api_pol and isinstance(api_pol, dict):
+                pol = _normalize_pol(api_pol)
+        except Exception:
+            pass
+        if not pol:
+            pol = _match_ref(ref)
         if pol:
             await _save_data(session, "pol_selected", pol)
             await _show_detail(session, sender_wa_id, pol, phone_number_id)
@@ -465,14 +507,27 @@ async def _go_home(session: dict, wa_id: str, phone_number_id: Optional[str]):
 
 async def _show_phone_policies(session: dict, wa_id: str, phone_number_id: Optional[str]):
     await _set_step(session, "pol_phone_list")
+    msisdn = f"+{wa_id}" if not wa_id.startswith("+") else wa_id
+    policies = None
+    try:
+        policies = await ipurvey_service.search_policies(msisdn)
+    except Exception as exc:
+        logger.error(f"[check_policy] search_policies failed: {exc}")
+    if not policies:
+        policies = DEMO_POLICIES
+    session.setdefault("temp_data", {}).setdefault(CHECK_POLICY_FLOW_KEY, {}).setdefault("data", {})["pol_phone_results"] = policies
+    await save_session(session)
     rows = [
-        {"id": f"psel_{i}", "title": pol["name"][:24],
-         "description": f"{pol['status']} · {pol['ref']}"}
-        for i, pol in enumerate(DEMO_POLICIES)
+        {
+            "id":          f"psel_{i}",
+            "title":       str(pol.get("name") or pol.get("productName") or "Policy")[:24],
+            "description": f"{pol.get('status','Active')} · {pol.get('ref') or pol.get('policyCode') or ''}",
+        }
+        for i, pol in enumerate(policies[:10])
     ]
     rows.append({"id": "pol_home", "title": "🏠 Main menu"})
     await _send_list(wa_id,
-        f"We found *{len(DEMO_POLICIES)} policies* linked to this WhatsApp number.\n\n"
+        f"We found *{len(policies)} {'policy' if len(policies)==1 else 'policies'}* linked to this WhatsApp number.\n\n"
         "Please select a policy to view:",
         "Select policy",
         [{"title": "Your Policies", "rows": rows}],
@@ -511,6 +566,21 @@ async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Op
 
 async def _show_document(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_download")
+    pol_id   = pol.get("id") or ""
+    pol_code = pol.get("ref") or ""
+    if pol_id or pol_code:
+        try:
+            doc_result = await ipurvey_service.get_policy_document_url(pol_id or pol_code)
+            if doc_result:
+                url = None
+                if isinstance(doc_result, dict):
+                    url = doc_result.get("url") or doc_result.get("documentUrl") or doc_result.get("downloadUrl")
+                elif isinstance(doc_result, str):
+                    url = doc_result
+                if url:
+                    pol = {**pol, "doc_url": url}
+        except Exception as exc:
+            logger.error(f"[check_policy] get_policy_document_url failed: {exc}")
     await _send_cta_document(wa_id, pol, phone_number_id)
     await _send_list(wa_id,
         "📧 A copy has also been sent to your registered email address.\n\n"
