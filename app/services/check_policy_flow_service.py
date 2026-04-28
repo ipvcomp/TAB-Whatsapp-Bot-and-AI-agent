@@ -160,6 +160,12 @@ async def _send_cta_document(
         phone_number_id=phone_number_id,
         source="check_policy_flow",
     )
+    await send_text_message(
+        to=to,
+        body=_UTILITY,
+        phone_number_id=phone_number_id,
+        source="check_policy_flow",
+    )
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
