@@ -610,69 +610,73 @@ async def handle_buy_cover_flow(
             except Exception as exc:
                 logger.error(f"[buy_cover] itinerary/quotes API failed: {exc}")
 
-        if quotes:
-            session.setdefault("api_data", {})["quotes"] = quotes
-            await save_session(session)
-            rows = []
-            for i, q in enumerate(quotes[:8]):
-                q_name  = str(q.get("name") or q.get("productName") or "Cover option")[:24]
-                q_price = q.get("price") or q.get("premiumAmount") or 0
-                coverage = q.get("coverageTypes") or []
-                desc    = f"₦{float(q_price):,.0f}" + (f" - {', '.join(str(c) for c in coverage[:2])}" if coverage else "")
-                rows.append({"id": f"cov_{i}", "title": q_name, "description": desc[:72]})
-            flow["step"] = "buy_cover_select_cover"
-            await save_session(session)
-            await _send_list(
-                sender_wa_id,
-                (
-                    "🎁 *With TravelAssist you get:*\n"
-                    "📄 Policy on WhatsApp\n🔔 Flight alerts\n🤝 Support if disruption happens\n\n"
-                    "Please select a cover option below:"
-                ),
-                "Select cover",
-                [{"title": "Available Covers", "rows": rows}],
-                phone_number_id,
-                header="🛡️ Select from available cover(s)",
-            )
-        else:
-            data["cover"] = "Local Travel Premium 🔥"
-            flow["step"] = "buy_cover_next_steps"
-            await save_session(session)
-            await _send_buttons(
-                sender_wa_id,
-                (
-                    "🛡️ *Select from available cover(s)*\n\n"
-                    "📋 *Local Travel Basic*\n"
-                    "🛡️ Your trip can be protected against:\n"
-                    "✅ Major delay\n✅ Cancellation\n✅ Covered travel disruption\n\n"
-                    "*₦2,500*\n🏢 Tangerine Insurance  •  ⏱️ Single trip\n\n"
-                    "📋 *Local Travel Premium* 🔥 *POPULAR*\n"
-                    "🛡️ Your trip can be protected against:\n"
-                    "✅ Major delay\n✅ Cancellation\n✅ Covered travel disruption\n\n"
-                    "*₦3,500*\n🏢 Tangerine Insurance  •  ⏱️ Multi Trip\n\n"
-                    "🎁 *With TravelAssist you get:*\n"
-                    "📄 Policy on WhatsApp\n🔔 Flight alerts\n🤝 Support if disruption happens\n\n"
-                    "What would you like to do next?"
-                ),
-                [
-                    {"id": "next_kyc",    "title": "1. Continue to KYC"},
-                    {"id": "next_ask",    "title": "2. Ask a question"},
-                    {"id": "next_cancel", "title": "3. Cancel"},
-                ],
-                phone_number_id,
-            )
+        if not quotes:
+            quotes = [
+                {
+                    "name": "Local Travel Basic",
+                    "productId": "local_basic",
+                    "price": 2500,
+                    "premiumAmount": 2500,
+                    "coverageTypes": ["Major delay", "Cancellation", "Travel disruption"],
+                    "tripType": "Single trip",
+                    "insurer": "Tangerine Insurance",
+                },
+                {
+                    "name": "Local Travel Premium 🔥",
+                    "productId": "local_premium",
+                    "price": 3500,
+                    "premiumAmount": 3500,
+                    "coverageTypes": ["Major delay", "Cancellation", "Travel disruption"],
+                    "tripType": "Multi Trip",
+                    "insurer": "Tangerine Insurance",
+                },
+            ]
+
+        session.setdefault("api_data", {})["quotes"] = quotes
+        await save_session(session)
+        rows = []
+        for i, q in enumerate(quotes[:8]):
+            q_name   = str(q.get("name") or q.get("productName") or "Cover option")[:24]
+            q_price  = q.get("price") or q.get("premiumAmount") or 0
+            trip     = q.get("tripType") or q.get("travelType") or ""
+            insurer  = q.get("insurer") or q.get("provider") or ""
+            coverage = q.get("coverageTypes") or []
+            price_str   = f"💰 ₦{float(q_price):,.0f}"
+            trip_str    = f"⏱️ {trip}" if trip else ""
+            insurer_str = f"🏢 {insurer}" if insurer else ""
+            cover_count = f"✅ {len(coverage)} covers" if coverage else ""
+            desc = "  •  ".join(filter(None, [price_str, trip_str or insurer_str, cover_count]))
+            rows.append({"id": f"cov_{i}", "title": q_name, "description": desc[:72]})
+        flow["step"] = "buy_cover_select_cover"
+        await save_session(session)
+        await _send_list(
+            sender_wa_id,
+            (
+                "🎁 *With TravelAssist you get:*\n"
+                "📄 Policy on WhatsApp\n"
+                "🔔 Real-time flight alerts\n"
+                "🤝 Support if disruption happens\n"
+                "💰 Automatic payout — no forms needed\n\n"
+                "👇 Tap *Select cover* to choose your plan:"
+            ),
+            "Select cover",
+            [{"title": "🛡️ Available Covers", "rows": rows}],
+            phone_number_id,
+            header="🛡️ Select from available cover(s)",
+        )
 
     # ── Select cover (from real quotes) ───────────────────────────────────────
     elif step == "buy_cover_select_cover":
         quotes = session.get("api_data", {}).get("quotes") or []
+        selected_q = None
         if reply_id and reply_id.startswith("cov_"):
             try:
                 idx = int(reply_id.split("_")[1])
                 if 0 <= idx < len(quotes):
-                    q = quotes[idx]
-                    prod_id  = q.get("productId") or q.get("id") or ""
-                    q_name   = str(q.get("name") or q.get("productName") or "Selected cover")
-                    q_price  = q.get("price") or q.get("premiumAmount") or 0
+                    selected_q = quotes[idx]
+                    prod_id  = selected_q.get("productId") or selected_q.get("id") or ""
+                    q_name   = str(selected_q.get("name") or selected_q.get("productName") or "Selected cover")
+                    q_price  = selected_q.get("price") or selected_q.get("premiumAmount") or 0
                     data["cover"]       = q_name
                     data["cover_price"] = q_price
                     policy_id = session.get("api_data", {}).get("policy_id")
@@ -683,17 +687,33 @@ async def handle_buy_cover_flow(
                             pass
             except (ValueError, IndexError):
                 pass
-        else:
-            data["cover"] = "Local Travel Premium 🔥"
+        if not selected_q:
+            selected_q = quotes[-1] if quotes else {}
+            data["cover"]       = str(selected_q.get("name") or selected_q.get("productName") or "Local Travel Premium 🔥")
+            data["cover_price"] = selected_q.get("price") or selected_q.get("premiumAmount") or 0
         flow["step"] = "buy_cover_next_steps"
         await save_session(session)
+        cover_name  = data.get("cover", "Selected cover")
+        cover_price = data.get("cover_price", 0)
+        trip_type   = selected_q.get("tripType") or selected_q.get("travelType") or "Single trip"
+        insurer     = selected_q.get("insurer") or selected_q.get("provider") or "Tangerine Insurance"
+        coverage    = selected_q.get("coverageTypes") or ["Major delay", "Cancellation", "Travel disruption"]
+        coverage_lines = "\n".join(f"✅ {c}" for c in coverage)
         await _send_buttons(
             sender_wa_id,
-            "What would you like to do next?",
+            (
+                f"✅ *Cover selected!*\n\n"
+                f"📋 *{cover_name}*\n"
+                f"🛡️ Your trip can be protected against:\n"
+                f"{coverage_lines}\n\n"
+                f"💰 *₦{float(cover_price):,.0f}*\n"
+                f"🏢 {insurer}  •  ⏱️ {trip_type}\n\n"
+                "What would you like to do next?"
+            ),
             [
-                {"id": "next_kyc",    "title": "1. Continue to KYC"},
-                {"id": "next_ask",    "title": "2. Ask a question"},
-                {"id": "next_cancel", "title": "3. Cancel"},
+                {"id": "next_kyc",    "title": "✅ Continue to KYC"},
+                {"id": "next_ask",    "title": "❓ Ask a question"},
+                {"id": "next_cancel", "title": "❌ Cancel"},
             ],
             phone_number_id,
         )
