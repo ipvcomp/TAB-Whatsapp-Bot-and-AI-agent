@@ -6,6 +6,7 @@ from app.services.whatsapp_service import download_whatsapp_media
 
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
+from app.services.ipurvey_api import fetch_policies_by_msisdn
 
 logger = logging.getLogger(__name__)
 
@@ -13,33 +14,6 @@ BP_LINK_FLOW_KEY   = "bp_link_flow"
 PAYMENT_FLOW_KEY   = "payment_flow"
 BUY_COVER_FLOW_KEY = "buy_cover_flow"
 KYC_FLOW_KEY       = "kyc_flow"
-
-DEMO_POLICIES = [
-    {
-        "id":       "pol_ltp",
-        "name":     "Local Travel Premium",
-        "status":   "Active",
-        "ref":      "LTP-20240412",
-        "airline":  "Air Peace",
-        "flight":   "P47123",
-        "date":     "12 April 2026",
-        "origin":   "Lagos (LOS)",
-        "dest":     "Abuja (ABV)",
-        "traveler": "Yusuf Usman",
-    },
-    {
-        "id":       "pol_ltb",
-        "name":     "Local Travel Basic",
-        "status":   "Active",
-        "ref":      "LTB-20240308",
-        "airline":  "Arik Air",
-        "flight":   "W3401",
-        "date":     "20 April 2026",
-        "origin":   "Abuja (ABV)",
-        "dest":     "Port Harcourt (PHC)",
-        "traveler": "Aminu Bola",
-    },
-]
 
 UPLOAD_INSTRUCTIONS = (
     "Please make sure the following are *clearly visible:*\n\n"
@@ -113,25 +87,24 @@ async def _go_home(wa_id: str, session: dict, phone_number_id: Optional[str]):
 
 async def _show_policy_list(wa_id: str, session: dict, flow: dict, action: str, phone_number_id: Optional[str]):
     flow["step"] = "bp_policy"
+    await save_session(session)
+    policies = flow.get("data", {}).get("policies", [])
     if action == "upload":
         action_label = "upload a boarding pass for:"
     elif action == "eligibility":
         action_label = "check eligibility for:"
     else:
         action_label = "link:"
-
-    msisdn = f"+{wa_id}" if not wa_id.startswith("+") else wa_id
-    policies = None
-    try:
-        policies = await ipurvey_service.search_policies(msisdn)
-    except Exception as exc:
-        logger.error(f"[bp_link] search_policies failed: {exc}")
     if not policies:
-        policies = DEMO_POLICIES
-
-    flow.setdefault("data", {})["bp_policies_list"] = policies
-    await save_session(session)
-
+        await _send_text(wa_id,
+            "⚠️ We couldn't find any active policies linked to your number.\n\n"
+            "Please contact support if you believe this is an error.",
+            phone_number_id)
+        return
+    body = (
+        f"We found *{len(policies)} {'policy' if len(policies) == 1 else 'policies'}* linked to your number.\n\n"
+        f"Please select the policy you would like to {action_label}"
+    )
     rows = [
         {
             "id":          f"bpp_{i}",
@@ -140,10 +113,6 @@ async def _show_policy_list(wa_id: str, session: dict, flow: dict, action: str, 
         }
         for i, pol in enumerate(policies[:10])
     ]
-    body = (
-        f"We found *{len(policies)} {'policy' if len(policies)==1 else 'policies'}* linked to your number.\n\n"
-        f"Please select the policy you would like to {action_label}"
-    )
     await _send_list(wa_id, body, "Select policy",
         [{"title": "Your Active Policies", "rows": rows}],
         phone_number_id,
@@ -164,11 +133,11 @@ async def _show_upload_confirmed(wa_id: str, session: dict, flow: dict, phone_nu
     flow["step"] = "bp_upload_done"
     data = flow.get("data", {})
     await save_session(session)
-    ref      = data.get("bp_sel_ref",      "LTP-20240412")
-    airline  = data.get("bp_sel_airline",  "Air Peace")
-    flight   = data.get("bp_sel_flight",   "P47123")
-    date     = data.get("bp_sel_date",     "12 April 2026")
-    traveler = data.get("bp_sel_traveler", "Yusuf Usman")
+    ref      = data.get("bp_sel_ref",      "")
+    airline  = data.get("bp_sel_airline",  "")
+    flight   = data.get("bp_sel_flight",   "")
+    date     = data.get("bp_sel_date",     "")
+    traveler = data.get("bp_sel_traveler", "")
     filename = data.get("bp_filename",     f"boarding_pass_{flight}.pdf")
 
     await _send_list(wa_id,
@@ -192,12 +161,12 @@ async def _show_link_confirm(wa_id: str, session: dict, flow: dict, phone_number
     flow["step"] = "bp_link_confirm"
     data = flow.get("data", {})
     await save_session(session)
-    ref      = data.get("bp_sel_ref",      "LTP-20240412")
-    name     = data.get("bp_sel_name",     "Local Travel Premium")
-    airline  = data.get("bp_sel_airline",  "Air Peace")
-    flight   = data.get("bp_sel_flight",   "P47123")
-    date     = data.get("bp_sel_date",     "12 April 2026")
-    traveler = data.get("bp_sel_traveler", "Yusuf Usman")
+    ref      = data.get("bp_sel_ref",      "")
+    name     = data.get("bp_sel_name",     "")
+    airline  = data.get("bp_sel_airline",  "")
+    flight   = data.get("bp_sel_flight",   "")
+    date     = data.get("bp_sel_date",     "")
+    traveler = data.get("bp_sel_traveler", "")
 
     await _send_list(wa_id,
         "We found an active policy matching your boarding pass.\n"
@@ -221,10 +190,10 @@ async def _show_linked(wa_id: str, session: dict, flow: dict, phone_number_id: O
     flow["step"] = "bp_linked_done"
     data = flow.get("data", {})
     await save_session(session)
-    flight   = data.get("bp_sel_flight",   "P47123")
-    airline  = data.get("bp_sel_airline",  "Air Peace")
-    date     = data.get("bp_sel_date",     "12 April 2026")
-    traveler = data.get("bp_sel_traveler", "Yusuf Usman")
+    flight   = data.get("bp_sel_flight",   "")
+    airline  = data.get("bp_sel_airline",  "")
+    date     = data.get("bp_sel_date",     "")
+    traveler = data.get("bp_sel_traveler", "")
 
     await _send_list(wa_id,
         f"✈️  *{flight}  ·  {airline}*\n"
@@ -246,12 +215,12 @@ async def _show_policy_card(wa_id: str, session: dict, flow: dict, phone_number_
     flow["step"] = "bp_policy_card"
     data = flow.get("data", {})
     await save_session(session)
-    ref      = data.get("bp_sel_ref",      "LTP-20240412")
-    name     = data.get("bp_sel_name",     "Local Travel Premium")
-    airline  = data.get("bp_sel_airline",  "Air Peace")
-    flight   = data.get("bp_sel_flight",   "P47123")
-    date     = data.get("bp_sel_date",     "12 April 2026")
-    traveler = data.get("bp_sel_traveler", "Yusuf Usman")
+    ref      = data.get("bp_sel_ref",      "")
+    name     = data.get("bp_sel_name",     "")
+    airline  = data.get("bp_sel_airline",  "")
+    flight   = data.get("bp_sel_flight",   "")
+    date     = data.get("bp_sel_date",     "")
+    traveler = data.get("bp_sel_traveler", "")
 
     await _send_list(wa_id,
         f"🛡️  *{name}*\nPolicy No: {ref}   ✅ Active\n\n"
@@ -271,10 +240,10 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
     flow["step"] = "bp_eligibility_result"
     data = flow.get("data", {})
     await save_session(session)
-    ref      = data.get("bp_sel_ref",      "LTP-20240412")
-    airline  = data.get("bp_sel_airline",  "Air Peace")
-    flight   = data.get("bp_sel_flight",   "P47123")
-    pol_id   = data.get("bp_sel_policy_id", "")
+    ref     = data.get("bp_sel_ref",      "")
+    airline = data.get("bp_sel_airline",  "")
+    flight  = data.get("bp_sel_flight",   "")
+    pol_id  = data.get("bp_sel_policy_id", "")
 
     await _send_text(wa_id,
         "🔍 *Checking your eligibility...*\n"
@@ -356,10 +325,11 @@ async def start_bp_link_flow(
     in_reply_to: Optional[str] = None,
 ):
     session = await get_session(wa_id) or {}
+    policies = await fetch_policies_by_msisdn(wa_id)
     session.setdefault("temp_data", {})[BP_LINK_FLOW_KEY] = {
         "active": True,
         "step":   "bp_choose",
-        "data":   {},
+        "data":   {"policies": policies},
     }
     session["temp_data"].get(PAYMENT_FLOW_KEY, {}).update({"active": False})
     if "user_id" not in session:
@@ -385,10 +355,11 @@ async def start_eligibility_check_flow(
     in_reply_to: Optional[str] = None,
 ):
     session = await get_session(wa_id) or {}
+    policies = await fetch_policies_by_msisdn(wa_id)
     session.setdefault("temp_data", {})[BP_LINK_FLOW_KEY] = {
         "active": True,
         "step":   "bp_policy",
-        "data":   {"bp_action": "eligibility"},
+        "data":   {"bp_action": "eligibility", "policies": policies},
     }
     if "user_id" not in session:
         session["user_id"] = wa_id
@@ -439,6 +410,8 @@ async def handle_bp_link_flow(
                         or f"boarding_pass_{data.get('bp_sel_flight', '')}.pdf",
         }
 
+    policies = data.get("policies", [])
+
     # ── Screen 1: Choose option ───────────────────────────────────────────────
     if step == "bp_choose":
         if reply_id == "bp_upload_me":
@@ -455,20 +428,20 @@ async def handle_bp_link_flow(
     # ── Screen 2: Select policy ───────────────────────────────────────────────
     elif step == "bp_policy":
         action = data.get("bp_action", "upload")
-        policies = data.get("bp_policies_list", DEMO_POLICIES)
+        policies = data.get("policies", [])
         if reply_id and reply_id.startswith("bpp_"):
             try:
                 idx = int(reply_id.split("_")[1])
                 if 0 <= idx < len(policies):
                     pol = policies[idx]
-                    data["bp_sel_name"]    = pol.get("name") or pol.get("productName") or "Policy"
-                    data["bp_sel_ref"]     = pol.get("ref") or pol.get("policyCode") or pol.get("id", "")
-                    data["bp_sel_airline"] = pol.get("airline") or pol.get("carrierName") or "—"
-                    data["bp_sel_flight"]  = pol.get("flight") or pol.get("flightNumber") or "—"
-                    data["bp_sel_date"]    = pol.get("date") or pol.get("departureDate") or "—"
-                    data["bp_sel_traveler"]= pol.get("traveler") or pol.get("primaryPassenger") or "—"
-                    data["bp_sel_origin"]  = pol.get("origin") or pol.get("departureAirport") or "—"
-                    data["bp_sel_dest"]    = pol.get("dest") or pol.get("arrivalAirport") or "—"
+                    data["bp_sel_name"]      = pol.get("name") or pol.get("productName") or "Policy"
+                    data["bp_sel_ref"]       = pol.get("ref") or pol.get("policyCode") or pol.get("id", "")
+                    data["bp_sel_airline"]   = pol.get("airline") or pol.get("carrierName") or "—"
+                    data["bp_sel_flight"]    = pol.get("flight") or pol.get("flightNumber") or "—"
+                    data["bp_sel_date"]      = pol.get("date") or pol.get("departureDate") or "—"
+                    data["bp_sel_traveler"]  = pol.get("traveler") or pol.get("primaryPassenger") or "—"
+                    data["bp_sel_origin"]    = pol.get("origin") or pol.get("departureAirport") or "—"
+                    data["bp_sel_dest"]      = pol.get("dest") or pol.get("arrivalAirport") or "—"
                     data["bp_sel_policy_id"] = pol.get("id") or pol.get("policyId") or ""
                     await save_session(session)
                     if action == "link":

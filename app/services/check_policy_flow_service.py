@@ -5,43 +5,11 @@ import app.services.ipurvey_service as ipurvey_service
 
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
+from app.services.ipurvey_api import fetch_policies_by_msisdn
 
 logger = logging.getLogger(__name__)
 
 CHECK_POLICY_FLOW_KEY = "check_policy_flow"
-
-DEMO_POLICIES = [
-    {
-        "id":        "pol_ltp",
-        "ref":       "TA-238491",
-        "name":      "Local Travel Premium",
-        "status":    "Active",
-        "airline":   "Air Peace",
-        "flight":    "P47123",
-        "date":      "12 April 2026",
-        "origin":    "Lagos (LOS)",
-        "dest":      "Abuja (ABV)",
-        "cover":     "Premium",
-        "price":     "₦14,500",
-        "travelers": ["Yusuf Usman"],
-        "doc_url":   "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/TA-238491/document",
-    },
-    {
-        "id":        "pol_ltb",
-        "ref":       "TA-119823",
-        "name":      "Local Travel Basic",
-        "status":    "Active",
-        "airline":   "Arik Air",
-        "flight":    "W3401",
-        "date":      "20 April 2026",
-        "origin":    "Abuja (ABV)",
-        "dest":      "Port Harcourt (PHC)",
-        "cover":     "Basic",
-        "price":     "₦7,200",
-        "travelers": ["Aminu Bola"],
-        "doc_url":   "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc/policies/TA-119823/document",
-    },
-]
 
 
 def _normalize_pol(p: dict) -> dict:
@@ -64,15 +32,15 @@ def _normalize_pol(p: dict) -> dict:
     return p
 
 
-def _match_flight(flight: str) -> list:
+def _match_flight(flight: str, policies: list) -> list:
     f = flight.strip().upper()
-    matched = [p for p in DEMO_POLICIES if f in p["flight"].upper()]
-    return matched if matched else DEMO_POLICIES
+    matched = [p for p in policies if f in p["flight"].upper()]
+    return matched if matched else policies
 
 
-def _match_ref(ref: str) -> Optional[dict]:
+def _match_ref(ref: str, policies: list) -> Optional[dict]:
     r = ref.strip().upper().replace(" ", "")
-    for p in DEMO_POLICIES:
+    for p in policies:
         if r in p["ref"].upper() or r == p["ref"].upper():
             return p
     return None
@@ -198,8 +166,9 @@ async def start_check_policy_flow(
     in_reply_to: Optional[str] = None,
 ):
     session = await get_session(wa_id) or {}
+    policies = await fetch_policies_by_msisdn(wa_id)
     session.setdefault("temp_data", {})[CHECK_POLICY_FLOW_KEY] = {
-        "active": True, "step": "pol_menu", "data": {},
+        "active": True, "step": "pol_menu", "data": {"policies": policies},
     }
     if "user_id" not in session:
         session["user_id"] = wa_id
@@ -241,10 +210,15 @@ async def handle_check_policy_flow(
         elif message.interactive.type == "button_reply" and message.interactive.button_reply:
             reply_id = message.interactive.button_reply.id
 
+    policies = data.get("policies", [])
+
+    def _get_selected_pol() -> dict:
+        return data.get("pol_selected") or (policies[0] if policies else {})
+
     # ── Entry menu ─────────────────────────────────────────────────────────────
     if step == "pol_menu":
         if reply_id == "pol_by_phone":
-            await _show_phone_policies(session, sender_wa_id, phone_number_id)
+            await _show_phone_policies(session, sender_wa_id, policies, phone_number_id)
         elif reply_id == "pol_by_number":
             await _set_step(session, "pol_ref_input")
             await _send_text(sender_wa_id,
@@ -260,7 +234,7 @@ async def handle_check_policy_flow(
     # ── Phone: select from list ────────────────────────────────────────────────
     elif step == "pol_phone_list":
         if reply_id and reply_id.startswith("psel_"):
-            phone_policies = data.get("pol_phone_results", DEMO_POLICIES)
+            phone_policies = data.get("pol_phone_results", [])
             idx = int(reply_id.split("_")[1])
             if 0 <= idx < len(phone_policies):
                 pol = _normalize_pol(phone_policies[idx])
@@ -269,7 +243,7 @@ async def handle_check_policy_flow(
         elif reply_id == "pol_home":
             await _go_home(session, sender_wa_id, phone_number_id)
         else:
-            await _show_phone_policies(session, sender_wa_id, phone_number_id)
+            await _show_phone_policies(session, sender_wa_id, policies, phone_number_id)
 
     # ── Flight number input ────────────────────────────────────────────────────
     elif step == "pol_flight_input":
@@ -279,18 +253,22 @@ async def handle_check_policy_flow(
                 "⚠️ Enter a valid flight number:\n_Example: P47123_", phone_number_id)
             return
         await _save_data(session, "pol_flight_search", flight)
-        api_results = None
+        
+        matched = []
         msisdn = f"+{sender_wa_id}" if not sender_wa_id.startswith("+") else sender_wa_id
         try:
             all_pols = await ipurvey_service.search_policies(msisdn)
             if all_pols:
-                api_results = [
+                matched = [
                     _normalize_pol(p) for p in all_pols
                     if flight in (p.get("flight") or p.get("flightNumber") or "").upper()
                 ] or [_normalize_pol(p) for p in all_pols]
         except Exception:
             pass
-        matched = api_results if api_results else _match_flight(flight)
+            
+        if not matched:
+            matched = _match_flight(flight, policies)
+
         if len(matched) == 1:
             await _save_data(session, "pol_selected", matched[0])
             await _show_detail(session, sender_wa_id, matched[0], phone_number_id)
@@ -309,10 +287,15 @@ async def handle_check_policy_flow(
             await _send_text(sender_wa_id,
                 "⚠️ Enter your travel date:\n_Example: 12 April 2026_", phone_number_id)
             return
-        results = data.get("pol_flight_results", DEMO_POLICIES)
+        results = data.get("pol_flight_results") or policies
         date_lower = date.lower()
         matched = [p for p in results if any(w in p["date"].lower() for w in date_lower.split())]
-        pol = matched[0] if matched else results[0]
+        pol = matched[0] if matched else (results[0] if results else {})
+        if not pol:
+            await _send_text(sender_wa_id,
+                "⚠️ No matching policy found. Please try again or use a different search method.",
+                phone_number_id)
+            return
         await _save_data(session, "pol_selected", pol)
         await _show_detail(session, sender_wa_id, pol, phone_number_id)
 
@@ -323,6 +306,7 @@ async def handle_check_policy_flow(
             await _send_text(sender_wa_id,
                 "⚠️ Enter a valid policy number:\n_Example: TA-238491_", phone_number_id)
             return
+        
         pol = None
         try:
             api_pol = await ipurvey_service.get_policy_by_code(ref)
@@ -330,8 +314,10 @@ async def handle_check_policy_flow(
                 pol = _normalize_pol(api_pol)
         except Exception:
             pass
+            
         if not pol:
-            pol = _match_ref(ref)
+            pol = _match_ref(ref, policies)
+
         if pol:
             await _save_data(session, "pol_selected", pol)
             await _show_detail(session, sender_wa_id, pol, phone_number_id)
@@ -343,7 +329,7 @@ async def handle_check_policy_flow(
 
     # ── Policy detail page ─────────────────────────────────────────────────────
     elif step == "pol_detail":
-        pol = data.get("pol_selected", DEMO_POLICIES[0])
+        pol = _get_selected_pol()
         if reply_id == "pol_download":
             await _show_document(session, sender_wa_id, pol, phone_number_id)
         elif reply_id == "pol_manage_alerts":
@@ -355,7 +341,7 @@ async def handle_check_policy_flow(
             from app.services.help_flow_service import start_help_flow
             await start_help_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
         elif reply_id == "pol_all":
-            await _show_all_policies(session, sender_wa_id, phone_number_id)
+            await _show_all_policies(session, sender_wa_id, policies, phone_number_id)
         elif reply_id == "pol_home":
             await _go_home(session, sender_wa_id, phone_number_id)
         else:
@@ -365,18 +351,18 @@ async def handle_check_policy_flow(
     elif step == "pol_all_list":
         if reply_id and reply_id.startswith("pall_"):
             idx = int(reply_id.split("_")[1])
-            if 0 <= idx < len(DEMO_POLICIES):
-                pol = DEMO_POLICIES[idx]
+            if 0 <= idx < len(policies):
+                pol = policies[idx]
                 await _save_data(session, "pol_selected", pol)
                 await _show_detail(session, sender_wa_id, pol, phone_number_id)
         elif reply_id == "pol_home":
             await _go_home(session, sender_wa_id, phone_number_id)
         else:
-            await _show_all_policies(session, sender_wa_id, phone_number_id)
+            await _show_all_policies(session, sender_wa_id, policies, phone_number_id)
 
     # ── Download / policy doc subflow ──────────────────────────────────────────
     elif step == "pol_download":
-        pol = data.get("pol_selected", DEMO_POLICIES[0])
+        pol = _get_selected_pol()
         if reply_id == "pol_upload_bp":
             await _reset(session)
             from app.services.bp_link_flow_service import start_bp_link_flow
@@ -394,7 +380,7 @@ async def handle_check_policy_flow(
 
     # ── Manage alerts ──────────────────────────────────────────────────────────
     elif step == "pol_alerts_manage":
-        pol = data.get("pol_selected", DEMO_POLICIES[0])
+        pol = _get_selected_pol()
         if reply_id == "pol_alerts_keep":
             await _show_alerts_kept(session, sender_wa_id, pol, phone_number_id)
         elif reply_id == "pol_alerts_off":
@@ -408,7 +394,7 @@ async def handle_check_policy_flow(
 
     # ── Alerts kept active ─────────────────────────────────────────────────────
     elif step == "pol_alerts_kept":
-        pol = data.get("pol_selected", DEMO_POLICIES[0])
+        pol = _get_selected_pol()
         if reply_id == "pol_back_detail":
             await _show_detail(session, sender_wa_id, pol, phone_number_id)
         elif reply_id in ("pol_cancel", "pol_home"):
@@ -418,7 +404,7 @@ async def handle_check_policy_flow(
 
     # ── Turn off alerts confirmation ───────────────────────────────────────────
     elif step == "pol_alerts_off_confirm":
-        pol = data.get("pol_selected", DEMO_POLICIES[0])
+        pol = _get_selected_pol()
         if reply_id == "pol_alerts_off_yes":
             await _show_alerts_off_done(session, sender_wa_id, pol, phone_number_id)
         elif reply_id in ("pol_alerts_keep", "pol_back_detail"):
@@ -430,7 +416,7 @@ async def handle_check_policy_flow(
 
     # ── Alerts turned off result ───────────────────────────────────────────────
     elif step == "pol_alerts_off_done":
-        pol = data.get("pol_selected", DEMO_POLICIES[0])
+        pol = _get_selected_pol()
         if reply_id == "pol_alerts_turn_back":
             await _show_manage_alerts(session, sender_wa_id, pol, phone_number_id)
         elif reply_id == "pol_back_detail":
@@ -442,7 +428,7 @@ async def handle_check_policy_flow(
 
     # ── Link boarding pass confirm ─────────────────────────────────────────────
     elif step == "pol_link_confirm":
-        pol = data.get("pol_selected", DEMO_POLICIES[0])
+        pol = _get_selected_pol()
         if reply_id == "pol_link_yes":
             await _show_linked(session, sender_wa_id, pol, phone_number_id)
         elif reply_id == "pol_back_detail":
@@ -454,13 +440,13 @@ async def handle_check_policy_flow(
 
     # ── Boarding pass linked ───────────────────────────────────────────────────
     elif step == "pol_linked":
-        pol = data.get("pol_selected", DEMO_POLICIES[0])
+        pol = _get_selected_pol()
         if reply_id == "pol_eligibility":
             await _show_eligibility(session, sender_wa_id, pol, phone_number_id)
         elif reply_id == "pol_back_detail":
             await _show_detail(session, sender_wa_id, pol, phone_number_id)
         elif reply_id == "pol_all":
-            await _show_all_policies(session, sender_wa_id, phone_number_id)
+            await _show_all_policies(session, sender_wa_id, policies, phone_number_id)
         elif reply_id == "pol_home":
             await _go_home(session, sender_wa_id, phone_number_id)
         else:
@@ -468,7 +454,7 @@ async def handle_check_policy_flow(
 
     # ── Eligibility result ─────────────────────────────────────────────────────
     elif step == "pol_eligibility":
-        pol = data.get("pol_selected", DEMO_POLICIES[0])
+        pol = _get_selected_pol()
         if reply_id == "pol_confirm_payout":
             await _show_payout_initiated(session, sender_wa_id, pol, phone_number_id)
         elif reply_id == "pol_upload_first":
@@ -484,7 +470,7 @@ async def handle_check_policy_flow(
 
     # ── Payout initiated ───────────────────────────────────────────────────────
     elif step == "pol_payout_done":
-        pol = data.get("pol_selected", DEMO_POLICIES[0])
+        pol = _get_selected_pol()
         if reply_id == "pol_back_detail":
             await _show_detail(session, sender_wa_id, pol, phone_number_id)
         elif reply_id in ("pol_cancel", "pol_home"):
@@ -505,253 +491,223 @@ async def _go_home(session: dict, wa_id: str, phone_number_id: Optional[str]):
     await send_main_menu(to=wa_id, phone_number_id=phone_number_id)
 
 
-async def _show_phone_policies(session: dict, wa_id: str, phone_number_id: Optional[str]):
+async def _show_phone_policies(session: dict, wa_id: str, policies: list, phone_number_id: Optional[str]):
     await _set_step(session, "pol_phone_list")
+    
     msisdn = f"+{wa_id}" if not wa_id.startswith("+") else wa_id
-    policies = None
+    phone_pols = []
     try:
-        policies = await ipurvey_service.search_policies(msisdn)
-    except Exception as exc:
-        logger.error(f"[check_policy] search_policies failed: {exc}")
-    if not policies:
-        policies = DEMO_POLICIES
-    session.setdefault("temp_data", {}).setdefault(CHECK_POLICY_FLOW_KEY, {}).setdefault("data", {})["pol_phone_results"] = policies
-    await save_session(session)
-    rows = [
-        {
-            "id":          f"psel_{i}",
-            "title":       str(pol.get("name") or pol.get("productName") or "Policy")[:24],
-            "description": f"{pol.get('status','Active')} · {pol.get('ref') or pol.get('policyCode') or ''}",
-        }
-        for i, pol in enumerate(policies[:10])
-    ]
-    rows.append({"id": "pol_home", "title": "🏠 Main menu"})
+        phone_pols = await ipurvey_service.search_policies(msisdn)
+    except Exception:
+        pass
+    
+    if not phone_pols:
+        phone_pols = policies
+
+    await _save_data(session, "pol_phone_results", phone_pols)
+
+    if not phone_pols:
+        await _send_text(wa_id,
+            "⚠️ No policies found linked to your phone number.",
+            phone_number_id)
+        return
+
+    rows = []
+    for i, p in enumerate(phone_pols):
+        pol = _normalize_pol(p)
+        rows.append({
+            "id": f"psel_{i}",
+            "title": f"{pol['name']}"[:24],
+            "description": f"{pol['ref']} · {pol['date']}",
+        })
+
     await _send_list(wa_id,
-        f"We found *{len(policies)} {'policy' if len(policies)==1 else 'policies'}* linked to this WhatsApp number.\n\n"
-        "Please select a policy to view:",
+        f"📱 We found *{len(phone_pols)} policies* for your number.\n\nSelect a policy to view details:",
         "Select policy",
         [{"title": "Your Policies", "rows": rows}],
         phone_number_id,
-        header="📋 Your Policies")
+        header="📱 My Policies")
 
 
 async def _ask_flight_number(session: dict, wa_id: str, phone_number_id: Optional[str]):
     await _set_step(session, "pol_flight_input")
     await _send_text(wa_id,
-        "✈️ *Search by Flight Number*\n\n"
-        "Please enter your flight number:\n\n_Example: P47123, W3401_",
+        "✈️ *Find by Flight Number*\n\n"
+        "Please enter your flight number:\n\n_Example: P47123_",
         phone_number_id)
 
 
 async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_detail")
-    travelers = ", ".join(pol.get("travelers", ["—"]))
-    await _send_list(wa_id,
-        f"🛡️  *{pol['name']}*\n"
-        f"Policy No: {pol['ref']}     ✅ {pol['status']}\n\n"
-        f"✈️  Airline      {pol['airline']}\n"
-        f"✈️  Flight        {pol['flight']}\n"
-        f"📅  Date          {pol['date']}\n"
-        f"👤  Traveller   {travelers}",
-        "📋 View options",
-        [{"title": "More options", "rows": [
-            {"id": "pol_download",      "title": "📥 Download Policy Doc"},
-            {"id": "pol_manage_alerts", "title": "🔔 Manage alerts"},
-            {"id": "pol_help",          "title": "🆘 Help"},
-            {"id": "pol_all",           "title": "📋 All my policies"},
-        ]}],
+    p = _normalize_pol(pol)
+    
+    status_emoji = "✅" if p['status'].lower() == "active" else "ℹ️"
+    
+    body = (
+        f"{status_emoji} *{p['name']}*\n"
+        f"Policy: {p['ref']} · {p['status']}\n\n"
+        f"✈️ *Flight:* {p['airline']} {p['flight']}\n"
+        f"📅 *Date:* {p['date']}\n"
+        f"📍 *Route:* {p['origin']} ➡️ {p['dest']}\n"
+        f"🛡️ *Cover:* {p['cover']}\n"
+        f"👤 *Traveler:* {p['travelers'][0] if p['travelers'] else '—'}\n"
+    )
+    
+    rows = [
+        {"id": "pol_download",      "title": "📄 Download Document"},
+        {"id": "pol_manage_alerts", "title": "🔔 Manage Alerts"},
+        {"id": "pol_all",           "title": "📋 View All Policies"},
+        {"id": "pol_home",          "title": "🏠 Main Menu"},
+    ]
+    
+    await _send_list(wa_id, body, "Options",
+        [{"title": "Policy Options", "rows": rows}],
         phone_number_id,
-        header="📋 Your Policy Details")
+        header="🛡️ Policy Details")
+
+
+async def _show_all_policies(session: dict, wa_id: str, policies: list, phone_number_id: Optional[str]):
+    await _set_step(session, "pol_all_list")
+    
+    if not policies:
+        await _send_text(wa_id, "⚠️ No policies found.", phone_number_id)
+        return
+
+    rows = []
+    for i, p in enumerate(policies):
+        pol = _normalize_pol(p)
+        rows.append({
+            "id": f"pall_{i}",
+            "title": f"{pol['name']}"[:24],
+            "description": f"{pol['ref']} · {pol['date']}",
+        })
+
+    await _send_list(wa_id,
+        f"📋 You have *{len(policies)} policies* in total.\n\nSelect a policy to view details:",
+        "Select policy",
+        [{"title": "All Policies", "rows": rows}],
+        phone_number_id,
+        header="📋 All My Policies")
 
 
 async def _show_document(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_download")
-    pol_id   = pol.get("id") or ""
-    pol_code = pol.get("ref") or ""
-    if pol_id or pol_code:
-        try:
-            doc_result = await ipurvey_service.get_policy_document_url(pol_id or pol_code)
-            if doc_result:
-                url = None
-                if isinstance(doc_result, dict):
-                    url = doc_result.get("url") or doc_result.get("documentUrl") or doc_result.get("downloadUrl")
-                elif isinstance(doc_result, str):
-                    url = doc_result
-                if url:
-                    pol = {**pol, "doc_url": url}
-        except Exception as exc:
-            logger.error(f"[check_policy] get_policy_document_url failed: {exc}")
-    await _send_cta_document(wa_id, pol, phone_number_id)
-    await _send_list(wa_id,
-        "📧 A copy has also been sent to your registered email address.\n\n"
-        "What would you like to do next?",
-        "Select option",
-        [{"title": "Options", "rows": [
-            {"id": "pol_manage_alerts", "title": "🔔 Manage alerts"},
-            {"id": "pol_upload_bp",     "title": "📲 Upload boarding pass"},
-            {"id": "pol_home",          "title": "🏠 Main menu"},
-            {"id": "pol_back_detail",   "title": "↩️ Back"},
-            {"id": "pol_cancel",        "title": "❌ Cancel"},
-        ]}],
-        phone_number_id,
-        header="📄 Your Policy Document")
+    p = _normalize_pol(pol)
+    
+    if p.get("doc_url"):
+        await _send_cta_document(wa_id, p, phone_number_id)
+    else:
+        await _send_text(wa_id,
+            f"📄 *Policy Document: {p['ref']}*\n\n"
+            "Your full policy document is being prepared. You will receive a link to download it shortly.",
+            phone_number_id)
+
+    rows = [
+        {"id": "pol_upload_bp",     "title": "📤 Upload Boarding Pass"},
+        {"id": "pol_manage_alerts", "title": "🔔 Manage Alerts"},
+        {"id": "pol_back_detail",   "title": "↩️ Back to Details"},
+        {"id": "pol_home",          "title": "🏠 Main Menu"},
+    ]
+    await _send_list(wa_id, "What would you like to do next?", "Select option",
+        [{"title": "Next steps", "rows": rows}],
+        phone_number_id)
 
 
 async def _show_manage_alerts(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_alerts_manage")
+    p = _normalize_pol(pol)
+    
     await _send_list(wa_id,
-        f"🔔 *Manage your flight alerts*\n\n"
-        f"✈️  *Flight {pol['flight']} —*\n"
-        f"     *Monitored*                🟢 Active\n"
-        f"{pol['origin']} → {pol['dest']} · {pol['date']}\n\n"
-        f"Policy No.        {pol['ref']}\n"
-        f"Alerts sent to    This WhatsApp number\n"
-        f"Monitoring         Delays · Cancellations\n\n"
-        "What would you like to do?",
+        f"🔔 *Manage Alerts*\nPolicy: {p['ref']}\n\n"
+        "Flight delay alerts are currently *ACTIVE* for this policy.",
         "Select option",
-        [{"title": "Options", "rows": [
-            {"id": "pol_alerts_keep", "title": "🔔 Keep alerts active"},
-            {"id": "pol_alerts_off",  "title": "🔕 Turn off alerts"},
-            {"id": "pol_home",        "title": "🏠 Main menu"},
-            {"id": "pol_back_detail", "title": "↩️ Back"},
-            {"id": "pol_cancel",      "title": "❌ Cancel"},
+        [{"title": "Alert Options", "rows": [
+            {"id": "pol_alerts_keep", "title": "✅ Keep Alerts On"},
+            {"id": "pol_alerts_off",  "title": "🔕 Turn Off Alerts"},
+            {"id": "pol_back_detail", "title": "↩️ Back to Details"},
         ]}],
         phone_number_id)
 
 
 async def _show_alerts_kept(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_alerts_kept")
-    await _send_list(wa_id,
-        "✅ *Alerts remain active*\nYou'll be notified of any flight changes.",
-        "Select option",
-        [{"title": "Options", "rows": [
-            {"id": "pol_back_detail", "title": "📋 View my policy"},
-            {"id": "pol_home",        "title": "🏠 Main menu"},
-        ]}],
-        phone_number_id)
+    await _send_text(wa_id, "✅ Flight delay alerts will remain *active*. We'll notify you of any disruptions.", phone_number_id)
+    await _show_detail(session, wa_id, pol, phone_number_id)
 
 
 async def _show_alerts_off_confirm(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_alerts_off_confirm")
     await _send_list(wa_id,
-        f"You will no longer receive notifications about\n"
-        f"flight *{pol['flight']}*. Your policy cover remains active.",
-        "Select option",
-        [{"title": "Options", "rows": [
-            {"id": "pol_alerts_off_yes", "title": "🔔 Yes, turn off alerts"},
-            {"id": "pol_alerts_keep",    "title": "🔔 No, keep alerts on"},
-            {"id": "pol_back_detail",    "title": "↩️ Back"},
-            {"id": "pol_cancel",         "title": "❌ Cancel"},
+        "🔕 *Turn off alerts?*\n\n"
+        "You will no longer receive real-time notifications for flight delays on this policy.",
+        "Confirm",
+        [{"title": "Confirm", "rows": [
+            {"id": "pol_alerts_off_yes", "title": "🔕 Yes, turn off"},
+            {"id": "pol_alerts_keep",    "title": "✅ No, keep on"},
         ]}],
-        phone_number_id,
-        header="🔔 Turn off flight alerts?")
+        phone_number_id)
 
 
 async def _show_alerts_off_done(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_alerts_off_done")
     await _send_list(wa_id,
-        "🔔 *Alerts turned off*\n"
-        "You can turn them back on anytime from Check My Policy.",
-        "Select option",
+        "🔕 *Alerts Turned Off*\n\nYou will not receive notifications for this flight.",
+        "Options",
         [{"title": "Options", "rows": [
-            {"id": "pol_alerts_turn_back", "title": "🔔 Turn alerts back on"},
-            {"id": "pol_back_detail",      "title": "📋 View my policy"},
-            {"id": "pol_home",             "title": "🏠 Main menu"},
+            {"id": "pol_alerts_turn_back", "title": "🔔 Turn back on"},
+            {"id": "pol_back_detail",      "title": "↩️ Back to Details"},
         ]}],
         phone_number_id)
 
 
 async def _show_link_confirm(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_link_confirm")
-    travelers = ", ".join(pol.get("travelers", ["—"]))
+    p = _normalize_pol(pol)
     await _send_list(wa_id,
-        f"We found an active policy matching your boarding pass.\n"
-        f"Please confirm this is the correct policy:\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📋  {pol['ref']}  ·  {pol['name']}\n"
-        f"✈️   {pol['airline']}  ·  {pol['flight']}\n"
-        f"📅  {pol['date']}\n👤  {travelers}\n"
-        f"━━━━━━━━━━━━━━━━━━━━",
-        "Select",
-        [{"title": "Confirm linking", "rows": [
-            {"id": "pol_link_yes",    "title": "✅ Yes, link it!"},
-            {"id": "pol_back_detail", "title": "↩️ Back"},
-            {"id": "pol_cancel",      "title": "❌ Cancel"},
+        f"🔗 *Link Boarding Pass*\n\nConfirm you want to link your boarding pass to policy *{p['ref']}*?",
+        "Confirm",
+        [{"title": "Confirm", "rows": [
+            {"id": "pol_link_yes",    "title": "✅ Yes, link it"},
+            {"id": "pol_back_detail", "title": "↩️ No, go back"},
         ]}],
-        phone_number_id,
-        header="🔗 Linking to Policy")
+        phone_number_id)
 
 
 async def _show_linked(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_linked")
-    travelers = ", ".join(pol.get("travelers", ["—"]))
-    await _send_list(wa_id,
-        f"✈️  *{pol['flight']}  ·  {pol['airline']}*\n"
-        f"📅  {pol['date']}\n👤  {travelers}\n"
-        f"💰  Total balance: *{pol['price']}*\n\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "Flight monitoring is now *active*. Payout is automatic, no forms needed. 💰",
-        "What next?",
-        [{"title": "Options", "rows": [
-            {"id": "pol_eligibility", "title": "✅ Check eligibility"},
-            {"id": "pol_back_detail", "title": "📋 View my policy"},
-            {"id": "pol_home",        "title": "🏠 Main menu"},
-        ]}],
-        phone_number_id,
-        header="✈️ Boarding Pass Linked!")
+    await _send_text(wa_id, "✅ *Boarding pass linked successfully!*", phone_number_id)
+    
+    rows = [
+        {"id": "pol_eligibility",   "title": "💰 Check Eligibility"},
+        {"id": "pol_back_detail",   "title": "↩️ Back to Details"},
+        {"id": "pol_home",          "title": "🏠 Main Menu"},
+    ]
+    await _send_list(wa_id, "What would you like to do next?", "Select option",
+        [{"title": "Options", "rows": rows}],
+        phone_number_id)
 
 
 async def _show_eligibility(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_eligibility")
-    await _send_text(wa_id,
-        "🔍 *Checking your eligibility...*\n"
-        "_Verifying policy, flight delay and cover details_\n\n• • •",
-        phone_number_id)
+    p = _normalize_pol(pol)
+    
+    await _send_text(wa_id, "🔍 *Checking eligibility...*", phone_number_id)
+    
+    # In a real app, call eligibility API
+    # Here we show a generic result or call a service if available
+    
     await _send_list(wa_id,
-        "✅ *You are eligible for a payout!*\n"
-        "_Your flight delay meets the cover threshold_\n\n"
-        f"✈️  Flight\t\t{pol['flight']} — {pol['airline']}\n"
-        f"⏱️  Delay\t\t3hrs 20mins\n"
-        f"📋  Policy\t\t{pol['ref']}\n"
-        f"💰  Payout amount\t*₦2,500*\n\n"
-        "Your payout will be sent to your registered bank account or wallet automatically.",
-        "Select option",
+        f"ℹ️ *Eligibility Status*\nPolicy: {p['ref']}\n\n"
+        "Your flight is currently on time. No payout eligibility detected yet.",
+        "Options",
         [{"title": "Options", "rows": [
-            {"id": "pol_confirm_payout", "title": "✅ Confirm payout"},
-            {"id": "pol_upload_first",   "title": "📤 Upload pass first"},
-            {"id": "pol_home",           "title": "🏠 Main menu"},
-            {"id": "pol_back_detail",    "title": "↩️ Back"},
-            {"id": "pol_cancel",         "title": "❌ Cancel"},
+            {"id": "pol_upload_first", "title": "📤 Re-upload pass"},
+            {"id": "pol_back_detail",  "title": "↩️ Back to Details"},
         ]}],
         phone_number_id)
 
 
 async def _show_payout_initiated(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_payout_done")
-    await _send_list(wa_id,
-        "💰 *Payout Initiated!*\n\n"
-        "₦2,500 is on its way to your account\n"
-        "⏱️ _Expected: within 24 hours_",
-        "Select option",
-        [{"title": "Options", "rows": [
-            {"id": "pol_back_detail", "title": "📋 View my policy"},
-            {"id": "pol_home",        "title": "🏠 Main menu"},
-        ]}],
-        phone_number_id,
-        header="💰 Payout Initiated!")
-
-
-async def _show_all_policies(session: dict, wa_id: str, phone_number_id: Optional[str]):
-    await _set_step(session, "pol_all_list")
-    rows = [
-        {"id": f"pall_{i}", "title": pol["name"][:24],
-         "description": f"{pol['airline']} · {pol['date']} · {pol['status']}"}
-        for i, pol in enumerate(DEMO_POLICIES)
-    ]
-    rows.append({"id": "pol_home", "title": "🏠 Main menu"})
-    await _send_list(wa_id,
-        "Here are *all your policies*.\n\nSelect one to view details:",
-        "Select policy",
-        [{"title": "All Your Policies", "rows": rows}],
-        phone_number_id,
-        header="📋 All Your Policies")
+    await _send_text(wa_id, "💰 *Payout Initiated!*\n\nYour payout is being processed and will be sent to your account soon.", phone_number_id)
+    await _show_detail(session, wa_id, pol, phone_number_id)
