@@ -9,6 +9,35 @@ IPURVEY_BASE_URL = "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc"
 REQUEST_TIMEOUT = 10.0
 
 
+def _mask_pii(raw: dict) -> dict:
+    """Return a shallow copy of *raw* with passenger/traveller names redacted.
+
+    Only the fields that carry personal names are masked; all other fields
+    (flight numbers, dates, codes, etc.) are left intact so the log is still
+    useful for confirming API field names.
+    """
+    masked = dict(raw)
+    # Redact top-level name fields
+    for key in ("firstName", "surname", "lastName", "name", "fullName", "traveler"):
+        if key in masked:
+            masked[key] = "***"
+    # Redact names inside passenger / traveller lists
+    for list_key in ("passengers", "travelers", "insuredPersons"):
+        if list_key in masked and isinstance(masked[list_key], list):
+            redacted_list = []
+            for item in masked[list_key]:
+                if isinstance(item, dict):
+                    item = dict(item)
+                    for name_key in ("firstName", "surname", "lastName", "name", "fullName"):
+                        if name_key in item:
+                            item[name_key] = "***"
+                elif isinstance(item, str):
+                    item = "***"
+                redacted_list.append(item)
+            masked[list_key] = redacted_list
+    return masked
+
+
 def _normalize_policy(raw: dict) -> dict:
     """Normalise a raw Ipurvey policy dict into the canonical shape used by all flows.
 
@@ -31,6 +60,11 @@ def _normalize_policy(raw: dict) -> dict:
     The function also accepts legacy/alternative field names so it degrades
     gracefully when the API adds or renames fields.
     """
+    # DEBUG: log the raw response with PII masked so field names can be confirmed
+    # in production without exposing personal data.  Set LOG_LEVEL=DEBUG to see this.
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Raw policy dict (PII masked): %s", _mask_pii(raw))
+
     travelers_raw = raw.get("passengers") or raw.get("travelers") or raw.get("insuredPersons") or []
     if isinstance(travelers_raw, list):
         travelers = []
@@ -163,7 +197,21 @@ async def fetch_policies_by_msisdn(msisdn: str) -> list:
             resp.raise_for_status()
             data = resp.json()
 
+        # DEBUG: log top-level response shape and first raw item so the team can
+        # confirm the exact field names returned by the API without PII exposure.
+        if logger.isEnabledFor(logging.DEBUG):
+            top_keys = list(data.keys()) if isinstance(data, dict) else type(data).__name__
+            logger.debug("Ipurvey raw response top-level keys for %s: %s", masked, top_keys)
+
         raw_list = _extract_policy_list(data)
+
+        if logger.isEnabledFor(logging.DEBUG) and raw_list:
+            logger.debug(
+                "Ipurvey first raw policy item (PII masked) for %s: %s",
+                masked,
+                _mask_pii(raw_list[0]) if isinstance(raw_list[0], dict) else raw_list[0],
+            )
+
         policies = [_normalize_policy(p) for p in raw_list]
         logger.info("Fetched %d policies for msisdn %s", len(policies), masked)
         return policies
