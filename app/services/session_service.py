@@ -137,6 +137,41 @@ def get_policy_cache(session: dict) -> Optional[list]:
     return None
 
 
+def get_policy_cache_allow_stale(session: dict) -> tuple[Optional[list], bool]:
+    """Return (policies, is_stale) using a stale-while-revalidate strategy.
+
+    - policies: the cached list regardless of age, or None if no cache exists.
+    - is_stale: True when a cache entry exists but its age has exceeded the TTL.
+
+    Malformed entries (missing timestamp) are pruned and treated as a cache miss.
+    Unlike get_policy_cache this function never removes a merely-stale entry from
+    the session dict, because the caller is expected to serve it immediately and
+    then trigger a background refresh.
+    """
+    cache = session.get("policy_cache")
+    if not cache:
+        return None, False
+    cached_at_str = cache.get("cached_at")
+    if not cached_at_str:
+        session.pop("policy_cache", None)
+        logger.debug("Policy cache malformed (no timestamp); pruned")
+        return None, False
+    try:
+        cached_at = datetime.fromisoformat(cached_at_str)
+        age = datetime.now(timezone.utc) - cached_at
+        is_stale = age >= timedelta(seconds=POLICY_CACHE_TTL_SECONDS)
+        policies = cache.get("policies")
+        if is_stale:
+            logger.debug("Policy cache stale (age: %s); serving stale data for immediate response", age)
+        else:
+            logger.debug("Policy cache hit (age: %s)", age)
+        return policies, is_stale
+    except Exception:
+        session.pop("policy_cache", None)
+        logger.debug("Policy cache malformed; pruned from session")
+        return None, False
+
+
 def set_policy_cache(session: dict, policies: list) -> None:
     """Store policies in the session cache with the current timestamp."""
     session["policy_cache"] = {

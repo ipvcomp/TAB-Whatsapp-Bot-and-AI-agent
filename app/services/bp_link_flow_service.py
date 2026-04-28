@@ -7,10 +7,11 @@ from app.services.whatsapp_service import download_whatsapp_media
 from app.services.session_service import (
     get_session,
     save_session,
-    get_policy_cache,
+    get_policy_cache_allow_stale,
     set_policy_cache,
     invalidate_policy_cache,
 )
+from app.services.policy_refresh import schedule_policy_cache_refresh
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 from app.services.ipurvey_api import fetch_policies_by_msisdn
 
@@ -331,11 +332,17 @@ async def start_bp_link_flow(
     in_reply_to: Optional[str] = None,
 ):
     session = await get_session(wa_id) or {}
-    policies = get_policy_cache(session)
+    policies, is_stale = get_policy_cache_allow_stale(session)
     if policies is None:
         policies = await fetch_policies_by_msisdn(wa_id)
         set_policy_cache(session, policies)
         logger.info("Fetched and cached %d policies for %s", len(policies), wa_id[:4] + "****")
+    elif is_stale:
+        logger.info(
+            "Serving stale cached policies (%d) for %s; background refresh scheduled",
+            len(policies), wa_id[:4] + "****",
+        )
+        schedule_policy_cache_refresh(wa_id)
     else:
         logger.info("Using cached policies (%d) for %s", len(policies), wa_id[:4] + "****")
     session.setdefault("temp_data", {})[BP_LINK_FLOW_KEY] = {
@@ -367,11 +374,17 @@ async def start_eligibility_check_flow(
     in_reply_to: Optional[str] = None,
 ):
     session = await get_session(wa_id) or {}
-    policies = get_policy_cache(session)
+    policies, is_stale = get_policy_cache_allow_stale(session)
     if policies is None:
         policies = await fetch_policies_by_msisdn(wa_id)
         set_policy_cache(session, policies)
         logger.info("Fetched and cached %d policies for %s", len(policies), wa_id[:4] + "****")
+    elif is_stale:
+        logger.info(
+            "Serving stale cached policies (%d) for %s; background refresh scheduled",
+            len(policies), wa_id[:4] + "****",
+        )
+        schedule_policy_cache_refresh(wa_id)
     else:
         logger.info("Using cached policies (%d) for %s", len(policies), wa_id[:4] + "****")
     session.setdefault("temp_data", {})[BP_LINK_FLOW_KEY] = {
