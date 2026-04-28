@@ -82,6 +82,31 @@ async def _send_list(
     await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="bp_link_flow")
 
 
+async def _send_buttons(
+    to: str,
+    body: str,
+    buttons: list,
+    phone_number_id: Optional[str],
+    header: Optional[str] = None,
+):
+    interactive = {
+        "type": "button",
+        "body": {"text": body},
+        "action": {"buttons": [{"type": "reply", "reply": {"id": b["id"], "title": b["title"]}} for b in buttons]},
+    }
+    if header:
+        interactive["header"] = {"type": "text", "text": header}
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "interactive",
+        "interactive": interactive,
+    }
+    await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="bp_link_flow")
+    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="bp_link_flow")
+
+
 async def _go_home(wa_id: str, session: dict, phone_number_id: Optional[str]):
     session["temp_data"][BP_LINK_FLOW_KEY]   = {}
     session["temp_data"][PAYMENT_FLOW_KEY]   = {}
@@ -147,7 +172,7 @@ async def _show_upload_confirmed(wa_id: str, session: dict, flow: dict, phone_nu
     traveler = data.get("bp_sel_traveler", "")
     filename = data.get("bp_filename",     f"boarding_pass_{flight}.pdf")
 
-    await _send_list(wa_id,
+    await _send_buttons(wa_id,
         f"📎 *{filename}*\n\n"
         f"Policy:      {ref}   ✅ Active\n"
         f"✈️ Airline:    {airline}\n"
@@ -155,11 +180,10 @@ async def _show_upload_confirmed(wa_id: str, session: dict, flow: dict, phone_nu
         f"📅 Date:       {date}\n"
         f"👤 Traveller: {traveler}\n\n"
         "_Your boarding pass has been saved. You can check eligibility for a payout from the main menu after your flight._",
-        "What next?",
-        [{"title": "Options", "rows": [
+        [
             {"id": "bp_home",   "title": "🏠 Main menu"},
             {"id": "bp_cancel", "title": "❌ Cancel"},
-        ]}],
+        ],
         phone_number_id,
         header="✅ Boarding pass confirmed")
 
@@ -175,7 +199,7 @@ async def _show_link_confirm(wa_id: str, session: dict, flow: dict, phone_number
     date     = data.get("bp_sel_date",     "")
     traveler = data.get("bp_sel_traveler", "")
 
-    await _send_list(wa_id,
+    await _send_buttons(wa_id,
         "We found an active policy matching your boarding pass.\n"
         "Please confirm this is the correct policy:\n\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -183,12 +207,11 @@ async def _show_link_confirm(wa_id: str, session: dict, flow: dict, phone_number
         f"✈️   {airline}  ·  {flight}\n"
         f"📅  {date}  ·  {traveler}\n"
         f"━━━━━━━━━━━━━━━━━━━━",
-        "Confirm",
-        [{"title": "Confirm linking", "rows": [
+        [
             {"id": "bp_link_yes", "title": "✅ Yes, link it!"},
-            {"id": "bp_back",     "title": "↩️ Back (0)"},
-            {"id": "bp_cancel",   "title": "❌ Cancel (99)"},
-        ]}],
+            {"id": "bp_back",     "title": "↩️ Back"},
+            {"id": "bp_cancel",   "title": "❌ Cancel"},
+        ],
         phone_number_id,
         header="🔗 Linking to Policy")
 
@@ -202,18 +225,17 @@ async def _show_linked(wa_id: str, session: dict, flow: dict, phone_number_id: O
     date     = data.get("bp_sel_date",     "")
     traveler = data.get("bp_sel_traveler", "")
 
-    await _send_list(wa_id,
+    await _send_buttons(wa_id,
         f"✈️  *{flight}  ·  {airline}*\n"
         f"📅  {date}\n👤  {traveler}\n\n"
         "Flight monitoring is now *active*.\n"
         "You will be notified instantly if your flight\n"
         "is disrupted — payout is automatic, no forms needed. 💰",
-        "What next?",
-        [{"title": "Options", "rows": [
+        [
             {"id": "bp_eligibility", "title": "✅ Check eligibility"},
             {"id": "bp_view_policy", "title": "📋 View my policy"},
             {"id": "bp_home",        "title": "🏠 Main menu"},
-        ]}],
+        ],
         phone_number_id,
         header="✈️ Boarding Pass Linked!")
 
@@ -229,16 +251,15 @@ async def _show_policy_card(wa_id: str, session: dict, flow: dict, phone_number_
     date     = data.get("bp_sel_date",     "")
     traveler = data.get("bp_sel_traveler", "")
 
-    await _send_list(wa_id,
+    await _send_buttons(wa_id,
         f"🛡️  *{name}*\nPolicy No: {ref}   ✅ Active\n\n"
         f"✈️  Airline:    {airline}\n"
         f"🛫  Flight:     {flight}\n"
         f"📅  Date:       {date}\n"
         f"👤  Traveller: {traveler}",
-        "Options",
-        [{"title": "Options", "rows": [
+        [
             {"id": "bp_home", "title": "🏠 Main menu"},
-        ]}],
+        ],
         phone_number_id,
         header="📋 Your Policy")
 
@@ -273,16 +294,15 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
         except (ValueError, TypeError):
             payout_fmt = f"₦{payout_amt}"
         if not eligible:
-            await _send_list(wa_id,
+            await _send_buttons(wa_id,
                 "❌ *Not yet eligible for a payout*\n\n"
                 f"✈️  Flight\t\t{flight} — {airline}\n"
                 f"📋  Policy\t\t{ref}\n\n"
                 "_The flight delay threshold has not been met or no disruption was recorded._",
-                "Select option",
-                [{"title": "Options", "rows": [
+                [
                     {"id": "bp_upload_first", "title": "📤 Upload pass"},
                     {"id": "bp_home",         "title": "🏠 Main menu"},
-                ]}],
+                ],
                 phone_number_id)
             return
         delay_display = delay_str
@@ -291,7 +311,7 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
         delay_display  = "3hrs 20mins"
         payout_display = "₦2,500"
 
-    await _send_list(wa_id,
+    await _send_buttons(wa_id,
         "✅ *You are eligible for a payout!*\n"
         "_Your flight delay meets the cover threshold_\n\n"
         f"✈️  Flight\t\t{flight} — {airline}\n"
@@ -299,29 +319,25 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
         f"📋  Policy\t\t{ref}\n"
         f"💰  Payout amount\t*{payout_display}*\n\n"
         "Your payout will be sent to your registered\nbank account or wallet automatically.",
-        "Select option",
-        [{"title": "Options", "rows": [
+        [
             {"id": "bp_confirm_payout", "title": "✅ Confirm payout"},
             {"id": "bp_upload_first",   "title": "📤 Upload pass first"},
             {"id": "bp_home",           "title": "🏠 Main menu"},
-            {"id": "bp_back",           "title": "↩️ Back (0)"},
-            {"id": "bp_cancel",         "title": "❌ Cancel (99)"},
-        ]}],
+        ],
         phone_number_id)
 
 
 async def _show_payout_initiated(wa_id: str, session: dict, flow: dict, phone_number_id: Optional[str]):
     flow["step"] = "bp_payout_done"
     await save_session(session)
-    await _send_list(wa_id,
+    await _send_buttons(wa_id,
         "💰 *Payout Initiated!*\n\n"
         "₦2,500 is on its way to your account\n"
         "⏱️ _Expected: within 24 hours_",
-        "Select option",
-        [{"title": "Options", "rows": [
+        [
             {"id": "bp_view_policy", "title": "📋 View my policy"},
             {"id": "bp_home",        "title": "🏠 Main menu"},
-        ]}],
+        ],
         phone_number_id,
         header="💰 Payout Initiated")
 
@@ -355,17 +371,14 @@ async def start_bp_link_flow(
         session["user_id"] = wa_id
     await save_session(session)
 
-    await _send_list(
-        wa_id,
+    await _send_buttons(wa_id,
         "Please choose an option:",
-        "Select option",
-        [{"title": "Options", "rows": [
-            {"id": "bp_upload_me", "title": "📋 Upload boarding pass"},
+        [
+            {"id": "bp_upload_me", "title": "📋 Upload pass"},
             {"id": "bp_help",      "title": "🙋 Help"},
-        ]}],
+        ],
         phone_number_id,
-        header="🧳 Upload boarding pass",
-    )
+        header="🧳 Upload boarding pass")
 
 
 async def start_eligibility_check_flow(

@@ -98,6 +98,31 @@ async def _send_list(
     await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="check_policy_flow")
 
 
+async def _send_buttons(
+    to: str,
+    body: str,
+    buttons: list,
+    phone_number_id: Optional[str],
+    header: Optional[str] = None,
+):
+    interactive = {
+        "type": "button",
+        "body": {"text": body},
+        "action": {"buttons": [{"type": "reply", "reply": {"id": b["id"], "title": b["title"]}} for b in buttons]},
+    }
+    if header:
+        interactive["header"] = {"type": "text", "text": header}
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "interactive",
+        "interactive": interactive,
+    }
+    await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="check_policy_flow")
+    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="check_policy_flow")
+
+
 async def _send_cta_document(
     to: str,
     pol: dict,
@@ -172,18 +197,15 @@ async def start_check_policy_flow(
         session["user_id"] = wa_id
     await save_session(session)
 
-    await _send_list(
-        to=wa_id,
-        header="📋 Check my policy",
-        body="How would you like to find your policy?",
-        button_label="Select option",
-        sections=[{"title": "Find your policy", "rows": [
-            {"id": "pol_by_phone",  "title": "📱 Use my phone number"},
-            {"id": "pol_by_number", "title": "🔢 Enter policy number"},
-            {"id": "pol_by_flight", "title": "✈️ By flight number"},
-        ]}],
-        phone_number_id=phone_number_id,
-    )
+    await _send_buttons(wa_id,
+        "How would you like to find your policy?",
+        [
+            {"id": "pol_by_phone",  "title": "📱 My phone number"},
+            {"id": "pol_by_number", "title": "🔢 Policy number"},
+            {"id": "pol_by_flight", "title": "✈️ By flight no"},
+        ],
+        phone_number_id,
+        header="📋 Check my policy")
 
 
 # ── Main handler ───────────────────────────────────────────────────────────────
@@ -551,15 +573,12 @@ async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Op
         f"👤 *Traveler:* {p['travelers'][0] if p['travelers'] else '—'}\n"
     )
     
-    rows = [
-        {"id": "pol_download",      "title": "📄 Download Document"},
-        {"id": "pol_manage_alerts", "title": "🔔 Manage Alerts"},
-        {"id": "pol_all",           "title": "📋 View All Policies"},
-        {"id": "pol_home",          "title": "🏠 Main Menu"},
-    ]
-    
-    await _send_list(wa_id, body, "Options",
-        [{"title": "Policy Options", "rows": rows}],
+    await _send_buttons(wa_id, body,
+        [
+            {"id": "pol_download",      "title": "📄 Download Doc"},
+            {"id": "pol_manage_alerts", "title": "🔔 Manage Alerts"},
+            {"id": "pol_home",          "title": "🏠 Main Menu"},
+        ],
         phone_number_id,
         header="🛡️ Policy Details")
 
@@ -600,14 +619,12 @@ async def _show_document(session: dict, wa_id: str, pol: dict, phone_number_id: 
             "Your full policy document is being prepared. You will receive a link to download it shortly.",
             phone_number_id)
 
-    rows = [
-        {"id": "pol_upload_bp",     "title": "📤 Upload Boarding Pass"},
-        {"id": "pol_manage_alerts", "title": "🔔 Manage Alerts"},
-        {"id": "pol_back_detail",   "title": "↩️ Back to Details"},
-        {"id": "pol_home",          "title": "🏠 Main Menu"},
-    ]
-    await _send_list(wa_id, "What would you like to do next?", "Select option",
-        [{"title": "Next steps", "rows": rows}],
+    await _send_buttons(wa_id, "What would you like to do next?",
+        [
+            {"id": "pol_upload_bp",   "title": "📤 Upload Pass"},
+            {"id": "pol_back_detail", "title": "↩️ Back to Details"},
+            {"id": "pol_home",        "title": "🏠 Main Menu"},
+        ],
         phone_number_id)
 
 
@@ -615,15 +632,14 @@ async def _show_manage_alerts(session: dict, wa_id: str, pol: dict, phone_number
     await _set_step(session, "pol_alerts_manage")
     p = _normalize_policy(pol)
     
-    await _send_list(wa_id,
+    await _send_buttons(wa_id,
         f"🔔 *Manage Alerts*\nPolicy: {p['ref']}\n\n"
         "Flight delay alerts are currently *ACTIVE* for this policy.",
-        "Select option",
-        [{"title": "Alert Options", "rows": [
+        [
             {"id": "pol_alerts_keep", "title": "✅ Keep Alerts On"},
             {"id": "pol_alerts_off",  "title": "🔕 Turn Off Alerts"},
             {"id": "pol_back_detail", "title": "↩️ Back to Details"},
-        ]}],
+        ],
         phone_number_id)
 
 
@@ -635,39 +651,36 @@ async def _show_alerts_kept(session: dict, wa_id: str, pol: dict, phone_number_i
 
 async def _show_alerts_off_confirm(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_alerts_off_confirm")
-    await _send_list(wa_id,
+    await _send_buttons(wa_id,
         "🔕 *Turn off alerts?*\n\n"
         "You will no longer receive real-time notifications for flight delays on this policy.",
-        "Confirm",
-        [{"title": "Confirm", "rows": [
+        [
             {"id": "pol_alerts_off_yes", "title": "🔕 Yes, turn off"},
             {"id": "pol_alerts_keep",    "title": "✅ No, keep on"},
-        ]}],
+        ],
         phone_number_id)
 
 
 async def _show_alerts_off_done(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_alerts_off_done")
-    await _send_list(wa_id,
+    await _send_buttons(wa_id,
         "🔕 *Alerts Turned Off*\n\nYou will not receive notifications for this flight.",
-        "Options",
-        [{"title": "Options", "rows": [
+        [
             {"id": "pol_alerts_turn_back", "title": "🔔 Turn back on"},
             {"id": "pol_back_detail",      "title": "↩️ Back to Details"},
-        ]}],
+        ],
         phone_number_id)
 
 
 async def _show_link_confirm(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_link_confirm")
     p = _normalize_policy(pol)
-    await _send_list(wa_id,
+    await _send_buttons(wa_id,
         f"🔗 *Link Boarding Pass*\n\nConfirm you want to link your boarding pass to policy *{p['ref']}*?",
-        "Confirm",
-        [{"title": "Confirm", "rows": [
+        [
             {"id": "pol_link_yes",    "title": "✅ Yes, link it"},
             {"id": "pol_back_detail", "title": "↩️ No, go back"},
-        ]}],
+        ],
         phone_number_id)
 
 
@@ -675,13 +688,12 @@ async def _show_linked(session: dict, wa_id: str, pol: dict, phone_number_id: Op
     await _set_step(session, "pol_linked")
     await _send_text(wa_id, "✅ *Boarding pass linked successfully!*", phone_number_id)
     
-    rows = [
-        {"id": "pol_eligibility",   "title": "💰 Check Eligibility"},
-        {"id": "pol_back_detail",   "title": "↩️ Back to Details"},
-        {"id": "pol_home",          "title": "🏠 Main Menu"},
-    ]
-    await _send_list(wa_id, "What would you like to do next?", "Select option",
-        [{"title": "Options", "rows": rows}],
+    await _send_buttons(wa_id, "What would you like to do next?",
+        [
+            {"id": "pol_eligibility", "title": "💰 Check Eligibility"},
+            {"id": "pol_back_detail", "title": "↩️ Back to Details"},
+            {"id": "pol_home",        "title": "🏠 Main Menu"},
+        ],
         phone_number_id)
 
 
@@ -694,14 +706,13 @@ async def _show_eligibility(session: dict, wa_id: str, pol: dict, phone_number_i
     # In a real app, call eligibility API
     # Here we show a generic result or call a service if available
     
-    await _send_list(wa_id,
+    await _send_buttons(wa_id,
         f"ℹ️ *Eligibility Status*\nPolicy: {p['ref']}\n\n"
         "Your flight is currently on time. No payout eligibility detected yet.",
-        "Options",
-        [{"title": "Options", "rows": [
+        [
             {"id": "pol_upload_first", "title": "📤 Re-upload pass"},
             {"id": "pol_back_detail",  "title": "↩️ Back to Details"},
-        ]}],
+        ],
         phone_number_id)
 
 
