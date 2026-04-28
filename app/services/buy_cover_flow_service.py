@@ -437,7 +437,11 @@ async def handle_buy_cover_flow(
                 )
                 return
             rows = [
-                {"id": f"dep_{a['code']}|{a['name']}", "title": f"{a['code']}  {a['name']}"[:24]}
+                {
+                    "id": f"dep_{a['code']}|{a['name']}",
+                    "title": f"{a['code']}  {a['name']}"[:24],
+                    "description": (a.get("country") or "")[:72],
+                }
                 for a in airports
             ]
             await _send_list(
@@ -492,7 +496,11 @@ async def handle_buy_cover_flow(
                 )
                 return
             rows = [
-                {"id": f"arr_{a['code']}|{a['name']}", "title": f"{a['code']}  {a['name']}"[:24]}
+                {
+                    "id": f"arr_{a['code']}|{a['name']}",
+                    "title": f"{a['code']}  {a['name']}"[:24],
+                    "description": (a.get("country") or "")[:72],
+                }
                 for a in airports
             ]
             await _send_list(
