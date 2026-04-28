@@ -3,7 +3,12 @@ from typing import Optional
 
 import app.services.ipurvey_service as ipurvey_service
 
-from app.services.session_service import get_session, save_session
+from app.services.session_service import (
+    get_session,
+    save_session,
+    get_policy_cache,
+    set_policy_cache,
+)
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 from app.services.ipurvey_api import fetch_policies_by_msisdn
 
@@ -166,7 +171,13 @@ async def start_check_policy_flow(
     in_reply_to: Optional[str] = None,
 ):
     session = await get_session(wa_id) or {}
-    policies = await fetch_policies_by_msisdn(wa_id)
+    policies = get_policy_cache(session)
+    if policies is None:
+        policies = await fetch_policies_by_msisdn(wa_id)
+        set_policy_cache(session, policies)
+        logger.info("Fetched and cached %d policies for %s", len(policies), wa_id[:4] + "****")
+    else:
+        logger.info("Using cached policies (%d) for %s", len(policies), wa_id[:4] + "****")
     session.setdefault("temp_data", {})[CHECK_POLICY_FLOW_KEY] = {
         "active": True, "step": "pol_menu", "data": {"policies": policies},
     }

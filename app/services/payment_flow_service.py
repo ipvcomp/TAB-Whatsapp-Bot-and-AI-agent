@@ -3,7 +3,7 @@ from typing import Optional
 
 import app.services.ipurvey_service as ipurvey_service
 
-from app.services.session_service import get_session, save_session
+from app.services.session_service import get_session, save_session, invalidate_policy_cache
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
 logger = logging.getLogger(__name__)
@@ -334,6 +334,7 @@ async def _submit_and_confirm(
         api_data = session.get("api_data", {})
         if api_data.get("policy_id"):
             session["active_policy_id"] = api_data["policy_id"]
+        invalidate_policy_cache(session)
         await save_session(session)
         await _send_success(wa_id, session, flow, amount, ref, policy_ref, cname, phone_number_id)
     else:
