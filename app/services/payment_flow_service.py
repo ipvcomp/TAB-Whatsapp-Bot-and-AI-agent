@@ -283,6 +283,10 @@ async def _do_policy_submission(
     if not product_id and quotes:
         product_id = quotes[0].get("productId") or quotes[0].get("id")
 
+    bp_bytes = session.get("boarding_pass_bytes")
+    _bp_fn_raw = session.get("boarding_pass_filename")
+    bp_filename = str(_bp_fn_raw) if _bp_fn_raw else "boarding_pass.jpg"
+
     return await ipurvey_service.submit_policy(
         msisdn=msisdn,
         product_id=product_id,
@@ -305,6 +309,8 @@ async def _do_policy_submission(
         account_number=pay_data.get("pay_user_acct", ""),
         account_name=f"{fn} {ln}".strip(),
         payout_method_id=api_data.get("payout_method_id"),
+        boarding_pass_bytes=bp_bytes if isinstance(bp_bytes, bytes) else None,
+        boarding_pass_filename=bp_filename,
     )
 
 

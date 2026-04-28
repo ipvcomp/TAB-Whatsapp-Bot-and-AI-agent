@@ -678,12 +678,17 @@ async def submit_policy(
     account_number: str = "",
     account_name: str = "",
     payout_method_id: Optional[str] = None,
+    boarding_pass_bytes: Optional[bytes] = None,
+    boarding_pass_filename: str = "boarding_pass.jpg",
 ) -> tuple[Optional[str], Optional[str]]:
     """Submit a policy to the Ipurvey API.
 
     Returns a tuple of (policy_ref, error_message).
     On success policy_ref is the reference string and error_message is None.
     On failure policy_ref is None and error_message describes the problem.
+
+    If boarding_pass_bytes is provided the request is sent as
+    multipart/form-data with the file attached; otherwise plain JSON is used.
     """
     try:
         dep_date_fmt = _to_ddmmyyyy(dep_date) if dep_date else ""
@@ -732,7 +737,24 @@ async def submit_policy(
             body["payoutMethodId"] = payout_method_id
 
         async with httpx.AsyncClient(timeout=30) as c:
-            r = await c.post(f"{_base()}/api/tab-plc/policies", json=body)
+            if boarding_pass_bytes:
+                ext = boarding_pass_filename.lower().rsplit(".", 1)[-1] if "." in boarding_pass_filename else "jpg"
+                content_type_map = {
+                    "pdf":  "application/pdf",
+                    "png":  "image/png",
+                    "jpg":  "image/jpeg",
+                    "jpeg": "image/jpeg",
+                    "webp": "image/webp",
+                }
+                bp_content_type = content_type_map.get(ext, "application/octet-stream")
+                logger.info(f"[ipurvey] submit_policy: attaching boarding pass ({boarding_pass_filename}, {len(boarding_pass_bytes)} bytes)")
+                r = await c.post(
+                    f"{_base()}/api/tab-plc/policies",
+                    data=body,
+                    files={"boardingPass": (boarding_pass_filename, boarding_pass_bytes, bp_content_type)},
+                )
+            else:
+                r = await c.post(f"{_base()}/api/tab-plc/policies", json=body)
             if r.status_code in (200, 201):
                 data = _extract(r.json())
                 if isinstance(data, dict):
