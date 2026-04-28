@@ -1,6 +1,4 @@
 import logging
-import random
-import string
 from typing import Optional
 
 import app.services.ipurvey_service as ipurvey_service
@@ -64,11 +62,6 @@ def _filter_banks(query: str) -> list:
 def _bank_pages(banks: list) -> list:
     return [banks[i:i + BANKS_PER_PAGE] for i in range(0, len(banks), BANKS_PER_PAGE)]
 
-
-def _gen_ref()    -> str: return "TRV" + "".join(random.choices(string.digits, k=10))
-def _gen_policy() -> str: return "POL" + "".join(random.choices(string.digits, k=5))
-def _gen_otp()    -> str: return str(random.randint(100000, 999999))
-def _gen_ussd()   -> str: return f"*737*{random.randint(100000, 999999)}#"
 
 
 async def _get_flow_state(wa_id: str) -> tuple:
@@ -196,10 +189,7 @@ async def _show_payment_summary(
         f"Choose a payment method below:",
         "Select method",
         [{"title": "Payment Method", "rows": [
-            {"id": "pay_m_bank",   "title": "🏦 Bank transfer"},
-            {"id": "pay_m_card",   "title": "💳 Card payment"},
-            {"id": "pay_m_wallet", "title": "👛 Wallet"},
-            {"id": "pay_m_ussd",   "title": "📲 USSD"},
+            {"id": "pay_m_bank", "title": "🏦 Bank transfer"},
         ]}],
         phone_number_id,
         header="🎫 You're one step away from activating your cover",
@@ -249,6 +239,134 @@ async def _send_success(
     )
 
 
+async def _do_policy_submission(
+    wa_id: str,
+    session: dict,
+) -> tuple[Optional[str], Optional[str]]:
+    """Assemble all session data and call the real policy submission API.
+
+    Returns (policy_ref, error_message).
+    On success policy_ref is the reference string returned by the API.
+    On failure policy_ref is None and error_message describes what went wrong.
+    """
+    bc_data  = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
+    kyc_data = session.get("temp_data", {}).get(KYC_FLOW_KEY,       {}).get("data", {})
+    pay_data = session.get("temp_data", {}).get(PAYMENT_FLOW_KEY,   {}).get("data", {})
+    api_data = session.get("api_data", {})
+
+    msisdn = f"+{wa_id}" if not wa_id.startswith("+") else wa_id
+
+    raw_name = bc_data.get("name", "")
+    parts    = raw_name.strip().split(None, 1)
+    fn       = parts[0] if parts else raw_name
+    ln       = parts[1] if len(parts) > 1 else ""
+
+    dep_raw = bc_data.get("depart_airport", "").split("—")[0].strip().split()
+    dep_code = dep_raw[0] if dep_raw else ""
+    arr_raw = bc_data.get("arrive_airport", "").split("—")[0].strip().split()
+    arr_code = arr_raw[0] if arr_raw else ""
+
+    trip_raw  = bc_data.get("trip_type", "One-way 🗺️")
+    trip_type = "RETURN" if "return" in trip_raw.lower() else "ONE_WAY"
+
+    dep_date = bc_data.get("date", "")
+    arr_date = dep_date if trip_type == "ONE_WAY" else dep_date
+
+    quotes     = api_data.get("quotes", [])
+    product_id = None
+    cover_name = bc_data.get("cover", "")
+    for q in (quotes or []):
+        q_name = q.get("name") or q.get("productName") or ""
+        if q_name and q_name == cover_name:
+            product_id = q.get("productId") or q.get("id")
+            break
+    if not product_id and quotes:
+        product_id = quotes[0].get("productId") or quotes[0].get("id")
+
+    return await ipurvey_service.submit_policy(
+        msisdn=msisdn,
+        product_id=product_id,
+        policy_id=api_data.get("policy_id"),
+        first_name=fn,
+        last_name=ln,
+        email=bc_data.get("email", ""),
+        id_type=kyc_data.get("kyc_method", "BVN"),
+        id_number=kyc_data.get("kyc_id", ""),
+        booking_ref=bc_data.get("booking_ref", ""),
+        flight_num=bc_data.get("flight_num", ""),
+        trip_type=trip_type,
+        dep_airport=dep_code,
+        arr_airport=arr_code,
+        dep_date=dep_date,
+        dep_time=bc_data.get("depart_time", ""),
+        arr_date=arr_date,
+        arr_time=bc_data.get("arrive_time", ""),
+        bank_code=pay_data.get("pay_bank_code", ""),
+        account_number=pay_data.get("pay_user_acct", ""),
+        account_name=f"{fn} {ln}".strip(),
+        payout_method_id=api_data.get("payout_method_id"),
+    )
+
+
+async def _submit_and_confirm(
+    wa_id: str,
+    session: dict,
+    flow: dict,
+    amount: int,
+    ref: str,
+    cname: str,
+    phone_number_id: Optional[str],
+):
+    """Call the policy submission API, then show success or a retry prompt."""
+    await send_text_message(
+        to=wa_id,
+        body="⏳ *Submitting your policy...*\n_Please wait a moment_",
+        phone_number_id=phone_number_id,
+        source="payment_flow",
+    )
+
+    policy_ref, error = await _do_policy_submission(wa_id, session)
+
+    if policy_ref:
+        flow.setdefault("data", {})["pay_policy"] = policy_ref
+        session["active_policy_code"]   = policy_ref
+        session["active_policy_status"] = "submitted"
+        api_data = session.get("api_data", {})
+        if api_data.get("policy_id"):
+            session["active_policy_id"] = api_data["policy_id"]
+        await save_session(session)
+        await _send_success(wa_id, session, flow, amount, ref, policy_ref, cname, phone_number_id)
+    else:
+        err_msg = error or "Unknown error"
+        data = flow.setdefault("data", {})
+        data["submission_error"]  = err_msg
+        data["submission_ref"]    = ref
+        data["submission_cname"]  = cname
+        data["submission_amount"] = amount
+        flow["step"] = "pay_submit_retry"
+        await save_session(session)
+        await send_text_message(
+            to=wa_id,
+            body=(
+                f"⚠️ *Policy Submission Failed*\n\n"
+                f"We were unable to submit your policy at this time.\n\n"
+                f"*Error:* {err_msg}\n\n"
+                "Please tap *Retry* to try again, or contact support if the problem persists."
+            ),
+            phone_number_id=phone_number_id,
+            source="payment_flow",
+        )
+        await _send_buttons(
+            wa_id,
+            "What would you like to do?",
+            [
+                {"id": "pay_retry_submit", "title": "🔄 Retry Submission"},
+                {"id": "pay_home",         "title": "🏠 Main menu"},
+            ],
+            phone_number_id,
+        )
+
+
 async def start_payment_flow(
     wa_id: str,
     phone_number_id: Optional[str],
@@ -266,7 +384,6 @@ async def start_payment_flow(
     dep_date  = bc_data.get("date",  "—")
     travelers_list = bc_data.get("travelers", [])
     travelers = len(travelers_list) if travelers_list else 1
-    policy_no = _gen_policy()
 
     session.setdefault("temp_data", {})[PAYMENT_FLOW_KEY] = {
         "active": True,
@@ -278,7 +395,6 @@ async def start_payment_flow(
             "pay_dest":      dest,
             "pay_dep_date":  dep_date,
             "pay_travelers": travelers,
-            "pay_policy":    policy_no,
         },
     }
     session["temp_data"].get(KYC_FLOW_KEY, {}).update({"active": False})
@@ -315,7 +431,6 @@ async def handle_payment_flow(
     dest      = data.get("pay_dest",      "—")
     dep       = data.get("pay_dep_date",  "—")
     travelers = data.get("pay_travelers", 1)
-    policy_no = data.get("pay_policy",   "POL00000")
 
     text = ""
     if message.type == "text" and message.text:
@@ -485,9 +600,10 @@ async def handle_payment_flow(
     # ── Payment method choice ─────────────────────────────────────────────────
     elif step == "pay_method_choice":
         if reply_id == "pay_m_bank":
-            ref = "TA" + "".join(random.choices(string.digits, k=6))
-            data["pay_m_bank_ref"] = ref
-            policy_id = session.get("api_data", {}).get("policy_id")
+            policy_id  = session.get("api_data", {}).get("policy_id")
+            api_ref    = None
+            payment_id = None
+            initiate_error = False
             if policy_id:
                 try:
                     pay_result = await ipurvey_service.initiate_payment(
@@ -495,15 +611,41 @@ async def handle_payment_flow(
                         payment_method="BANK_TRANSFER",
                     )
                     if pay_result and isinstance(pay_result, dict):
-                        api_ref = pay_result.get("reference") or pay_result.get("paymentReference")
-                        if api_ref:
-                            ref = api_ref
-                            data["pay_m_bank_ref"] = api_ref
+                        api_ref = (
+                            pay_result.get("reference")
+                            or pay_result.get("paymentReference")
+                            or pay_result.get("paymentRef")
+                        )
                         payment_id = pay_result.get("paymentId") or pay_result.get("id")
                         if payment_id:
                             session.setdefault("api_data", {})["payment_id"] = payment_id
+                    else:
+                        initiate_error = True
                 except Exception as exc:
                     logger.error(f"[payment] initiate_payment bank failed: {exc}")
+                    initiate_error = True
+            else:
+                initiate_error = True
+
+            if not api_ref:
+                initiate_error = True
+
+            if initiate_error:
+                await save_session(session)
+                await send_text_message(
+                    to=sender_wa_id,
+                    body=(
+                        "⚠️ *Payment initiation failed*\n\n"
+                        "We could not start the bank transfer process. "
+                        "Please try again or contact support."
+                    ),
+                    phone_number_id=phone_number_id,
+                    source="payment_flow",
+                )
+                await _show_payment_summary(sender_wa_id, session, flow, phone_number_id)
+                return
+
+            data["pay_m_bank_ref"] = api_ref
             flow["step"] = "pay_m_bank_pending"
             await save_session(session)
             await _send_list(sender_wa_id,
@@ -511,7 +653,7 @@ async def handle_payment_flow(
                 f"Bank             Example Bank\n"
                 f"Account Name     TravelAssist Payments\n"
                 f"Account No.      0123456789\n\n"
-                f"🔑 Reference: {ref}\n\nAfter payment, reply with:",
+                f"🔑 Reference: {api_ref}\n\nAfter payment, reply with:",
                 "Select",
                 [{"title": "Action", "rows": [
                     {"id": "pay_m_done",    "title": "✅ I have paid"},
@@ -520,36 +662,18 @@ async def handle_payment_flow(
                 phone_number_id,
                 header="🏦 Bank Transfer")
 
-        elif reply_id == "pay_m_card":
-            flow["step"] = "pay_m_card_number"
-            await save_session(session)
-            await _send_text(sender_wa_id,
-                f"💳 *Card Payment*\n\n💰 Amount: *₦{amount:,}*\n\n"
-                "🔒 Your details are encrypted & secure.\n\n"
-                "Enter your *16-digit card number*:\n_Example: 5399 8300 0000 0000_",
-                phone_number_id)
-
-        elif reply_id == "pay_m_wallet":
-            flow["step"] = "pay_m_wallet_select"
-            await save_session(session)
-            await _send_list(sender_wa_id, "Choose wallet option:", "Select wallet",
-                [{"title": "👛 Wallet", "rows": WALLET_OPTIONS}], phone_number_id, header="👛 Wallet")
-
-        elif reply_id == "pay_m_ussd":
-            ussd = _gen_ussd()
-            data["pay_ussd_code"] = ussd
-            flow["step"] = "pay_m_ussd_confirm"
-            await save_session(session)
-            await _send_text(sender_wa_id,
-                f"📲 *USSD Payment*\n\n💰 Amount: *₦{amount:,}*\n\n"
-                f"Dial this code:\n\n*{ussd}*\n\n⏰ Expires in *30 minutes*",
-                phone_number_id)
-            await _send_list(sender_wa_id, "Once payment is done, tap below:", "Confirm",
-                [{"title": "Action", "rows": [
-                    {"id": "pay_m_done", "title": "✅ Payment done"},
-                    {"id": "pay_m_help", "title": "❓ Need help"},
-                ]}],
-                phone_number_id)
+        elif reply_id in ("pay_m_card", "pay_m_wallet", "pay_m_ussd"):
+            await send_text_message(
+                to=sender_wa_id,
+                body=(
+                    "⚠️ *Payment method not currently available*\n\n"
+                    "Bank transfer is the only supported payment method at this time.\n\n"
+                    "Please select *Bank Transfer* to continue."
+                ),
+                phone_number_id=phone_number_id,
+                source="payment_flow",
+            )
+            await _show_payment_summary(sender_wa_id, session, flow, phone_number_id)
         else:
             await _show_payment_summary(sender_wa_id, session, flow, phone_number_id)
 
@@ -565,7 +689,7 @@ async def handle_payment_flow(
                 msisdn = f"+{sender_wa_id}" if not sender_wa_id.startswith("+") else sender_wa_id
                 try:
                     status_result = await ipurvey_service.get_payment_status(
-                        policy_code=policy_id, msisdn=msisdn
+                        policy_id=policy_id, msisdn=msisdn
                     )
                     if status_result and isinstance(status_result, dict):
                         status_val = (status_result.get("status") or "").upper()
@@ -578,9 +702,8 @@ async def handle_payment_flow(
                             )
                 except Exception as exc:
                     logger.error(f"[payment] get_payment_status failed: {exc}")
-            if reply_id == "pay_m_done" or payment_confirmed:
-                pol = policy_ref or _gen_policy()
-                await _send_success(sender_wa_id, session, flow, amount, ref, pol, cname, phone_number_id)
+            if payment_confirmed:
+                await _submit_and_confirm(sender_wa_id, session, flow, amount, ref, cname, phone_number_id)
             else:
                 await _send_list(sender_wa_id,
                     f"⏳ *Payment not yet confirmed*\n\nPlease transfer *₦{amount:,}* to:\n\n"
@@ -610,118 +733,24 @@ async def handle_payment_flow(
                 phone_number_id,
                 header="🏦 Bank Transfer")
 
-    # ── Card — number ─────────────────────────────────────────────────────────
-    elif step == "pay_m_card_number":
-        digits = text.replace(" ", "").replace("-", "")
-        if digits.isdigit() and len(digits) == 16:
-            data["card_last4"] = digits[-4:]
-            flow["step"] = "pay_m_card_expiry"
-            await save_session(session)
-            await _send_text(sender_wa_id,
-                f"💳 Card: *•••• •••• •••• {digits[-4:]}* ✅\n\n"
-                "Enter card *expiry date*:\n_Format: MM/YY  Example: 12/26_",
-                phone_number_id)
-        else:
-            await _send_text(sender_wa_id,
-                "⚠️ Enter your *16-digit card number*:\n_Example: 5399 8300 0000 0000_",
-                phone_number_id)
-
-    # ── Card — expiry ─────────────────────────────────────────────────────────
-    elif step == "pay_m_card_expiry":
-        t = text
-        if "/" in t and len(t) in (4, 5):
-            data["card_expiry"] = t
-            flow["step"] = "pay_m_card_cvv"
-            await save_session(session)
-            await _send_text(sender_wa_id,
-                f"📅 Expiry: *{t}* ✅\n\nEnter your card *CVV*:\n_(3-digit code on back)_",
-                phone_number_id)
-        else:
-            await _send_text(sender_wa_id,
-                "⚠️ Enter expiry in *MM/YY* format.\n_Example: 12/26_",
-                phone_number_id)
-
-    # ── Card — CVV ────────────────────────────────────────────────────────────
-    elif step == "pay_m_card_cvv":
-        t = text
-        if t.isdigit() and len(t) == 3:
-            last4 = data.get("card_last4", "****")
-            otp   = _gen_otp()
-            data["pay_otp"] = otp
-            flow["step"] = "pay_m_card_otp"
-            await save_session(session)
-            await _send_text(sender_wa_id,
-                f"💳 *Card Payment*\n\n💰 Amount: *₦{amount:,}*\n"
-                f"🔢 Card: *•••• •••• •••• {last4}*\n\n"
-                f"🔐 *OTP Sent!*\nCheck phone linked to card *{last4}*.\n\n"
-                f"Enter your *6-digit OTP*:\n\n⏰ Expires in *5 minutes*\n_Your OTP: *{otp}*_",
-                phone_number_id)
-        else:
-            await _send_text(sender_wa_id, "⚠️ CVV must be *3 digits*. Try again:", phone_number_id)
-
-    # ── Card — OTP ────────────────────────────────────────────────────────────
-    elif step == "pay_m_card_otp":
-        if text == data.get("pay_otp", ""):
-            ref = _gen_ref()
-            await _send_success(sender_wa_id, session, flow, amount, ref, policy_no, cname, phone_number_id)
-        else:
-            await _send_text(sender_wa_id, "❌ Incorrect OTP. Try again:", phone_number_id)
-
-    # ── Wallet payment — select ───────────────────────────────────────────────
-    elif step == "pay_m_wallet_select":
-        wallet_map = {"wallet_9psb": "9PSB", "wallet_smartcash": "SmartCash", "wallet_opay": "OPay"}
-        if reply_id in wallet_map:
-            wtype = wallet_map[reply_id]
-            data["pay_m_wallet_type"] = wtype
-            flow["step"] = "pay_m_wallet_phone"
-            await save_session(session)
-            await _send_text(sender_wa_id,
-                f"📱 *{wtype} Wallet Payment*\n\n💰 Amount: *₦{amount:,}*\n\n"
-                "Enter the phone number linked to your wallet:\n\n_Example: 08012345678_",
-                phone_number_id)
-        else:
-            await _show_payment_summary(sender_wa_id, session, flow, phone_number_id)
-
-    # ── Wallet payment — phone ────────────────────────────────────────────────
-    elif step == "pay_m_wallet_phone":
-        digits = text.replace(" ", "").replace("-", "")
-        if digits.isdigit() and len(digits) >= 10:
-            wtype  = data.get("pay_m_wallet_type", "Wallet")
-            masked = digits[:4] + "****" + digits[-3:]
-            otp    = _gen_otp()
-            data["pay_otp"]          = otp
-            data["pay_wallet_phone"] = digits
-            flow["step"] = "pay_m_wallet_otp"
-            await save_session(session)
-            await _send_text(sender_wa_id,
-                f"📱 *{wtype} Wallet Payment*\n\n💰 Amount: *₦{amount:,}*\n"
-                f"📞 Wallet: *{masked}*\n\n🔐 OTP sent to *{masked}*\n\n"
-                f"Enter your *6-digit OTP*:\n\n⏰ Expires in *5 minutes*\n_Your OTP: *{otp}*_",
-                phone_number_id)
-        else:
-            await _send_text(sender_wa_id,
-                "⚠️ Enter a valid *phone number*:\n_Example: 08012345678_",
-                phone_number_id)
-
-    # ── Wallet OTP ────────────────────────────────────────────────────────────
-    elif step == "pay_m_wallet_otp":
-        if text == data.get("pay_otp", ""):
-            ref = _gen_ref()
-            await _send_success(sender_wa_id, session, flow, amount, ref, policy_no, cname, phone_number_id)
-        else:
-            await _send_text(sender_wa_id, "❌ Incorrect OTP. Try again:", phone_number_id)
-
-    # ── USSD confirm ──────────────────────────────────────────────────────────
-    elif step == "pay_m_ussd_confirm":
-        if reply_id == "pay_m_done":
-            ref = _gen_ref()
-            await _send_success(sender_wa_id, session, flow, amount, ref, policy_no, cname, phone_number_id)
-        elif reply_id == "pay_m_help":
-            ussd = data.get("pay_ussd_code", "*737*000000#")
-            await _send_text(sender_wa_id,
-                f"📲 *USSD Help*\n\nDial *{ussd}* on your phone.\n\n"
-                f"Follow prompts to pay *₦{amount:,}*.\n\n📞 Support: *+234 800 000 0000*",
-                phone_number_id)
+    # ── Legacy simulated payment steps — redirect to payment summary ──────────
+    elif step in (
+        "pay_m_card_number", "pay_m_card_expiry", "pay_m_card_cvv", "pay_m_card_otp",
+        "pay_m_wallet_select", "pay_m_wallet_phone", "pay_m_wallet_otp",
+        "pay_m_ussd_confirm",
+    ):
+        await send_text_message(
+            to=sender_wa_id,
+            body=(
+                "⚠️ *Payment method not currently available*\n\n"
+                "Only Bank Transfer is supported. Please select it to continue."
+            ),
+            phone_number_id=phone_number_id,
+            source="payment_flow",
+        )
+        flow["step"] = "pay_method_choice"
+        await save_session(session)
+        await _show_payment_summary(sender_wa_id, session, flow, phone_number_id)
 
     # ── Post-success ──────────────────────────────────────────────────────────
     elif step == "pay_success":
@@ -771,6 +800,42 @@ async def handle_payment_flow(
                 ]}],
                 phone_number_id,
                 header="📎 Got your boarding pass? Upload it now 👍")
+
+    # ── Submission retry ──────────────────────────────────────────────────────
+    elif step == "pay_submit_retry":
+        err_ref    = data.get("submission_ref", "—")
+        err_cname  = data.get("submission_cname", "—")
+        err_amount = data.get("submission_amount", amount)
+        err_msg    = data.get("submission_error", "Unknown error")
+        if reply_id == "pay_retry_submit":
+            await _submit_and_confirm(sender_wa_id, session, flow, err_amount, err_ref, err_cname, phone_number_id)
+        elif reply_id == "pay_home":
+            session["temp_data"][PAYMENT_FLOW_KEY] = {}
+            session["temp_data"][BUY_COVER_FLOW_KEY] = {}
+            session["temp_data"][KYC_FLOW_KEY] = {}
+            await save_session(session)
+            from app.services.auto_reply_service import send_main_menu
+            await send_main_menu(to=sender_wa_id, phone_number_id=phone_number_id)
+        else:
+            await send_text_message(
+                to=sender_wa_id,
+                body=(
+                    f"⚠️ *Policy Submission Failed*\n\n"
+                    f"*Error:* {err_msg}\n\n"
+                    "Tap Retry to try again or go to the main menu:"
+                ),
+                phone_number_id=phone_number_id,
+                source="payment_flow",
+            )
+            await _send_buttons(
+                sender_wa_id,
+                "What would you like to do?",
+                [
+                    {"id": "pay_retry_submit", "title": "🔄 Retry Submission"},
+                    {"id": "pay_home",         "title": "🏠 Main menu"},
+                ],
+                phone_number_id,
+            )
 
     # ── Catch-all ─────────────────────────────────────────────────────────────
     else:

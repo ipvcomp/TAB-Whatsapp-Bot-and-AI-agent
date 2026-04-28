@@ -596,11 +596,11 @@ async def initiate_payment(
         return None
 
 
-async def get_payment_status(policy_code: str, msisdn: str) -> Optional[dict]:
+async def get_payment_status(policy_id: str, msisdn: str) -> Optional[dict]:
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
             r = await c.get(
-                f"{_base()}/api/tab-plc/policies/{policy_code}/payment-status",
+                f"{_base()}/api/tab-plc/policies/{policy_id}/payment-status",
                 params={"msisdn": msisdn},
             )
             if r.status_code == 200:
@@ -609,6 +609,126 @@ async def get_payment_status(policy_code: str, msisdn: str) -> Optional[dict]:
     except Exception as e:
         logger.error(f"[ipurvey] get_payment_status failed: {e}")
         return None
+
+
+def _to_ddmmyyyy(date_str: str) -> str:
+    """Convert various date string formats to DD-MM-YYYY for the submission API."""
+    from datetime import datetime as _dt
+    for fmt in ["%d %B %Y", "%d/%m/%Y", "%d-%m-%Y", "%B %d, %Y", "%d %b %Y", "%Y-%m-%d"]:
+        try:
+            return _dt.strptime(date_str.strip(), fmt).strftime("%d-%m-%Y")
+        except ValueError:
+            continue
+    return date_str.strip()
+
+
+async def submit_policy(
+    msisdn: str,
+    product_id: Optional[str] = None,
+    policy_id: Optional[str] = None,
+    first_name: str = "",
+    last_name: str = "",
+    email: str = "",
+    id_type: str = "BVN",
+    id_number: str = "",
+    booking_ref: str = "",
+    flight_num: str = "",
+    trip_type: str = "ONE_WAY",
+    dep_airport: str = "",
+    arr_airport: str = "",
+    dep_date: str = "",
+    dep_time: str = "",
+    arr_date: str = "",
+    arr_time: str = "",
+    bank_code: str = "",
+    account_number: str = "",
+    account_name: str = "",
+    payout_method_id: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str]]:
+    """Submit a policy to the Ipurvey API.
+
+    Returns a tuple of (policy_ref, error_message).
+    On success policy_ref is the reference string and error_message is None.
+    On failure policy_ref is None and error_message describes the problem.
+    """
+    try:
+        dep_date_fmt = _to_ddmmyyyy(dep_date) if dep_date else ""
+        arr_date_fmt = _to_ddmmyyyy(arr_date) if arr_date else dep_date_fmt
+
+        body: dict = {"channel": "WHATSAPP"}
+        if msisdn:
+            body["msisdn"] = msisdn if msisdn.startswith("+") else f"+{msisdn}"
+        if product_id:
+            body["productId"] = product_id
+        if policy_id:
+            body["draftPolicyId"] = policy_id
+        if first_name:
+            body["firstName"] = first_name
+        if last_name:
+            body["lastName"] = last_name
+        if email:
+            body["email"] = email
+        if id_number:
+            body["identityType"] = id_type
+            body["identityNumber"] = id_number
+        if booking_ref:
+            body["bookingReference"] = booking_ref
+        if flight_num:
+            body["flightNumber"] = flight_num
+        body["tripType"] = trip_type
+        if dep_airport:
+            body["departureAirport"] = dep_airport
+        if arr_airport:
+            body["arrivalAirport"] = arr_airport
+        if dep_date_fmt:
+            body["departureDateLocal"] = dep_date_fmt
+        if dep_time:
+            body["departureTimeLocal"] = dep_time
+        if arr_date_fmt:
+            body["arrivalDateLocal"] = arr_date_fmt
+        if arr_time:
+            body["arrivalTimeLocal"] = arr_time
+        if bank_code:
+            body["bankCode"] = bank_code
+        if account_number:
+            body["accountNumber"] = account_number
+        if account_name:
+            body["accountName"] = account_name
+        if payout_method_id:
+            body["payoutMethodId"] = payout_method_id
+
+        async with httpx.AsyncClient(timeout=30) as c:
+            r = await c.post(f"{_base()}/api/tab-plc/policies", json=body)
+            if r.status_code in (200, 201):
+                data = _extract(r.json())
+                if isinstance(data, dict):
+                    ref = (
+                        data.get("policyCode")
+                        or data.get("policyReference")
+                        or data.get("policyNumber")
+                        or data.get("code")
+                        or data.get("reference")
+                        or data.get("ref")
+                    )
+                    if ref:
+                        return str(ref), None
+                    return None, "Policy submitted but no reference was returned."
+                return None, "Unexpected response format from submission API."
+            try:
+                err_body = r.json()
+                msg = (
+                    err_body.get("message")
+                    or err_body.get("error")
+                    or err_body.get("detail")
+                    or f"HTTP {r.status_code}"
+                )
+            except Exception:
+                msg = f"HTTP {r.status_code}"
+            logger.error(f"[ipurvey] submit_policy {r.status_code}: {r.text[:300]}")
+            return None, str(msg)
+    except Exception as e:
+        logger.error(f"[ipurvey] submit_policy failed: {e}")
+        return None, str(e)
 
 
 # ── BOARDING PASS ─────────────────────────────────────────────────────────────
