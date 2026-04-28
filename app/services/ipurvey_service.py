@@ -1,4 +1,6 @@
 import logging
+import time
+from collections import OrderedDict
 from typing import Optional
 from urllib.parse import quote
 
@@ -9,6 +11,14 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 TIMEOUT = 15
+
+# ── AIRPORT SEARCH CACHE ───────────────────────────────────────────────────────
+_AIRPORT_CACHE_TTL: int = 300        # seconds (5 minutes)
+_AIRPORT_CACHE_MAX_SIZE: int = 256   # maximum number of cached queries
+
+# OrderedDict preserves insertion order so we can evict the oldest entry when full.
+# Each value is a tuple of (timestamp: float, results: list[dict]).
+_airport_cache: OrderedDict[str, tuple[float, list]] = OrderedDict()
 
 NIGERIAN_BANK_CODES: dict[str, str] = {
     "Access Bank":             "044",
@@ -63,7 +73,25 @@ def _extract(resp: dict):
 
 async def search_airports(query: str) -> list[dict]:
     """Search airports via the Ipurvey API.  Returns a list of dicts with keys:
-    code, name, country.  Returns [] on error or no results."""
+    code, name, country.  Returns [] on error or no results.
+
+    Results are cached in memory for _AIRPORT_CACHE_TTL seconds (default 5 min)
+    with a maximum of _AIRPORT_CACHE_MAX_SIZE entries to bound memory growth.
+    """
+    cache_key = query.strip().lower()
+
+    # ── cache lookup ──────────────────────────────────────────────────────────
+    cached = _airport_cache.get(cache_key)
+    if cached is not None:
+        ts, results = cached
+        if time.monotonic() - ts < _AIRPORT_CACHE_TTL:
+            # Move to end so the entry is treated as recently used (LRU semantics).
+            _airport_cache.move_to_end(cache_key)
+            logger.debug(f"[ipurvey] airport cache hit for '{cache_key}'")
+            return results
+        # expired — remove stale entry
+        del _airport_cache[cache_key]
+
     try:
         encoded = quote(query.strip(), safe="")
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
@@ -91,7 +119,13 @@ async def search_airports(query: str) -> list[dict]:
                 )
                 if code or name:
                     results.append({"code": code, "name": name, "country": country})
-            return results
+
+        # ── cache store ───────────────────────────────────────────────────────
+        if len(_airport_cache) >= _AIRPORT_CACHE_MAX_SIZE:
+            _airport_cache.popitem(last=False)  # evict oldest (FIFO)
+        _airport_cache[cache_key] = (time.monotonic(), results)
+
+        return results
     except Exception as e:
         logger.error(f"[ipurvey] search_airports failed: {e}")
         return []
