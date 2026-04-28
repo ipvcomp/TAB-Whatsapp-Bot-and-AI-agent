@@ -618,8 +618,34 @@ async def handle_payment_flow(
                             or pay_result.get("paymentRef")
                         )
                         payment_id = pay_result.get("paymentId") or pay_result.get("id")
+                        bank_account_name = (
+                            pay_result.get("accountName")
+                            or pay_result.get("account_name")
+                            or pay_result.get("accountHolderName")
+                            or pay_result.get("beneficiaryName")
+                        )
+                        bank_account_number = (
+                            pay_result.get("accountNumber")
+                            or pay_result.get("account_number")
+                            or pay_result.get("nuban")
+                        )
+                        bank_name = (
+                            pay_result.get("bankName")
+                            or pay_result.get("bank_name")
+                            or pay_result.get("bank")
+                        )
+                        api_data = session.setdefault("api_data", {})
                         if payment_id:
-                            session.setdefault("api_data", {})["payment_id"] = payment_id
+                            api_data["payment_id"] = payment_id
+                        api_data.pop("bank_account_name", None)
+                        api_data.pop("bank_account_number", None)
+                        api_data.pop("bank_name", None)
+                        if bank_account_name:
+                            api_data["bank_account_name"] = bank_account_name
+                        if bank_account_number:
+                            api_data["bank_account_number"] = bank_account_number
+                        if bank_name:
+                            api_data["bank_name"] = bank_name
                     else:
                         initiate_error = True
                 except Exception as exc:
@@ -649,11 +675,21 @@ async def handle_payment_flow(
             data["pay_m_bank_ref"] = api_ref
             flow["step"] = "pay_m_bank_pending"
             await save_session(session)
+            _api_data = session.get("api_data", {})
+            _bank_name    = _api_data.get("bank_name", "")
+            _acct_name    = _api_data.get("bank_account_name", "")
+            _acct_number  = _api_data.get("bank_account_number", "")
+            if _bank_name or _acct_name or _acct_number:
+                _bank_details = (
+                    f"Bank             {_bank_name or 'N/A'}\n"
+                    f"Account Name     {_acct_name or 'N/A'}\n"
+                    f"Account No.      {_acct_number or 'N/A'}"
+                )
+            else:
+                _bank_details = "Please contact support for account details."
             await _send_list(sender_wa_id,
                 f"Please transfer *₦{amount:,}* to:\n\n"
-                f"Bank             Example Bank\n"
-                f"Account Name     TravelAssist Payments\n"
-                f"Account No.      0123456789\n\n"
+                f"{_bank_details}\n\n"
                 f"🔑 Reference: {api_ref}\n\nAfter payment, reply with:",
                 "Select",
                 [{"title": "Action", "rows": [
@@ -681,6 +717,18 @@ async def handle_payment_flow(
     # ── Bank pending ──────────────────────────────────────────────────────────
     elif step == "pay_m_bank_pending":
         ref = data.get("pay_m_bank_ref", "TA000000")
+        _pending_api_data    = session.get("api_data", {})
+        _p_bank_name         = _pending_api_data.get("bank_name", "")
+        _p_acct_name         = _pending_api_data.get("bank_account_name", "")
+        _p_acct_number       = _pending_api_data.get("bank_account_number", "")
+        if _p_bank_name or _p_acct_name or _p_acct_number:
+            _p_bank_details = (
+                f"Bank             {_p_bank_name or 'N/A'}\n"
+                f"Account Name     {_p_acct_name or 'N/A'}\n"
+                f"Account No.      {_p_acct_number or 'N/A'}"
+            )
+        else:
+            _p_bank_details = "Please contact support for account details."
         if reply_id in ("pay_m_done", "pay_m_refresh"):
             payment_confirmed = False
             policy_ref = None
@@ -708,9 +756,7 @@ async def handle_payment_flow(
             else:
                 await _send_list(sender_wa_id,
                     f"⏳ *Payment not yet confirmed*\n\nPlease transfer *₦{amount:,}* to:\n\n"
-                    f"Bank             Example Bank\n"
-                    f"Account Name     TravelAssist Payments\n"
-                    f"Account No.      0123456789\n\n"
+                    f"{_p_bank_details}\n\n"
                     f"🔑 Reference: {ref}\n\nAfter payment, reply with:",
                     "Select",
                     [{"title": "Action", "rows": [
@@ -722,9 +768,7 @@ async def handle_payment_flow(
         else:
             await _send_list(sender_wa_id,
                 f"Please transfer *₦{amount:,}* to:\n\n"
-                f"Bank             Example Bank\n"
-                f"Account Name     TravelAssist Payments\n"
-                f"Account No.      0123456789\n\n"
+                f"{_p_bank_details}\n\n"
                 f"🔑 Reference: {ref}\n\nAfter payment, reply with:",
                 "Select",
                 [{"title": "Action", "rows": [
