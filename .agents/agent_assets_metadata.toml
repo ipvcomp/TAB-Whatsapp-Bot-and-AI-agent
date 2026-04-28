@@ -6,3 +6,9 @@ id = "7ORpF0fkTmVULWR3Bp2su"
 uri = "file://Developer_Guide_Architecture_Documentation.md"
 type = "text"
 title = "TravelAssist WhatsApp Bot — Developer Guide & Architecture Documentation"
+
+[[outputs]]
+id = "OFAzqxjPQ_rCk2M-cMf84"
+uri = "file://API_INTEGRATION_SUMMARY.md"
+type = "text"
+title = "TravelAssist — Full API Integration Summary"
