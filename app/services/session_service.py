@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -10,7 +11,15 @@ COLLECTION = "sessions"
 
 DEFAULT_SESSION_NODE = "N01"
 
-POLICY_CACHE_TTL_SECONDS = 300
+try:
+    POLICY_CACHE_TTL_SECONDS = int(os.environ.get("POLICY_CACHE_TTL_SECONDS", "300"))
+    if POLICY_CACHE_TTL_SECONDS <= 0:
+        raise ValueError("TTL must be positive")
+except (ValueError, TypeError):
+    logging.warning(
+        "Invalid POLICY_CACHE_TTL_SECONDS env var; falling back to 300 seconds"
+    )
+    POLICY_CACHE_TTL_SECONDS = 300
 
 
 async def ensure_indexes():
