@@ -426,6 +426,7 @@ async def search_policies(
     policy_code: Optional[str] = None,
     flight_number: Optional[str] = None,
 ) -> Optional[list]:
+    logger.info(f"[ipurvey] search_policies msisdn='{msisdn}' code='{policy_code}' flight='{flight_number}'")
     try:
         params: dict = {"page": 0, "size": 10}
         if msisdn:
@@ -442,14 +443,18 @@ async def search_policies(
             if r.status_code == 200:
                 data = _extract(r.json())
                 if isinstance(data, list):
+                    logger.info(f"[ipurvey] search_policies → {len(data)} result(s)")
                     return data
                 if isinstance(data, dict):
-                    return (
+                    result = (
                         data.get("content")
                         or data.get("policies")
                         or data.get("items")
                         or []
                     )
+                    logger.info(f"[ipurvey] search_policies → {len(result)} result(s)")
+                    return result
+            logger.info(f"[ipurvey] search_policies → {r.status_code}")
             return None
     except Exception as e:
         logger.error(f"[ipurvey] search_policies failed: {e}")
@@ -457,14 +462,18 @@ async def search_policies(
 
 
 async def get_policy_by_code(policy_code: str) -> Optional[dict]:
+    logger.info(f"[ipurvey] get_policy_by_code code='{policy_code}'")
     try:
         results = await search_policies(policy_code=policy_code)
         if results:
+            logger.info(f"[ipurvey] get_policy_by_code → found via search")
             return results[0]
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
             r = await c.get(f"{_base()}/api/tab-plc/policies/{policy_code}")
             if r.status_code == 200:
+                logger.info(f"[ipurvey] get_policy_by_code → found via direct fetch (200)")
                 return _extract(r.json())
+            logger.info(f"[ipurvey] get_policy_by_code → not found ({r.status_code})")
             return None
     except Exception as e:
         logger.error(f"[ipurvey] get_policy_by_code failed: {e}")
@@ -472,19 +481,24 @@ async def get_policy_by_code(policy_code: str) -> Optional[dict]:
 
 
 async def get_policy_document_url(policy_code: str) -> Optional[str]:
+    logger.info(f"[ipurvey] get_policy_document_url code='{policy_code}'")
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
             r = await c.get(f"{_base()}/api/tab-plc/policies/{policy_code}/document")
             if r.status_code == 200:
                 data = _extract(r.json())
                 if isinstance(data, dict):
-                    return (
+                    url = (
                         data.get("downloadUrl")
                         or data.get("url")
                         or data.get("documentUrl")
                     )
+                    logger.info(f"[ipurvey] get_policy_document_url → {'found' if url else 'no url in response'}")
+                    return url
                 if isinstance(data, str):
+                    logger.info(f"[ipurvey] get_policy_document_url → found (string)")
                     return data
+            logger.info(f"[ipurvey] get_policy_document_url → {r.status_code}")
             return None
     except Exception as e:
         logger.error(f"[ipurvey] get_policy_document_url failed: {e}")
@@ -495,6 +509,7 @@ async def check_eligibility(
     policy_id: str,
     delay_minutes: int = 90,
 ) -> Optional[dict]:
+    logger.info(f"[ipurvey] check_eligibility policy_id='{policy_id}' delay_minutes={delay_minutes}")
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
             r = await c.get(
@@ -502,7 +517,9 @@ async def check_eligibility(
                 params={"triggerType": "DELAY", "delayMinutes": delay_minutes},
             )
             if r.status_code == 200:
+                logger.info(f"[ipurvey] check_eligibility → found (200)")
                 return _extract(r.json())
+            logger.info(f"[ipurvey] check_eligibility → {r.status_code}")
             return None
     except Exception as e:
         logger.error(f"[ipurvey] check_eligibility failed: {e}")
@@ -898,13 +915,16 @@ async def poll_boarding_pass_status(
     policy_id: str,
     passenger_id: str,
 ) -> Optional[dict]:
+    logger.info(f"[ipurvey] poll_boarding_pass_status policy_id='{policy_id}' passenger_id='{passenger_id}'")
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
             r = await c.get(
                 f"{_base()}/api/tab-plc/policies/{policy_id}/passengers/{passenger_id}/boarding-pass/status"
             )
             if r.status_code == 200:
+                logger.info(f"[ipurvey] poll_boarding_pass_status → found (200)")
                 return _extract(r.json())
+            logger.info(f"[ipurvey] poll_boarding_pass_status → {r.status_code}")
             return None
     except Exception as e:
         logger.error(f"[ipurvey] poll_boarding_pass_status failed: {e}")
