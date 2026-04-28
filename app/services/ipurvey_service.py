@@ -103,6 +103,7 @@ async def search_airports(query: str) -> list[dict]:
             payload = r.json()
             items = payload if isinstance(payload, list) else payload.get("data", payload.get("airports", []))
             if not isinstance(items, list):
+                logger.warning(f"[ipurvey] search_airports → unexpected payload type for '{query}'")
                 return []
             seen_codes: set = set()
             results = []
