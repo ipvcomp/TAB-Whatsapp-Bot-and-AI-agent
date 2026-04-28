@@ -23,12 +23,12 @@ BUY_COVER_FLOW_KEY = "buy_cover_flow"
 KYC_FLOW_KEY       = "kyc_flow"
 
 UPLOAD_INSTRUCTIONS = (
-    "Please make sure the following are *clearly visible:*\n\n"
-    "✅ Passenger name(s)\n"
+    "*Make sure we can see:*\n\n"
+    "✅ Passenger name or names\n"
     "✅ Booking reference\n"
-    "✅ Flight details\n"
-    "✅ Travel dates\n"
-    "✅ Route information"
+    "✅ Airport details\n"
+    "✅ Flight number\n"
+    "✅ Travel date"
 )
 
 
@@ -155,8 +155,10 @@ async def _ask_upload(wa_id: str, session: dict, flow: dict, pol: dict, phone_nu
     flow["step"] = "bp_awaiting_doc"
     await save_session(session)
     await _send_text(wa_id,
-        f"📌 *Policy:* {pol['name']} ({pol['ref']})\n\n"
-        "Please upload a clear image or PDF of your boarding pass.\n\n"
+        "📎 *Please upload a clear image or PDF of your boarding pass*\n\n"
+        "*Accepted formats:*\n"
+        "JPEG  PDF  GIF  TIFF  PNG\n\n"
+        "📦 *Maximum size: 20 MB*\n\n"
         + UPLOAD_INSTRUCTIONS,
         phone_number_id)
 
