@@ -92,7 +92,7 @@ async def _send_list(
 async def _send_help(wa_id: str, session: dict, phone_number_id: Optional[str]):
     session["temp_data"][KYC_FLOW_KEY]["step"] = "kyc_help"
     await save_session(session)
-    await _send_list(
+    await _send_buttons(
         wa_id,
         "> *What you need to know:*\n"
         "> ✅ You can verify using either *BVN* or *NIN*\n"
@@ -101,12 +101,11 @@ async def _send_help(wa_id: str, session: dict, phone_number_id: Optional[str]):
         "> 📱 Your BVN/NIN is never stored or echoed back — handled securely\n"
         "> 🔢 Both BVN and NIN are 11 digits — example: 12345678901\n\n"
         "Ready to verify?",
-        "Choose",
-        [{"title": "Options", "rows": [
+        [
             {"id": "kyc_bvn",   "title": "🪪 Verify with BVN"},
             {"id": "kyc_nin",   "title": "🪪 Verify with NIN"},
-            {"id": "kyc_agent", "title": "📞 Speak to an agent"},
-        ]}],
+            {"id": "kyc_agent", "title": "📞 Speak to agent"},
+        ],
         phone_number_id,
     )
 
@@ -138,21 +137,20 @@ async def start_kyc_flow(
                     session["temp_data"][KYC_FLOW_KEY]["data"]["kyc_verified"] = True
                     await save_session(session)
                     from app.services.payment_flow_service import start_payment_flow
-                    await _send_list(
+                    await _send_buttons(
                         wa_id,
                         "✅ *Identity Already Verified*\nYour identity is confirmed. Proceeding to payment.",
-                        "Continue",
-                        [{"title": "Next Steps", "rows": [
-                            {"id": "kyc_pay",  "title": "1. Continue to payment"},
+                        [
+                            {"id": "kyc_pay",  "title": "1. Continue to pay"},
                             {"id": "kyc_home", "title": "2. Main menu"},
-                        ]}],
+                        ],
                         phone_number_id,
                     )
                     return
         except Exception as exc:
             logger.error(f"[kyc] check_kyc_status failed: {exc}")
 
-    await _send_list(
+    await _send_buttons(
         wa_id,
         "We may verify your identity to support any future payouts and ensure "
         "security and accurate policy issuance. If you've already completed this, "
@@ -162,12 +160,11 @@ async def start_kyc_flow(
         "purchase. Your data is handled securely and never shared.\n\n"
         "How would you like to verify your identity?\n"
         "Select the country that issued your national biometric ID:",
-        "Select method",
-        [{"title": "Verification Method", "rows": [
+        [
             {"id": "kyc_bvn",  "title": "🪪 BVN (Nigeria)"},
             {"id": "kyc_nin",  "title": "🪪 NIN (Nigeria)"},
             {"id": "kyc_help", "title": "🆘 Help"},
-        ]}],
+        ],
         phone_number_id,
     )
 
@@ -311,84 +308,79 @@ async def handle_kyc_flow(
             data["kyc_verified"] = True
             flow["step"] = "kyc_verified"
             await save_session(session)
-            await _send_list(
+            await _send_buttons(
                 sender_wa_id,
                 f"✅ *Identity Verified*\n_{method}: {masked}_\n\n"
                 "Your identity has been confirmed. You can now continue to payment.\n\n"
                 "What would you like to do next?",
-                "Choose an option",
-                [{"title": "Next Steps", "rows": [
-                    {"id": "kyc_pay",    "title": "1. Continue to payment"},
-                    {"id": "kyc_review", "title": "2. Review trip details"},
+                [
+                    {"id": "kyc_pay",    "title": "1. Continue to pay"},
+                    {"id": "kyc_review", "title": "2. Review trip"},
                     {"id": "kyc_home",   "title": "3. Main menu"},
-                ]}],
+                ],
                 phone_number_id,
             )
         elif api_session_id:
             flow["step"] = "kyc_otp_input"
             await save_session(session)
-            await _send_list(
+            await _send_buttons(
                 sender_wa_id,
                 f"🔐 *OTP Sent*\n"
                 f"A one-time PIN has been sent to the phone number linked to your *{method}*.\n\n"
                 "Please enter the *6-digit OTP* to verify your identity:",
-                "Options",
-                [{"title": "Options", "rows": [
+                [
                     {"id": "kyc_otp_resend", "title": "📲 Resend OTP"},
                     {"id": "kyc_help",       "title": "🆘 Get help"},
-                ]}],
+                ],
                 phone_number_id,
             )
         elif api_call_done:
             data["kyc_verified"] = False
             flow["step"] = "kyc_failed"
             await save_session(session)
-            await _send_list(
+            await _send_buttons(
                 sender_wa_id,
                 "⚠️ *Verification Incomplete*\n"
                 "> We could not complete verification automatically.\n\n"
                 "Please choose:",
-                "Choose",
-                [{"title": "Options", "rows": [
+                [
                     {"id": "kyc_try_bvn", "title": "🪪 Try BVN again"},
                     {"id": "kyc_try_nin", "title": "🪪 Try NIN instead"},
                     {"id": "kyc_help",    "title": "🆘 Get help"},
-                ]}],
+                ],
                 phone_number_id,
             )
         elif id_number.isdigit() and len(id_number) == 11:
             data["kyc_verified"] = True
             flow["step"] = "kyc_verified"
             await save_session(session)
-            await _send_list(
+            await _send_buttons(
                 sender_wa_id,
                 f"✅ *Identity Verified*\n"
                 f"_{method}: {masked}_\n\n"
                 "Your identity has been confirmed. You can now continue to payment.\n\n"
                 "What would you like to do next?",
-                "Choose an option",
-                [{"title": "Next Steps", "rows": [
-                    {"id": "kyc_pay",    "title": "1. Continue to payment"},
-                    {"id": "kyc_review", "title": "2. Review trip details"},
+                [
+                    {"id": "kyc_pay",    "title": "1. Continue to pay"},
+                    {"id": "kyc_review", "title": "2. Review trip"},
                     {"id": "kyc_home",   "title": "3. Main menu"},
-                ]}],
+                ],
                 phone_number_id,
             )
         else:
             data["kyc_verified"] = False
             flow["step"] = "kyc_failed"
             await save_session(session)
-            await _send_list(
+            await _send_buttons(
                 sender_wa_id,
                 "⚠️ *Verification Incomplete*\n"
                 "> We could not complete verification automatically.\n\n"
                 "Please choose:",
-                "Choose",
-                [{"title": "Options", "rows": [
+                [
                     {"id": "kyc_try_bvn", "title": "🪪 Try BVN again"},
                     {"id": "kyc_try_nin", "title": "🪪 Try NIN instead"},
                     {"id": "kyc_help",    "title": "🆘 Get help"},
-                ]}],
+                ],
                 phone_number_id,
             )
 
@@ -434,29 +426,27 @@ async def handle_kyc_flow(
             data["kyc_verified"] = True
             flow["step"] = "kyc_verified"
             await save_session(session)
-            await _send_list(
+            await _send_buttons(
                 sender_wa_id,
                 f"✅ *Identity Verified*\n_{method}: {masked}_\n\n"
                 "Your identity has been confirmed. You can now continue to payment.\n\n"
                 "What would you like to do next?",
-                "Choose an option",
-                [{"title": "Next Steps", "rows": [
-                    {"id": "kyc_pay",    "title": "1. Continue to payment"},
-                    {"id": "kyc_review", "title": "2. Review trip details"},
+                [
+                    {"id": "kyc_pay",    "title": "1. Continue to pay"},
+                    {"id": "kyc_review", "title": "2. Review trip"},
                     {"id": "kyc_home",   "title": "3. Main menu"},
-                ]}],
+                ],
                 phone_number_id,
             )
         else:
-            await _send_list(
+            await _send_buttons(
                 sender_wa_id,
                 "❌ *Incorrect OTP*\n\nThe code you entered is incorrect or has expired.\n\n"
                 "Please try again or request a new OTP:",
-                "Choose",
-                [{"title": "Options", "rows": [
+                [
                     {"id": "kyc_otp_resend", "title": "📲 Resend OTP"},
                     {"id": "kyc_help",       "title": "🆘 Get help"},
-                ]}],
+                ],
                 phone_number_id,
             )
 
@@ -487,15 +477,14 @@ async def handle_kyc_flow(
                 f"🛡️ Cover: {bc_data.get('cover', '—')}"
             )
             await _send_text(sender_wa_id, summary, phone_number_id)
-            await _send_list(
+            await _send_buttons(
                 sender_wa_id,
                 "What would you like to do next?",
-                "Choose an option",
-                [{"title": "Next Steps", "rows": [
-                    {"id": "kyc_pay",    "title": "1. Continue to payment"},
-                    {"id": "kyc_review", "title": "2. Review trip details"},
+                [
+                    {"id": "kyc_pay",    "title": "1. Continue to pay"},
+                    {"id": "kyc_review", "title": "2. Review trip"},
                     {"id": "kyc_home",   "title": "3. Main menu"},
-                ]}],
+                ],
                 phone_number_id,
             )
         elif reply_id == "kyc_home":

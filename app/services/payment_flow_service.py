@@ -177,8 +177,9 @@ async def _show_payment_summary(
     flow["step"] = "pay_method_choice"
     await save_session(session)
 
-    await _send_list(
+    await _send_buttons(
         wa_id,
+        f"🎫 *You're one step away from activating your cover*\n\n"
         f"🧾 PAYMENT SUMMARY\n"
         f"✈️ Policy      {cname}\n"
         f"✈️ Flight      {origin} → {dest}\n"
@@ -187,12 +188,10 @@ async def _show_payment_summary(
         f"🔒 KYC         ✅ Verified\n"
         f"💰 Amount      ₦{amount:,}\n\n"
         f"Choose a payment method below:",
-        "Select method",
-        [{"title": "Payment Method", "rows": [
+        [
             {"id": "pay_m_bank", "title": "🏦 Bank transfer"},
-        ]}],
+        ],
         phone_number_id,
-        header="🎫 You're one step away from activating your cover",
     )
 
 
@@ -224,18 +223,15 @@ async def _send_success(
         f"📅 Date:         {date}\n😊 Traveller:   *{name}*",
         phone_number_id,
     )
-    await _send_list(
+    await _send_buttons(
         wa_id,
-        "What would you like to do next?",
-        "Choose",
-        [{"title": "Options", "rows": [
-            {"id": "pay_view_policy", "title": "📄 View my policy doc"},
-            {"id": "pay_upload_bp",   "title": "⬆️ Upload boarding pass"},
-            {"id": "pay_home",        "title": "🏠 Main menu"},
-            {"id": "pay_new",         "title": "✈️ Buy new cover"},
-        ]}],
+        "📎 *Got your boarding pass? Upload it now 👍*\n\nWhat would you like to do next?",
+        [
+            {"id": "pay_upload_bp", "title": "⬆️ Upload boarding"},
+            {"id": "pay_home",      "title": "🏠 Main menu"},
+            {"id": "pay_new",       "title": "✈️ Buy new cover"},
+        ],
         phone_number_id,
-        header="📎 Got your boarding pass? Upload it now 👍",
     )
 
 
@@ -409,16 +405,14 @@ async def start_payment_flow(
         session["user_id"] = wa_id
     await save_session(session)
 
-    await _send_list(
+    await _send_buttons(
         wa_id,
-        "Choose how you would like to receive money for any future payouts:",
-        "Select option",
-        [{"title": "Payout options", "rows": [
+        "Payout options\n\nChoose how you would like to receive money for any future payouts:",
+        [
             {"id": "pay_bank",          "title": "🏦 Bank transfer"},
             {"id": "pay_wallet_payout", "title": "👛 Wallet"},
-        ]}],
+        ],
         phone_number_id,
-        header="Payout options",
     )
 
 
@@ -466,8 +460,8 @@ async def handle_payment_flow(
         elif reply_id == "pay_wallet_payout":
             flow["step"] = "pay_wallet_payout_select"
             await save_session(session)
-            await _send_list(sender_wa_id, "Choose wallet option:", "Select wallet",
-                [{"title": "👛 Wallet", "rows": WALLET_OPTIONS}], phone_number_id, header="👛 Wallet")
+            await _send_buttons(sender_wa_id, "👛 *Wallet*\n\nChoose your wallet provider:",
+                [{"id": w["id"], "title": w["title"]} for w in WALLET_OPTIONS], phone_number_id)
         else:
             await start_payment_flow(sender_wa_id, phone_number_id)
 
@@ -693,17 +687,17 @@ async def handle_payment_flow(
                 )
             else:
                 _bank_details = "Please contact support for account details."
-            await _send_list(sender_wa_id,
+            await _send_buttons(sender_wa_id,
+                f"🏦 *Bank Transfer*\n\n"
                 f"Please transfer *₦{amount:,}* to:\n\n"
                 f"{_bank_details}\n\n"
-                f"🔑 Reference: {api_ref}\n\nAfter payment, reply with:",
-                "Select",
-                [{"title": "Action", "rows": [
+                f"🔑 Reference: {api_ref}\n\nAfter payment, tap below:",
+                [
                     {"id": "pay_m_done",    "title": "✅ I have paid"},
                     {"id": "pay_m_refresh", "title": "🔄 Refresh status"},
-                ]}],
+                ],
                 phone_number_id,
-                header="🏦 Bank Transfer")
+            )
 
         elif reply_id in ("pay_m_card", "pay_m_wallet", "pay_m_ussd"):
             await send_text_message(
@@ -760,29 +754,29 @@ async def handle_payment_flow(
             if payment_confirmed:
                 await _submit_and_confirm(sender_wa_id, session, flow, amount, ref, cname, phone_number_id)
             else:
-                await _send_list(sender_wa_id,
+                await _send_buttons(sender_wa_id,
+                    f"🏦 *Bank Transfer*\n\n"
                     f"⏳ *Payment not yet confirmed*\n\nPlease transfer *₦{amount:,}* to:\n\n"
                     f"{_p_bank_details}\n\n"
-                    f"🔑 Reference: {ref}\n\nAfter payment, reply with:",
-                    "Select",
-                    [{"title": "Action", "rows": [
+                    f"🔑 Reference: {ref}\n\nAfter payment, tap below:",
+                    [
                         {"id": "pay_m_done",    "title": "✅ I have paid"},
                         {"id": "pay_m_refresh", "title": "🔄 Refresh status"},
-                    ]}],
+                    ],
                     phone_number_id,
-                    header="🏦 Bank Transfer")
+                )
         else:
-            await _send_list(sender_wa_id,
+            await _send_buttons(sender_wa_id,
+                f"🏦 *Bank Transfer*\n\n"
                 f"Please transfer *₦{amount:,}* to:\n\n"
                 f"{_p_bank_details}\n\n"
-                f"🔑 Reference: {ref}\n\nAfter payment, reply with:",
-                "Select",
-                [{"title": "Action", "rows": [
+                f"🔑 Reference: {ref}\n\nAfter payment, tap below:",
+                [
                     {"id": "pay_m_done",    "title": "✅ I have paid"},
                     {"id": "pay_m_refresh", "title": "🔄 Refresh status"},
-                ]}],
+                ],
                 phone_number_id,
-                header="🏦 Bank Transfer")
+            )
 
     # ── Legacy simulated payment steps — redirect to payment summary ──────────
     elif step in (
@@ -841,16 +835,15 @@ async def handle_payment_flow(
                 f"🗓️ Policy No:   {pol}\n✈️ Flight:       {flight}\n"
                 f"📅 Date:         {date}\n😊 Traveller:   *{name}*",
                 phone_number_id)
-            await _send_list(sender_wa_id,
-                "What would you like to do next?", "Choose",
-                [{"title": "Options", "rows": [
-                    {"id": "pay_view_policy", "title": "📄 View my policy doc"},
-                    {"id": "pay_upload_bp",   "title": "⬆️ Upload boarding pass"},
-                    {"id": "pay_home",        "title": "🏠 Main menu"},
-                    {"id": "pay_new",         "title": "✈️ Buy new cover"},
-                ]}],
+            await _send_buttons(sender_wa_id,
+                "📎 *Got your boarding pass? Upload it now 👍*\n\nWhat would you like to do next?",
+                [
+                    {"id": "pay_upload_bp", "title": "⬆️ Upload boarding"},
+                    {"id": "pay_home",      "title": "🏠 Main menu"},
+                    {"id": "pay_new",       "title": "✈️ Buy new cover"},
+                ],
                 phone_number_id,
-                header="📎 Got your boarding pass? Upload it now 👍")
+            )
 
     # ── Submission retry ──────────────────────────────────────────────────────
     elif step == "pay_submit_retry":

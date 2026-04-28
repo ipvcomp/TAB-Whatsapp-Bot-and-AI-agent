@@ -218,23 +218,28 @@ async def handle_buy_cover_flow(
             data["who"] = "me_and_others"
             flow["step"] = "buy_cover_traveler_count"
             await save_session(session)
-            await _send_list(
-                sender_wa_id,
-                "👨‍👩‍👧 *How many additional travelers are joining you?*\n_(Not counting yourself)_",
-                "Select number",
-                [{"title": "Additional Travelers", "rows": [
-                    {"id": "others_1", "title": "1 — One other person"},
-                    {"id": "others_2", "title": "2 — Two other people"},
-                    {"id": "others_3", "title": "3 — Three others"},
-                    {"id": "others_4", "title": "4 — Four others"},
-                ]}],
+            await _send_text(sender_wa_id,
+                "👨‍👩‍👧 *How many additional travelers are joining you?*\n_(Not counting yourself)_\n\n"
+                "_Type a number — 1, 2, 3 or 4_",
                 phone_number_id,
             )
 
     # ── Traveler count ────────────────────────────────────────────────────────
     elif step == "buy_cover_traveler_count":
         count_map = {"others_1": 1, "others_2": 2, "others_3": 3, "others_4": 4}
-        others_count = count_map.get(reply_id, 1)
+        others_count = count_map.get(reply_id) if reply_id else None
+        if others_count is None and text:
+            try:
+                n = int(text.strip())
+                if 1 <= n <= 4:
+                    others_count = n
+            except ValueError:
+                pass
+        if others_count is None:
+            await _send_text(sender_wa_id,
+                "⚠️ Please type a number between 1 and 4:\n_Example: 2_",
+                phone_number_id)
+            return
         data["others_count"] = others_count
         data["travelers"] = []
         flow["step"] = "buy_cover_name"
@@ -549,16 +554,14 @@ async def handle_buy_cover_flow(
         )
         flow["step"] = "buy_cover_summary"
         await save_session(session)
-        await _send_list(
+        await _send_buttons(
             sender_wa_id,
-            summary,
-            "Select option",
-            [{"title": "Options", "rows": [
+            "📋 *Trip Summary*\n\n" + summary,
+            [
                 {"id": "summary_confirm", "title": "✅ Confirm"},
-                {"id": "summary_edit",    "title": "✏️ Edit trip details"},
-            ]}],
+                {"id": "summary_edit",    "title": "✏️ Edit details"},
+            ],
             phone_number_id,
-            header="📋 Trip Summary",
         )
 
     # ── Trip summary ──────────────────────────────────────────────────────────
@@ -635,9 +638,10 @@ async def handle_buy_cover_flow(
             data["cover"] = "Local Travel Premium 🔥"
             flow["step"] = "buy_cover_next_steps"
             await save_session(session)
-            await _send_list(
+            await _send_buttons(
                 sender_wa_id,
                 (
+                    "🛡️ *Select from available cover(s)*\n\n"
                     "📋 *Local Travel Basic*\n"
                     "🛡️ Your trip can be protected against:\n"
                     "✅ Major delay\n✅ Cancellation\n✅ Covered travel disruption\n\n"
@@ -650,14 +654,12 @@ async def handle_buy_cover_flow(
                     "📄 Policy on WhatsApp\n🔔 Flight alerts\n🤝 Support if disruption happens\n\n"
                     "What would you like to do next?"
                 ),
-                "Select option",
-                [{"title": "Next Steps", "rows": [
-                    {"id": "next_kyc",    "title": "1. 🗂️ Continue to KYC"},
-                    {"id": "next_ask",    "title": "2. ❓ Ask a question"},
-                    {"id": "next_cancel", "title": "3. ❌ Cancel purchase"},
-                ]}],
+                [
+                    {"id": "next_kyc",    "title": "1. Continue to KYC"},
+                    {"id": "next_ask",    "title": "2. Ask a question"},
+                    {"id": "next_cancel", "title": "3. Cancel"},
+                ],
                 phone_number_id,
-                header="🛡️ Select from available cover(s)",
             )
 
     # ── Select cover (from real quotes) ───────────────────────────────────────
@@ -685,17 +687,15 @@ async def handle_buy_cover_flow(
             data["cover"] = "Local Travel Premium 🔥"
         flow["step"] = "buy_cover_next_steps"
         await save_session(session)
-        await _send_list(
+        await _send_buttons(
             sender_wa_id,
             "What would you like to do next?",
-            "Select option",
-            [{"title": "Next Steps", "rows": [
-                {"id": "next_kyc",    "title": "1. 🗂️ Continue to KYC"},
-                {"id": "next_ask",    "title": "2. ❓ Ask a question"},
-                {"id": "next_cancel", "title": "3. ❌ Cancel purchase"},
-            ]}],
+            [
+                {"id": "next_kyc",    "title": "1. Continue to KYC"},
+                {"id": "next_ask",    "title": "2. Ask a question"},
+                {"id": "next_cancel", "title": "3. Cancel"},
+            ],
             phone_number_id,
-            header="🛡️ Select from available cover(s)",
         )
 
     # ── Next steps ────────────────────────────────────────────────────────────
@@ -718,29 +718,25 @@ async def handle_buy_cover_flow(
         elif reply_id == "next_cancel":
             flow["step"] = "buy_cover_cancel_confirm"
             await save_session(session)
-            await _send_list(
+            await _send_buttons(
                 sender_wa_id,
-                "Are you sure you want to cancel? Your trip details will not be saved.\n\nPlease confirm:",
-                "Choose",
-                [{"title": "Confirm", "rows": [
-                    {"id": "cancel_yes", "title": "❌ Yes, cancel purchase"},
-                    {"id": "cancel_no",  "title": "↩️ No, go back to quote"},
-                ]}],
+                "❌ *Cancel Purchase*\n\nAre you sure you want to cancel? Your trip details will not be saved.",
+                [
+                    {"id": "cancel_yes", "title": "❌ Yes, cancel"},
+                    {"id": "cancel_no",  "title": "↩️ No, go back"},
+                ],
                 phone_number_id,
-                header="❌ Cancel Purchase",
             )
         else:
-            await _send_list(
+            await _send_buttons(
                 sender_wa_id,
                 "What would you like to do next?",
-                "Select option",
-                [{"title": "Next Steps", "rows": [
-                    {"id": "next_kyc",    "title": "1. 🗂️ Continue to KYC"},
-                    {"id": "next_ask",    "title": "2. ❓ Ask another"},
-                    {"id": "next_cancel", "title": "3. ❌ Cancel purchase"},
-                ]}],
+                [
+                    {"id": "next_kyc",    "title": "1. Continue to KYC"},
+                    {"id": "next_ask",    "title": "2. Ask another"},
+                    {"id": "next_cancel", "title": "3. Cancel"},
+                ],
                 phone_number_id,
-                header="🛡️ Select from available cover(s)",
             )
 
     # ── Ask a question ────────────────────────────────────────────────────────
@@ -775,15 +771,14 @@ async def handle_buy_cover_flow(
             )
         flow["step"] = "buy_cover_next_steps"
         await save_session(session)
-        await _send_list(
+        await _send_buttons(
             sender_wa_id,
             answer,
-            "Choose an option",
-            [{"title": "Next Steps", "rows": [
-                {"id": "next_kyc",    "title": "1. 🗂️ Continue to KYC"},
-                {"id": "next_ask",    "title": "2. ❓ Ask another"},
-                {"id": "next_cancel", "title": "3. ❌ Cancel purchase"},
-            ]}],
+            [
+                {"id": "next_kyc",    "title": "1. Continue to KYC"},
+                {"id": "next_ask",    "title": "2. Ask another"},
+                {"id": "next_cancel", "title": "3. Cancel"},
+            ],
             phone_number_id,
         )
 
@@ -791,28 +786,25 @@ async def handle_buy_cover_flow(
     elif step == "buy_cover_cancel_confirm":
         if reply_id == "cancel_yes":
             await _reset(session, sender_wa_id)
-            await _send_list(
+            await _send_buttons(
                 sender_wa_id,
-                "No worries — you can come back anytime to protect your trip.",
-                "Choose",
-                [{"title": "Options", "rows": [
-                    {"id": "restart_buy", "title": "1. ✈️ Start a new cover"},
-                    {"id": "go_main",     "title": "2. 🏠 Main menu"},
-                ]}],
+                "✅ *Purchase cancelled*\n\nNo worries — you can come back anytime to protect your trip.",
+                [
+                    {"id": "restart_buy", "title": "1. Start new cover"},
+                    {"id": "go_main",     "title": "2. Main menu"},
+                ],
                 phone_number_id,
-                header="✅ Purchase cancelled",
             )
         else:
             flow["step"] = "buy_cover_next_steps"
             await save_session(session)
-            await _send_list(
+            await _send_buttons(
                 sender_wa_id,
                 "What would you like to do next?",
-                "Choose an option",
-                [{"title": "Next Steps", "rows": [
-                    {"id": "next_kyc",    "title": "1. 🗂️ Continue to KYC"},
-                    {"id": "next_ask",    "title": "2. ❓ Ask a question"},
-                    {"id": "next_cancel", "title": "3. ❌ Cancel purchase"},
-                ]}],
+                [
+                    {"id": "next_kyc",    "title": "1. Continue to KYC"},
+                    {"id": "next_ask",    "title": "2. Ask a question"},
+                    {"id": "next_cancel", "title": "3. Cancel"},
+                ],
                 phone_number_id,
             )

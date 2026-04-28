@@ -155,10 +155,12 @@ async def _handle_menu_selection(
             "  WhatsApp and email within seconds\n"
             "  of completing payment 🎉",
             phone_number_id)
-        await _send_list(wa_id, "Ready to get covered?", "Choose",
-            [{"title": "Options", "rows": [
-                {"id": "hlp_act_buy", "title": "✈️ Start buying cover"},
-            ] + NAV_ROWS}],
+        await _send_buttons(wa_id, "Ready to get covered?",
+            [
+                {"id": "hlp_act_buy", "title": "✈️ Start buying"},
+                {"id": "hlp_back",    "title": "↩️ Help menu"},
+                {"id": "hlp_home",    "title": "🏠 Main menu"},
+            ],
             phone_number_id)
 
     elif reply_id == "hlp_kyc":
@@ -176,10 +178,12 @@ async def _handle_menu_selection(
             "• Your details are encrypted and\n"
             "  stored securely 🔒",
             phone_number_id)
-        await _send_list(wa_id, "Ready to verify your identity?", "Choose",
-            [{"title": "Options", "rows": [
+        await _send_buttons(wa_id, "Ready to verify your identity?",
+            [
                 {"id": "hlp_act_kyc", "title": "🔒 Continue to KYC"},
-            ] + NAV_ROWS}],
+                {"id": "hlp_back",    "title": "↩️ Help menu"},
+                {"id": "hlp_home",    "title": "🏠 Main menu"},
+            ],
             phone_number_id)
 
     elif reply_id == "hlp_payment":
@@ -198,10 +202,12 @@ async def _handle_menu_selection(
             "• Payment team is available 24/7\n"
             "  to assist with failed transactions",
             phone_number_id)
-        await _send_list(wa_id, "Need to complete a payment?", "Choose",
-            [{"title": "Options", "rows": [
+        await _send_buttons(wa_id, "Need to complete a payment?",
+            [
                 {"id": "hlp_act_pay", "title": "💳 Resume payment"},
-            ] + NAV_ROWS}],
+                {"id": "hlp_back",    "title": "↩️ Help menu"},
+                {"id": "hlp_home",    "title": "🏠 Main menu"},
+            ],
             phone_number_id)
 
     elif reply_id == "hlp_policy":
@@ -221,10 +227,12 @@ async def _handle_menu_selection(
             "  payout info, use *Update my\n"
             "  details* from the main menu",
             phone_number_id)
-        await _send_list(wa_id, "View your active policy?", "Choose",
-            [{"title": "Options", "rows": [
+        await _send_buttons(wa_id, "View your active policy?",
+            [
                 {"id": "hlp_act_policy", "title": "📋 Check my policy"},
-            ] + NAV_ROWS}],
+                {"id": "hlp_back",       "title": "↩️ Help menu"},
+                {"id": "hlp_home",       "title": "🏠 Main menu"},
+            ],
             phone_number_id)
 
     elif reply_id == "hlp_boarding":
@@ -245,10 +253,12 @@ async def _handle_menu_selection(
             "• Your boarding pass is used to\n"
             "  verify eligibility for claims",
             phone_number_id)
-        await _send_list(wa_id, "Ready to upload?", "Choose",
-            [{"title": "Options", "rows": [
-                {"id": "hlp_act_boarding", "title": "🛫 Upload boarding pass"},
-            ] + NAV_ROWS}],
+        await _send_buttons(wa_id, "Ready to upload?",
+            [
+                {"id": "hlp_act_boarding", "title": "🛫 Upload boarding"},
+                {"id": "hlp_back",         "title": "↩️ Help menu"},
+                {"id": "hlp_home",         "title": "🏠 Main menu"},
+            ],
             phone_number_id)
 
     elif reply_id == "hlp_claim":
@@ -267,12 +277,12 @@ async def _handle_menu_selection(
             "No forms. No claims. No stress —\n"
             "TravelAssist handles everything automatically.",
             phone_number_id)
-        await _send_list(wa_id, "What would you like to do?", "Choose",
-            [{"title": "Options", "rows": [
+        await _send_buttons(wa_id, "What would you like to do?",
+            [
                 {"id": "hlp_act_policy", "title": "📄 View my policy"},
-                {"id": "hlp_act_agent",  "title": "📞 Speak to an agent"},
+                {"id": "hlp_act_agent",  "title": "📞 Speak to agent"},
                 {"id": "hlp_home",       "title": "🏠 Main menu"},
-            ]}],
+            ],
             phone_number_id)
 
     elif reply_id == "hlp_agent":
@@ -290,12 +300,12 @@ async def _handle_menu_selection(
             "Hours:      *Mon–Fri, 8am–6pm WAT*\n"
             "━━━━━━━━━━━━━━━━━━━━\n\nWhile you wait, you can:",
             phone_number_id)
-        await _send_list(wa_id, "Quick actions:", "Choose",
-            [{"title": "Options", "rows": [
+        await _send_buttons(wa_id, "Quick actions:",
+            [
                 {"id": "hlp_act_policy", "title": "📋 Check my policy"},
-                {"id": "hlp_back",       "title": "↩️ Back to Help menu"},
+                {"id": "hlp_back",       "title": "↩️ Help menu"},
                 {"id": "hlp_home",       "title": "🏠 Main menu"},
-            ]}],
+            ],
             phone_number_id)
 
     else:
@@ -348,12 +358,12 @@ async def _handle_action(
             "Hours:      *Mon–Fri, 8am–6pm WAT*\n"
             "━━━━━━━━━━━━━━━━━━━━",
             phone_number_id)
-        await _send_list(wa_id, "Quick actions:", "Choose",
-            [{"title": "Options", "rows": [
+        await _send_buttons(wa_id, "Quick actions:",
+            [
                 {"id": "hlp_act_policy", "title": "📋 Check my policy"},
-                {"id": "hlp_back",       "title": "↩️ Back to Help menu"},
+                {"id": "hlp_back",       "title": "↩️ Help menu"},
                 {"id": "hlp_home",       "title": "🏠 Main menu"},
-            ]}],
+            ],
             phone_number_id)
 
     elif reply_id == "hlp_back":

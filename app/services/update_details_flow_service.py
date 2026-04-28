@@ -209,16 +209,14 @@ async def handle_update_details_flow(
 
         elif reply_id == "upd_opt_wallet":
             await _set_step(session, "upd_wallet_select")
-            await _send_list(sender_wa_id,
+            await _send_buttons(sender_wa_id,
                 "👛 *Update Wallet Payout*\n\nSelect your wallet provider:",
-                "Select wallet",
-                [{"title": "Wallet", "rows": [
+                [
                     {"id": "upd_w_9psb",      "title": "9PSB"},
                     {"id": "upd_w_smartcash", "title": "SmartCash"},
                     {"id": "upd_w_opay",      "title": "OPay"},
-                ]}],
-                phone_number_id,
-                header="👛 Wallet payout")
+                ],
+                phone_number_id)
 
         elif reply_id == "upd_opt_kyc":
             await _reset(session)
