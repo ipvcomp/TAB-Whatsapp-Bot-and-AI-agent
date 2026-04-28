@@ -12,19 +12,6 @@ logger = logging.getLogger(__name__)
 
 BUY_COVER_FLOW_KEY = "buy_cover_flow"
 
-AIRPORTS = [
-    ("LOS", "Lagos Murtala Muhammed"),
-    ("ABV", "Abuja Nnamdi Azikiwe"),
-    ("PHC", "Port Harcourt Intl"),
-    ("KAN", "Kano Mallam Aminu"),
-    ("ENU", "Enugu Akanu Ibiam"),
-    ("ILR", "Ilorin"),
-    ("CBQ", "Calabar Ekpo Intl"),
-    ("SKO", "Sokoto"),
-    ("YOL", "Yola"),
-    ("QOW", "Owerri Sam Mbakwe"),
-]
-
 
 def _parse_date_to_iso(date_str: str) -> str:
     for fmt in ["%d %B %Y", "%d/%m/%Y", "%d-%m-%Y", "%B %d, %Y", "%d %b %Y"]:
@@ -427,34 +414,47 @@ async def handle_buy_cover_flow(
         data["depart_time"] = text
         flow["step"] = "buy_cover_depart_airport_pick"
         await save_session(session)
-        await _send_list(
+        await _send_text(
             sender_wa_id,
-            "*✈️ What airport are you flying from?*\nEnter first 3 characters of airport name or code\n_Example: LOS, Mur, NBO_",
-            "Select airport",
-            [{"title": "🛫 Departure Airports", "rows": [
-                {"id": f"dep_{code}", "title": f"{code}  {name}"[:24]}
-                for code, name in AIRPORTS
-            ]}],
+            "*✈️ What airport are you flying from?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, Mur, NBO_",
             phone_number_id,
         )
 
     # ── Departure airport ─────────────────────────────────────────────────────
     elif step == "buy_cover_depart_airport_pick":
-        if not reply_id or not reply_id.startswith("dep_"):
+        if reply_id and reply_id.startswith("dep_"):
+            parts = reply_id.replace("dep_", "", 1).split("|", 1)
+            code = parts[0]
+            name = parts[1] if len(parts) > 1 else code
+            data["depart_airport"] = f"{code} — {name}"
+        elif text and len(text.strip()) >= 3:
+            airports = await ipurvey_service.search_airports(text.strip())
+            if not airports:
+                await _send_text(
+                    sender_wa_id,
+                    "No airports found for that search. Please try a different name or code (at least 3 characters).",
+                    phone_number_id,
+                )
+                return
+            rows = [
+                {"id": f"dep_{a['code']}|{a['name']}", "title": f"{a['code']}  {a['name']}"[:24]}
+                for a in airports
+            ]
             await _send_list(
                 sender_wa_id,
-                "*✈️ What airport are you flying from?*\nEnter first 3 characters of airport name or code\n_Example: LOS, Mur, NBO_",
+                "*✈️ Select your departure airport*",
                 "Select airport",
-                [{"title": "🛫 Departure Airports", "rows": [
-                    {"id": f"dep_{code}", "title": f"{code}  {name}"[:24]}
-                    for code, name in AIRPORTS
-                ]}],
+                [{"title": "🛫 Departure Airports", "rows": rows}],
                 phone_number_id,
             )
             return
-        code = reply_id.replace("dep_", "")
-        name = next((n for c, n in AIRPORTS if c == code), code)
-        data["depart_airport"] = f"{code} — {name}"
+        else:
+            await _send_text(
+                sender_wa_id,
+                "*✈️ What airport are you flying from?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, Mur, NBO_",
+                phone_number_id,
+            )
+            return
         flow["step"] = "buy_cover_arrive_time"
         await save_session(session)
         await _send_text(sender_wa_id,
@@ -469,34 +469,47 @@ async def handle_buy_cover_flow(
         data["arrive_time"] = text
         flow["step"] = "buy_cover_arrive_airport_pick"
         await save_session(session)
-        await _send_list(
+        await _send_text(
             sender_wa_id,
-            "*✈️ What airport are you arriving at?*\nEnter first 3 characters of airport name or code\n_Example: LOS, Mur, NBO_",
-            "Select airport",
-            [{"title": "🛬 Arrival Airports", "rows": [
-                {"id": f"arr_{code}", "title": f"{code}  {name}"[:24]}
-                for code, name in AIRPORTS
-            ]}],
+            "*✈️ What airport are you arriving at?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LHR, Heathrow, JFK_",
             phone_number_id,
         )
 
     # ── Arrival airport ───────────────────────────────────────────────────────
     elif step == "buy_cover_arrive_airport_pick":
-        if not reply_id or not reply_id.startswith("arr_"):
+        if reply_id and reply_id.startswith("arr_"):
+            parts = reply_id.replace("arr_", "", 1).split("|", 1)
+            code = parts[0]
+            name = parts[1] if len(parts) > 1 else code
+            data["arrive_airport"] = f"{code} — {name}"
+        elif text and len(text.strip()) >= 3:
+            airports = await ipurvey_service.search_airports(text.strip())
+            if not airports:
+                await _send_text(
+                    sender_wa_id,
+                    "No airports found for that search. Please try a different name or code (at least 3 characters).",
+                    phone_number_id,
+                )
+                return
+            rows = [
+                {"id": f"arr_{a['code']}|{a['name']}", "title": f"{a['code']}  {a['name']}"[:24]}
+                for a in airports
+            ]
             await _send_list(
                 sender_wa_id,
-                "*✈️ What airport are you arriving at?*\nEnter first 3 characters of airport name or code\n_Example: LOS, Mur, NBO_",
+                "*✈️ Select your arrival airport*",
                 "Select airport",
-                [{"title": "🛬 Arrival Airports", "rows": [
-                    {"id": f"arr_{code}", "title": f"{code}  {name}"[:24]}
-                    for code, name in AIRPORTS
-                ]}],
+                [{"title": "🛬 Arrival Airports", "rows": rows}],
                 phone_number_id,
             )
             return
-        code = reply_id.replace("arr_", "")
-        name = next((n for c, n in AIRPORTS if c == code), code)
-        data["arrive_airport"] = f"{code} — {name}"
+        else:
+            await _send_text(
+                sender_wa_id,
+                "*✈️ What airport are you arriving at?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LHR, Heathrow, JFK_",
+                phone_number_id,
+            )
+            return
         flow["step"] = "buy_cover_airline"
         await save_session(session)
         await _send_text(sender_wa_id,

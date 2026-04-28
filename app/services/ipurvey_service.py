@@ -59,6 +59,44 @@ def _extract(resp: dict):
     return resp.get("data") if resp.get("data") is not None else resp
 
 
+# ── AIRPORT SEARCH ────────────────────────────────────────────────────────────
+
+async def search_airports(query: str) -> list[dict]:
+    """Search airports via the Ipurvey API.  Returns a list of dicts with keys:
+    code, name, country.  Returns [] on error or no results."""
+    try:
+        encoded = quote(query.strip(), safe="")
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(f"{_base()}/api/v2/airports/search?search={encoded}")
+            if r.status_code != 200:
+                logger.warning(f"[ipurvey] airport search {r.status_code} for '{query}'")
+                return []
+            payload = r.json()
+            items = payload if isinstance(payload, list) else payload.get("data", payload.get("airports", []))
+            if not isinstance(items, list):
+                return []
+            results = []
+            for item in items[:10]:
+                code = (
+                    item.get("iataCode") or item.get("iata_code") or
+                    item.get("code") or item.get("airportCode") or ""
+                )
+                name = (
+                    item.get("name") or item.get("airportName") or
+                    item.get("airport_name") or ""
+                )
+                country = (
+                    item.get("country") or item.get("countryName") or
+                    item.get("country_name") or ""
+                )
+                if code or name:
+                    results.append({"code": code, "name": name, "country": country})
+            return results
+    except Exception as e:
+        logger.error(f"[ipurvey] search_airports failed: {e}")
+        return []
+
+
 # ── USER MANAGEMENT ───────────────────────────────────────────────────────────
 
 async def check_user_exists(msisdn: str) -> Optional[dict]:
