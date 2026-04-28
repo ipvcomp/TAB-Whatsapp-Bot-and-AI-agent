@@ -10,37 +10,108 @@ REQUEST_TIMEOUT = 10.0
 
 
 def _normalize_policy(raw: dict) -> dict:
-    travelers_raw = raw.get("travelers") or raw.get("insuredPersons") or raw.get("passengers") or []
+    """Normalise a raw Ipurvey policy dict into the canonical shape used by all flows.
+
+    Confirmed Ipurvey ``by-msisdn`` / search response field names
+    (updated against the dev-ilekun-ipv API, April 2026):
+      - policyCode        – human-readable policy reference (e.g. "TAB-001234")
+      - policyReference   – alternative reference field
+      - id                – internal UUID
+      - productName       – plan/product label (e.g. "Local Travel Premium")
+      - status            – policy state (e.g. "ACTIVE")
+      - flightNumber      – e.g. "P41234"
+      - airlineName       – e.g. "Air Peace"
+      - departureAirport  – IATA code of origin (e.g. "LOS")
+      - arrivalAirport    – IATA code of destination (e.g. "ABJ")
+      - departureDateLocal – departure date string (e.g. "15-05-2026")
+      - passengers        – list of objects with firstName, surname, isPrimaryTraveller
+      - premium / premiumAmount – policy cost (numeric, NGN)
+      - documentUrl / downloadUrl – link to policy PDF
+
+    The function also accepts legacy/alternative field names so it degrades
+    gracefully when the API adds or renames fields.
+    """
+    travelers_raw = raw.get("passengers") or raw.get("travelers") or raw.get("insuredPersons") or []
     if isinstance(travelers_raw, list):
-        travelers = [
-            t if isinstance(t, str) else (t.get("name") or t.get("fullName") or t.get("firstName", "") + " " + t.get("lastName", "")).strip()
-            for t in travelers_raw
-        ]
-        travelers = [t for t in travelers if t]
+        travelers = []
+        for t in travelers_raw:
+            if isinstance(t, str):
+                name = t
+            else:
+                first = t.get("firstName", "")
+                surname = t.get("surname") or t.get("lastName", "")
+                name = (first + " " + surname).strip() or t.get("name") or t.get("fullName") or ""
+            if name:
+                travelers.append(name)
     else:
         travelers = [str(travelers_raw)] if travelers_raw else []
 
     if not travelers:
         first = raw.get("firstName", "")
-        last = raw.get("lastName", "")
+        last = raw.get("surname") or raw.get("lastName", "")
         full = (first + " " + last).strip() or raw.get("name", "") or raw.get("traveler", "")
         if full:
             travelers = [full]
 
-    ref = raw.get("policyNumber") or raw.get("ref") or raw.get("id") or raw.get("policyRef") or ""
-    name = raw.get("planName") or raw.get("productName") or raw.get("name") or raw.get("policyType") or "Travel Policy"
+    ref = (
+        raw.get("policyCode")
+        or raw.get("policyNumber")
+        or raw.get("policyReference")
+        or raw.get("ref")
+        or raw.get("id")
+        or raw.get("policyRef")
+        or ""
+    )
+    name = (
+        raw.get("productName")
+        or raw.get("planName")
+        or raw.get("name")
+        or raw.get("policyType")
+        or "Travel Policy"
+    )
     status = raw.get("status") or raw.get("policyStatus") or "Active"
-    airline = raw.get("airline") or raw.get("airlineName") or raw.get("carrier") or ""
-    flight = raw.get("flightNumber") or raw.get("flight") or raw.get("flightNo") or ""
-    date = raw.get("travelDate") or raw.get("departureDate") or raw.get("date") or raw.get("startDate") or ""
-    origin = raw.get("originAirport") or raw.get("origin") or raw.get("departureAirport") or ""
-    dest = raw.get("destinationAirport") or raw.get("destination") or raw.get("dest") or raw.get("arrivalAirport") or ""
+    airline = (
+        raw.get("airlineName")
+        or raw.get("airline")
+        or raw.get("carrier")
+        or raw.get("carrierName")
+        or ""
+    )
+    flight = (
+        raw.get("flightNumber")
+        or raw.get("flight")
+        or raw.get("flightNo")
+        or ""
+    )
+    date = (
+        raw.get("departureDateLocal")
+        or raw.get("departureDate")
+        or raw.get("travelDate")
+        or raw.get("date")
+        or raw.get("startDate")
+        or ""
+    )
+    origin = (
+        raw.get("departureAirport")
+        or raw.get("originAirport")
+        or raw.get("origin")
+        or ""
+    )
+    dest = (
+        raw.get("arrivalAirport")
+        or raw.get("destinationAirport")
+        or raw.get("destination")
+        or raw.get("dest")
+        or ""
+    )
     cover = raw.get("coverType") or raw.get("cover") or raw.get("planType") or ""
-    price = raw.get("premium") or raw.get("price") or raw.get("amount") or ""
+    price = raw.get("premium") or raw.get("premiumAmount") or raw.get("price") or raw.get("amount") or ""
     if price and not str(price).startswith("₦"):
         price = f"₦{price}"
     doc_url = (
         raw.get("documentUrl")
+        or raw.get("downloadUrl")
+        or raw.get("url")
         or raw.get("doc_url")
         or (f"{IPURVEY_BASE_URL}/policies/{ref}/document" if ref else "")
     )
@@ -64,43 +135,45 @@ def _normalize_policy(raw: dict) -> dict:
     }
 
 
+def _extract_policy_list(data) -> list:
+    """Extract a list of raw policy dicts from any response shape the API may return."""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        inner = data.get("data")
+        if isinstance(inner, list):
+            return inner
+        if isinstance(inner, dict):
+            content = inner.get("content")
+            if isinstance(content, list):
+                return content
+        for key in ("policies", "results", "items", "content"):
+            candidate = data.get(key)
+            if isinstance(candidate, list):
+                return candidate
+    return []
+
+
 async def fetch_policies_by_msisdn(msisdn: str) -> list:
     url = f"{IPURVEY_BASE_URL}/policies/by-msisdn/{msisdn}"
+    masked = msisdn[:4] + "****" + msisdn[-2:] if len(msisdn) > 6 else "****"
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             data = resp.json()
 
-        if isinstance(data, list):
-            raw_list = data
-        elif isinstance(data, dict):
-            raw_list = (
-                data.get("data")
-                or data.get("policies")
-                or data.get("results")
-                or data.get("items")
-                or []
-            )
-            if not isinstance(raw_list, list):
-                raw_list = []
-        else:
-            raw_list = []
-
+        raw_list = _extract_policy_list(data)
         policies = [_normalize_policy(p) for p in raw_list]
-        masked = msisdn[:4] + "****" + msisdn[-2:] if len(msisdn) > 6 else "****"
         logger.info("Fetched %d policies for msisdn %s", len(policies), masked)
         return policies
 
     except httpx.HTTPStatusError as exc:
-        masked = msisdn[:4] + "****" + msisdn[-2:] if len(msisdn) > 6 else "****"
         logger.warning("Ipurvey API HTTP error for %s: %s", masked, exc.response.status_code)
         return []
     except httpx.RequestError as exc:
-        masked = msisdn[:4] + "****" + msisdn[-2:] if len(msisdn) > 6 else "****"
         logger.warning("Ipurvey API request error for %s: %s", masked, exc)
         return []
     except Exception as exc:
-        masked = msisdn[:4] + "****" + msisdn[-2:] if len(msisdn) > 6 else "****"
         logger.exception("Unexpected error fetching policies for %s: %s", masked, exc)
         return []
