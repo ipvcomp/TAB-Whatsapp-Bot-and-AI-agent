@@ -137,6 +137,7 @@ async def start_buy_cover_flow(
     session.setdefault("temp_data", {})[BUY_COVER_FLOW_KEY] = {"active": True, "step": "buy_cover_who", "data": {}}
     if "user_id" not in session:
         session["user_id"] = wa_id
+    session["api_data"] = {}
     await save_session(session)
 
     msisdn = f"+{wa_id}" if not wa_id.startswith("+") else wa_id
