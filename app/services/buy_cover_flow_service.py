@@ -150,9 +150,22 @@ async def start_buy_cover_flow(
         else:
             api_data["user_exists"] = False
         if not api_data.get("policy_id"):
-            policy_id = await ipurvey_service.create_draft_policy(msisdn)
-            if policy_id:
-                api_data["policy_id"] = policy_id
+            _FRESH_STATES = {"DRAFT", "CREATED"}
+            draft = await ipurvey_service.create_draft_policy(msisdn)
+            if draft:
+                pid   = draft["policy_id"]
+                state = draft.get("creation_state", "DRAFT")
+                existing = draft.get("existing", False)
+                if existing and state not in _FRESH_STATES and pid:
+                    logger.info(
+                        f"[buy_cover] existing policy '{pid}' in state '{state}' "
+                        f"— cancelling and creating fresh draft"
+                    )
+                    await ipurvey_service.cancel_draft_policy(pid)
+                    draft = await ipurvey_service.create_draft_policy(msisdn)
+                    pid = draft["policy_id"] if draft else None
+                if pid:
+                    api_data["policy_id"] = pid
         await save_session(session)
     except Exception as exc:
         logger.error(f"[buy_cover] start API calls failed: {exc}")

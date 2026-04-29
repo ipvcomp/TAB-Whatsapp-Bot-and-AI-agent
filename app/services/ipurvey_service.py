@@ -212,7 +212,7 @@ async def update_user(user_id: str, fields: dict) -> Optional[dict]:
 
 # ── POLICY MANAGEMENT ─────────────────────────────────────────────────────────
 
-async def create_draft_policy(msisdn: str) -> Optional[str]:
+async def create_draft_policy(msisdn: str) -> Optional[dict]:
     logger.info(f"[ipurvey] create_draft_policy msisdn='{msisdn}'")
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
@@ -228,13 +228,41 @@ async def create_draft_policy(msisdn: str) -> Optional[str]:
                         or data.get("id")
                         or data.get("policy_id")
                     )
-                    logger.info(f"[ipurvey] create_draft_policy → policy_id='{pid}'")
-                    return pid
+                    existing = bool(data.get("existing", False))
+                    creation_state = (
+                        data.get("creationState")
+                        or data.get("creation_state")
+                        or "DRAFT"
+                    )
+                    logger.info(
+                        f"[ipurvey] create_draft_policy → policy_id='{pid}' "
+                        f"existing={existing} state='{creation_state}'"
+                    )
+                    return {
+                        "policy_id": pid,
+                        "existing": existing,
+                        "creation_state": creation_state,
+                    }
             logger.error(f"[ipurvey] create_draft_policy {r.status_code}: {r.text[:200]}")
             return None
     except Exception as e:
         logger.error(f"[ipurvey] create_draft_policy failed: {e}")
         return None
+
+
+async def cancel_draft_policy(policy_id: str) -> bool:
+    logger.info(f"[ipurvey] cancel_draft_policy policy_id='{policy_id}'")
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.delete(f"{_base()}/api/tab-plc/policies/{policy_id}/draft")
+            ok = r.status_code in (200, 204)
+            logger.info(
+                f"[ipurvey] cancel_draft_policy → {'success' if ok else 'failed'} ({r.status_code})"
+            )
+            return ok
+    except Exception as e:
+        logger.error(f"[ipurvey] cancel_draft_policy failed: {e}")
+        return False
 
 
 async def resume_draft_policy(msisdn: str) -> Optional[dict]:
