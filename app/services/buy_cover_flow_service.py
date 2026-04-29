@@ -626,14 +626,14 @@ async def handle_buy_cover_flow(
                 flight_id = f"{flight_num}-{dep_date}T{dep_time}"
                 session.setdefault("api_data", {})["flight_id"] = flight_id
                 legs = [{
-                    "flightNumber":                  flight_num,
-                    "carrier":                       carrier,
-                    "departureAirport":              dep_code,
-                    "arrivalAirport":                arr_code,
-                    "scheduledDepartureDateLocal":   dep_date,
-                    "scheduledDepartureTimeLocal":   dep_time,
-                    "scheduledArrivalDateLocal":     arr_date,
-                    "scheduledArrivalTimeLocal":     arr_time,
+                    "flightNumber":    flight_num,
+                    "carrier":         carrier,
+                    "departureAirport": dep_code,
+                    "arrivalAirport":   arr_code,
+                    "departureDate":   dep_date,
+                    "departureTime":   dep_time,
+                    "arrivalDate":     arr_date,
+                    "arrivalTime":     arr_time,
                 }]
                 await ipurvey_service.submit_itinerary(
                     policy_id, trip_type, data.get("booking_ref", ""), legs
