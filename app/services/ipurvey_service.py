@@ -662,7 +662,17 @@ async def verify_kyc_otp(user_id: str, session_id: str, otp: str) -> bool:
                 json={"sessionId": session_id, "otp": otp},
             )
             ok = r.status_code in (200, 204)
-            logger.info(f"[ipurvey] verify_kyc_otp → {'success' if ok else 'failed'} ({r.status_code})")
+            try:
+                body = r.json()
+                data = body.get("data") or {}
+                api_verified = data.get("verified")
+                api_status   = data.get("status", "")
+                logger.info(
+                    f"[ipurvey] verify_kyc_otp → http={r.status_code} "
+                    f"data.verified={api_verified} data.status={api_status}"
+                )
+            except Exception:
+                logger.info(f"[ipurvey] verify_kyc_otp → http={r.status_code} (no JSON body)")
             return ok
     except Exception as e:
         logger.error(f"[ipurvey] verify_kyc_otp failed: {e}")
