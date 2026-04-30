@@ -17,6 +17,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ── Silence noisy low-value loggers ──────────────────────────────────────────
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("app.services.session_service").setLevel(logging.WARNING)
+logging.getLogger("app.services.message_service").setLevel(logging.WARNING)
+logging.getLogger("app.services.contact_service").setLevel(logging.WARNING)
+logging.getLogger("app.services.whatsapp_service").setLevel(logging.WARNING)
+
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):

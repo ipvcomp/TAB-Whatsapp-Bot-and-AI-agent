@@ -46,12 +46,16 @@ router = APIRouter()
 
 
 def log_event(event_type: str, data: dict):
-    log_entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "event": event_type,
-        **data,
-    }
-    print(f"[WEBHOOK] {json.dumps(log_entry, default=str)}", flush=True)
+    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    parts = [f"[{event_type}]"]
+    priority_keys = ("from", "to", "action", "text", "input", "trigger", "status", "error")
+    for k in priority_keys:
+        if k in data and data[k] is not None:
+            parts.append(f"{k}={data[k]!r}")
+    extras = {k: v for k, v in data.items() if k not in priority_keys and v is not None}
+    if extras:
+        parts.append("| " + "  ".join(f"{k}={v!r}" for k, v in extras.items()))
+    print(f"{ts} {' '.join(parts)}", flush=True)
 
 
 @router.get("/webhook")
@@ -89,15 +93,19 @@ async def verify_webhook(
 async def handle_webhook(request: Request):
     body = await request.json()
 
-    log_event("INCOMING_WEBHOOK", {
-        "client_ip": request.client.host if request.client else "unknown",
-        "object_type": body.get("object", "unknown"),
-    })
-
     try:
         payload = WebhookPayload(**body)
     except Exception as e:
-        log_event("PARSE_ERROR", {"error": str(e), "raw_body": body})
+        raw = body or {}
+        has_only_statuses = (
+            not any(
+                c.get("value", {}).get("messages")
+                for e2 in raw.get("entry", [])
+                for c in e2.get("changes", [])
+            )
+        )
+        if not has_only_statuses:
+            log_event("PARSE_ERROR", {"error": str(e)})
         return Response(status_code=200)
 
     for entry in payload.entry:
@@ -117,15 +125,6 @@ async def _process_change(entry_id: str, change):
     settings = get_settings()
     value = change.value
 
-    log_event("WEBHOOK_CHANGE", {
-        "entry_id": entry_id,
-        "field": change.field,
-        "business_phone": value.metadata.display_phone_number,
-        "phone_number_id": value.metadata.phone_number_id,
-        "contacts_count": len(value.contacts) if value.contacts else 0,
-        "messages_count": len(value.messages) if value.messages else 0,
-        "statuses_count": len(value.statuses) if value.statuses else 0,
-    })
 
     contact_map = {}
     if value.contacts:
@@ -160,21 +159,26 @@ async def _process_change(entry_id: str, change):
                 increment_message_count=is_new_message,
             )
 
-            log_event("CONTACT_SAVED", {
-                "wa_id": sender_wa_id,
-                "profile_name": saved_contact.get("profile_name", "Unknown") if saved_contact else profile_name or "Unknown",
-                "message_count": saved_contact.get("message_count", 0) if saved_contact else 0,
-            })
-
-            log_event("MESSAGE_SAVED", {
-                "message_id": message.id,
-                "from": sender_wa_id,
-                "type": message.type,
-                "text": message.text.body if message.text else None,
-                "is_new": is_new_message,
-            })
-
             if is_new_message:
+                _input = None
+                if message.type == "text" and message.text:
+                    _input = message.text.body
+                elif message.type == "interactive" and message.interactive:
+                    inter = message.interactive
+                    if isinstance(inter, dict):
+                        br = inter.get("button_reply") or inter.get("list_reply")
+                        _input = f"[button:{br.get('id')}]" if br else "[interactive]"
+                    else:
+                        br = getattr(inter, "button_reply", None) or getattr(inter, "list_reply", None)
+                        if br:
+                            bid = br.get("id") if isinstance(br, dict) else getattr(br, "id", None)
+                            _input = f"[button:{bid}]"
+                        else:
+                            _input = "[interactive]"
+                elif message.type in ("image", "document", "audio", "video"):
+                    _input = f"[{message.type}]"
+                log_event("MSG_IN", {"from": sender_wa_id, "input": _input})
+
                 resolved_profile = profile_name or (saved_contact.get("profile_name", "") if saved_contact else "")
                 msg_phone_number_id = value.metadata.phone_number_id
 
@@ -284,11 +288,7 @@ async def _process_change(entry_id: str, change):
                         continue
 
                 if is_in_update_details_flow(user_session):
-                    log_event("UPDATE_DETAILS_FLOW", {
-                        "message_id": message.id,
-                        "from": sender_wa_id,
-                        "trigger": "active_update_details_flow",
-                    })
+                    log_event("FLOW", {"from": sender_wa_id, "trigger": "UPDATE_DETAILS"})
                     await handle_update_details_flow(
                         message=message,
                         sender_wa_id=sender_wa_id,
@@ -296,11 +296,7 @@ async def _process_change(entry_id: str, change):
                         in_reply_to=message.id,
                     )
                 elif is_in_check_policy_flow(user_session):
-                    log_event("CHECK_POLICY_FLOW", {
-                        "message_id": message.id,
-                        "from": sender_wa_id,
-                        "trigger": "active_check_policy_flow",
-                    })
+                    log_event("FLOW", {"from": sender_wa_id, "trigger": "CHECK_POLICY"})
                     await handle_check_policy_flow(
                         message=message,
                         sender_wa_id=sender_wa_id,
@@ -308,11 +304,7 @@ async def _process_change(entry_id: str, change):
                         in_reply_to=message.id,
                     )
                 elif is_in_help_flow(user_session):
-                    log_event("HELP_FLOW", {
-                        "message_id": message.id,
-                        "from": sender_wa_id,
-                        "trigger": "active_help_flow",
-                    })
+                    log_event("FLOW", {"from": sender_wa_id, "trigger": "HELP"})
                     await handle_help_flow(
                         message=message,
                         sender_wa_id=sender_wa_id,
@@ -320,11 +312,7 @@ async def _process_change(entry_id: str, change):
                         in_reply_to=message.id,
                     )
                 elif is_in_bp_link_flow(user_session):
-                    log_event("BP_LINK_FLOW", {
-                        "message_id": message.id,
-                        "from": sender_wa_id,
-                        "trigger": "active_bp_link_flow",
-                    })
+                    log_event("FLOW", {"from": sender_wa_id, "trigger": "BP_LINK"})
                     await handle_bp_link_flow(
                         message=message,
                         sender_wa_id=sender_wa_id,
@@ -332,11 +320,7 @@ async def _process_change(entry_id: str, change):
                         in_reply_to=message.id,
                     )
                 elif is_in_payment_flow(user_session):
-                    log_event("PAYMENT_FLOW", {
-                        "message_id": message.id,
-                        "from": sender_wa_id,
-                        "trigger": "active_payment_flow",
-                    })
+                    log_event("FLOW", {"from": sender_wa_id, "trigger": "PAYMENT"})
                     await handle_payment_flow(
                         message=message,
                         sender_wa_id=sender_wa_id,
@@ -344,11 +328,7 @@ async def _process_change(entry_id: str, change):
                         in_reply_to=message.id,
                     )
                 elif is_in_kyc_flow(user_session):
-                    log_event("KYC_FLOW", {
-                        "message_id": message.id,
-                        "from": sender_wa_id,
-                        "trigger": "active_kyc_flow",
-                    })
+                    log_event("FLOW", {"from": sender_wa_id, "trigger": "KYC"})
                     await handle_kyc_flow(
                         message=message,
                         sender_wa_id=sender_wa_id,
@@ -356,11 +336,7 @@ async def _process_change(entry_id: str, change):
                         in_reply_to=message.id,
                     )
                 elif is_in_buy_cover_flow(user_session):
-                    log_event("BUY_COVER_FLOW", {
-                        "message_id": message.id,
-                        "from": sender_wa_id,
-                        "trigger": "active_buy_cover_flow",
-                    })
+                    log_event("FLOW", {"from": sender_wa_id, "trigger": "BUY_COVER"})
                     await handle_buy_cover_flow(
                         message=message,
                         sender_wa_id=sender_wa_id,
@@ -388,13 +364,7 @@ async def _process_change(entry_id: str, change):
                     })
 
     if value.statuses:
-        for status in value.statuses:
-            log_event("STATUS_UPDATE", {
-                "message_id": status.id,
-                "status": status.status,
-                "recipient_id": status.recipient_id,
-                "timestamp": status.timestamp,
-            })
+        pass
 
     if value.errors:
         for error in value.errors:
