@@ -8,6 +8,7 @@ from app.services.whatsapp_service import (
     send_whatsapp_payload,
     get_welcome_image_media_id,
 )
+from app.core.test_overrides import get_msisdn
 from app.services.ipurvey_api import fetch_policies_by_msisdn
 
 logger = logging.getLogger(__name__)
@@ -148,7 +149,7 @@ async def send_welcome_message(
     lookup_id = wa_id or to
     if lookup_id:
         try:
-            msisdn = f"+{lookup_id}" if not lookup_id.startswith("+") else lookup_id
+            msisdn = get_msisdn(lookup_id)
             policies = await fetch_policies_by_msisdn(msisdn)
             for p in policies:
                 if (p.get("status") or "").upper() == "ACTIVE":

@@ -3,6 +3,7 @@ from typing import Optional
 
 import app.services.ipurvey_service as ipurvey_service
 
+from app.core.test_overrides import get_msisdn
 from app.services.session_service import (
     get_session,
     save_session,
@@ -275,7 +276,7 @@ async def handle_check_policy_flow(
         await _save_data(session, "pol_flight_search", flight)
         
         matched = []
-        msisdn = f"+{sender_wa_id}" if not sender_wa_id.startswith("+") else sender_wa_id
+        msisdn = get_msisdn(sender_wa_id)
         try:
             all_pols = await ipurvey_service.search_policies(msisdn)
             if all_pols:
@@ -514,7 +515,7 @@ async def _go_home(session: dict, wa_id: str, phone_number_id: Optional[str]):
 async def _show_phone_policies(session: dict, wa_id: str, policies: list, phone_number_id: Optional[str]):
     await _set_step(session, "pol_phone_list")
     
-    msisdn = f"+{wa_id}" if not wa_id.startswith("+") else wa_id
+    msisdn = get_msisdn(wa_id)
     phone_pols = []
     try:
         phone_pols = await ipurvey_service.search_policies(msisdn)
