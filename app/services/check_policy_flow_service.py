@@ -180,7 +180,8 @@ async def start_check_policy_flow(
     session = await get_session(wa_id) or {}
     policies, is_stale = get_policy_cache_allow_stale(session)
     if policies is None:
-        policies = await fetch_policies_by_msisdn(wa_id)
+        msisdn_for_fetch = get_msisdn(wa_id)
+        policies = await fetch_policies_by_msisdn(msisdn_for_fetch)
         set_policy_cache(session, policies)
         logger.info("Fetched and cached %d policies for %s", len(policies), wa_id[:4] + "****")
     elif is_stale:
@@ -514,14 +515,14 @@ async def _go_home(session: dict, wa_id: str, phone_number_id: Optional[str]):
 
 async def _show_phone_policies(session: dict, wa_id: str, policies: list, phone_number_id: Optional[str]):
     await _set_step(session, "pol_phone_list")
-    
+
     msisdn = get_msisdn(wa_id)
     phone_pols = []
     try:
-        phone_pols = await ipurvey_service.search_policies(msisdn)
+        phone_pols = await fetch_policies_by_msisdn(msisdn)
     except Exception:
         pass
-    
+
     if not phone_pols:
         phone_pols = policies
 

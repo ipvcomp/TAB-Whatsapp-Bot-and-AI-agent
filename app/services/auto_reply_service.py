@@ -144,7 +144,9 @@ async def send_welcome_message(
         )
         await asyncio.sleep(1.5)
 
-    # 2. Check for active policy (welcome-back vs. generic welcome)
+    # 2. Check for existing policy (welcome-back vs. generic welcome)
+    # Show welcome-back for any meaningful policy status, not just ACTIVE
+    _RETURNER_STATUSES = {"ACTIVE", "SUBMITTED", "PAID", "CONFIRMED", "APPROVED", "PROCESSING", "PENDING_PAYMENT"}
     active_policy = None
     lookup_id = wa_id or to
     if lookup_id:
@@ -152,9 +154,12 @@ async def send_welcome_message(
             msisdn = get_msisdn(lookup_id)
             policies = await fetch_policies_by_msisdn(msisdn)
             for p in policies:
-                if (p.get("status") or "").upper() == "ACTIVE":
+                if (p.get("status") or "").upper() in _RETURNER_STATUSES:
                     active_policy = p
                     break
+            # Fallback: any policy at all counts as a returning user
+            if not active_policy and policies:
+                active_policy = policies[0]
         except Exception as exc:
             logger.warning(f"[welcome] policy lookup failed for {lookup_id}: {exc}")
 
