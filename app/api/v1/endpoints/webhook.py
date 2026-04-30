@@ -44,6 +44,12 @@ WELCOME_BUTTON_IDS = {
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# ── TEMPORARY TEST OVERRIDE ───────────────────────────────────────────────────
+# Set this to a wa_id (digits only, no +) to force all incoming messages to be
+# treated as coming from that number. Set to None to disable.
+TEST_OVERRIDE_WA_ID: str | None = "2349066662020"
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 def log_event(event_type: str, data: dict):
     ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
@@ -140,6 +146,9 @@ async def _process_change(entry_id: str, change):
                     "reason": "missing sender wa_id",
                 })
                 continue
+
+            if TEST_OVERRIDE_WA_ID:
+                sender_wa_id = TEST_OVERRIDE_WA_ID
 
             profile_name = contact_map.get(sender_wa_id, "")
 
