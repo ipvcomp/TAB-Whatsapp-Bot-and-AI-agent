@@ -190,38 +190,23 @@ def _extract_policy_list(data) -> list:
 
 async def fetch_policies_by_msisdn(msisdn: str) -> list:
     url = f"{IPURVEY_BASE_URL}/policies/by-msisdn/{msisdn}"
-    masked = msisdn[:4] + "****" + msisdn[-2:] if len(msisdn) > 6 else "****"
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             data = resp.json()
 
-        # DEBUG: log top-level response shape and first raw item so the team can
-        # confirm the exact field names returned by the API without PII exposure.
-        if logger.isEnabledFor(logging.DEBUG):
-            top_keys = list(data.keys()) if isinstance(data, dict) else type(data).__name__
-            logger.debug("Ipurvey raw response top-level keys for %s: %s", masked, top_keys)
-
         raw_list = _extract_policy_list(data)
-
-        if logger.isEnabledFor(logging.DEBUG) and raw_list:
-            logger.debug(
-                "Ipurvey first raw policy item (PII masked) for %s: %s",
-                masked,
-                _mask_pii(raw_list[0]) if isinstance(raw_list[0], dict) else raw_list[0],
-            )
-
         policies = [_normalize_policy(p) for p in raw_list]
-        logger.info("Fetched %d policies for msisdn %s", len(policies), masked)
+        logger.info("Fetched %d policies for msisdn %s", len(policies), msisdn)
         return policies
 
     except httpx.HTTPStatusError as exc:
-        logger.warning("Ipurvey API HTTP error for %s: %s", masked, exc.response.status_code)
+        logger.warning("Ipurvey API HTTP error for %s: %s", msisdn, exc.response.status_code)
         return []
     except httpx.RequestError as exc:
-        logger.warning("Ipurvey API request error for %s: %s", masked, exc)
+        logger.warning("Ipurvey API request error for %s: %s", msisdn, exc)
         return []
     except Exception as exc:
-        logger.exception("Unexpected error fetching policies for %s: %s", masked, exc)
+        logger.exception("Unexpected error fetching policies for %s: %s", msisdn, exc)
         return []
