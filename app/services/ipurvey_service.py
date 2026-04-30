@@ -250,6 +250,58 @@ async def create_draft_policy(msisdn: str) -> Optional[dict]:
         return None
 
 
+async def resume_draft_policy(msisdn: str) -> Optional[dict]:
+    """GET /api/tab-plc/policies/draft/resume?msisdn={msisdn}
+    Returns a dict with draft data when an existing resumable draft is found,
+    None when there is no draft (404) or on any error.
+    """
+    logger.info(f"[ipurvey] resume_draft_policy msisdn='{msisdn}'")
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(
+                f"{_base()}/api/tab-plc/policies/draft/resume",
+                params={"msisdn": msisdn},
+            )
+            if r.status_code in (200, 201):
+                body = r.json()
+                data = _extract(body)
+                if isinstance(data, dict):
+                    pid = (
+                        data.get("policyId")
+                        or data.get("id")
+                        or data.get("policy_id")
+                    )
+                    state = (
+                        data.get("creationState")
+                        or data.get("creation_state")
+                        or "DRAFT"
+                    )
+                    logger.info(
+                        f"[ipurvey] resume_draft_policy → policy_id='{pid}' "
+                        f"state='{state}'"
+                    )
+                    return {
+                        "policy_id":      pid,
+                        "creation_state": state,
+                        "current_step":   data.get("currentStep"),
+                        "passengers":     data.get("passengers") or [],
+                        "email":          data.get("email") or "",
+                        "trip_type":      data.get("tripType") or "",
+                        "itinerary":      data.get("itinerary") or {},
+                        "missing_fields": data.get("missingFields") or [],
+                    }
+            elif r.status_code == 404:
+                logger.info("[ipurvey] resume_draft_policy → 404 (no existing draft)")
+                return None
+            logger.warning(
+                f"[ipurvey] resume_draft_policy {r.status_code}: {r.text[:200]}"
+            )
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] resume_draft_policy failed: {e}")
+        return None
+
+
 async def cancel_draft_policy(policy_id: str) -> bool:
     logger.info(f"[ipurvey] cancel_draft_policy policy_id='{policy_id}'")
     try:
@@ -263,24 +315,6 @@ async def cancel_draft_policy(policy_id: str) -> bool:
     except Exception as e:
         logger.error(f"[ipurvey] cancel_draft_policy failed: {e}")
         return False
-
-
-async def resume_draft_policy(msisdn: str) -> Optional[dict]:
-    logger.info(f"[ipurvey] resume_draft_policy msisdn='{msisdn}'")
-    try:
-        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
-            r = await c.get(
-                f"{_base()}/api/tab-plc/policies/draft/resume",
-                params={"msisdn": msisdn},
-            )
-            if r.status_code == 200:
-                logger.info(f"[ipurvey] resume_draft_policy → found draft (200)")
-                return _extract(r.json())
-            logger.info(f"[ipurvey] resume_draft_policy → no draft ({r.status_code})")
-            return None
-    except Exception as e:
-        logger.error(f"[ipurvey] resume_draft_policy failed: {e}")
-        return None
 
 
 async def set_traveler_count(policy_id: str, count: int) -> Optional[list]:

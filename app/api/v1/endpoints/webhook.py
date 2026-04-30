@@ -207,6 +207,7 @@ async def _process_change(entry_id: str, change):
                             to=sender_wa_id,
                             phone_number_id=msg_phone_number_id,
                             in_reply_to=message.id,
+                            wa_id=sender_wa_id,
                         )
                         log_event("GREETING_WELCOME", {"to": sender_wa_id})
                         continue
@@ -227,6 +228,7 @@ async def _process_change(entry_id: str, change):
                             to=sender_wa_id,
                             phone_number_id=msg_phone_number_id,
                             in_reply_to=message.id,
+                            wa_id=sender_wa_id,
                         )
                         log_event("CANCEL_NO_FLOW", {"to": sender_wa_id})
                         continue
@@ -276,6 +278,7 @@ async def _process_change(entry_id: str, change):
                             to=sender_wa_id,
                             phone_number_id=msg_phone_number_id,
                             in_reply_to=message.id,
+                            wa_id=sender_wa_id,
                         )
                         log_event("MAIN_MENU_TRIGGER", {"to": sender_wa_id, "text": text_lower_mm})
                         continue
@@ -630,6 +633,7 @@ async def _handle_welcome_button(
             to=sender_wa_id,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
+            wa_id=sender_wa_id,
         )
     elif reply_id == "check_eligibility":
         log_event("WELCOME_BUTTON", {"action": "check_eligibility", "from": sender_wa_id})

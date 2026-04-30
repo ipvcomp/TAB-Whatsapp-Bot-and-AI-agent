@@ -8,6 +8,7 @@ from app.services.whatsapp_service import (
     send_whatsapp_payload,
     get_welcome_image_media_id,
 )
+from app.services.ipurvey_api import fetch_policies_by_msisdn
 
 logger = logging.getLogger(__name__)
 
@@ -92,10 +93,35 @@ def _match_simple_reply(text: str) -> Optional[str]:
     return None
 
 
+def _format_policy_card(policy: dict) -> str:
+    ref    = policy.get("ref") or policy.get("id") or "—"
+    flight = policy.get("flight") or "—"
+    airline = policy.get("airline") or ""
+    date   = policy.get("date") or "—"
+    status = (policy.get("status") or "Active").upper()
+    flight_line = f"{flight} · {airline}" if airline else flight
+    if status == "ACTIVE":
+        badge = "✅ Active"
+    elif status in ("PENDING", "PROCESSING"):
+        badge = "⏳ Pending"
+    elif status == "CANCELLED":
+        badge = "❌ Cancelled"
+    else:
+        badge = f"📋 {status.title()}"
+    return (
+        "*YOUR ACTIVE POLICY*\n"
+        f"Policy No.   {ref}\n"
+        f"Flight         {flight_line}\n"
+        f"Date           {date}\n"
+        f"{badge}"
+    )
+
+
 async def send_welcome_message(
     to: str,
     phone_number_id: Optional[str],
     in_reply_to: Optional[str],
+    wa_id: Optional[str] = None,
 ) -> Optional[dict]:
     image_media_id = await get_welcome_image_media_id()
     logger.info(f"Welcome image media_id: {image_media_id}")
@@ -117,10 +143,32 @@ async def send_welcome_message(
         )
         await asyncio.sleep(1.5)
 
-    # 2. Send welcome text
+    # 2. Check for active policy (welcome-back vs. generic welcome)
+    active_policy = None
+    lookup_id = wa_id or to
+    if lookup_id:
+        try:
+            msisdn = f"+{lookup_id}" if not lookup_id.startswith("+") else lookup_id
+            policies = await fetch_policies_by_msisdn(msisdn)
+            for p in policies:
+                if (p.get("status") or "").upper() == "ACTIVE":
+                    active_policy = p
+                    break
+        except Exception as exc:
+            logger.warning(f"[welcome] policy lookup failed for {lookup_id}: {exc}")
+
+    if active_policy:
+        welcome_body = (
+            "👋 *Welcome back!*\n"
+            "*Welcome back to TravelAssist*\n\n"
+            + _format_policy_card(active_policy)
+        )
+    else:
+        welcome_body = WELCOME_TEXT
+
     await send_text_message(
         to=to,
-        body=WELCOME_TEXT,
+        body=welcome_body,
         phone_number_id=phone_number_id,
         source="auto_reply",
     )
@@ -176,11 +224,13 @@ async def send_main_menu(
     to: str,
     phone_number_id: Optional[str],
     in_reply_to: Optional[str] = None,
+    wa_id: Optional[str] = None,
 ) -> Optional[dict]:
     return await send_welcome_message(
         to=to,
         phone_number_id=phone_number_id,
         in_reply_to=in_reply_to,
+        wa_id=wa_id,
     )
 
 
@@ -204,6 +254,7 @@ async def handle_auto_reply(
             to=to_wa_id,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
+            wa_id=to_wa_id,
         )
     else:
         simple_reply = _match_simple_reply(incoming_text)
