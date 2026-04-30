@@ -381,8 +381,16 @@ async def start_payment_flow(
 
     cover_raw = bc_data.get("cover", "local_basic")
     cover_key = "local_premium" if "premium" in cover_raw.lower() else "local_basic"
-    amount    = COVER_PRICES.get(cover_key, 2500)
-    cname     = COVER_NAMES.get(cover_key, "Local Travel Basic")
+    # Use actual premium from session quote data; fall back to static map
+    _cover_price_raw = bc_data.get("cover_price")
+    if _cover_price_raw:
+        try:
+            amount = int(float(_cover_price_raw))
+        except (TypeError, ValueError):
+            amount = COVER_PRICES.get(cover_key, 2500)
+    else:
+        amount = COVER_PRICES.get(cover_key, 2500)
+    cname  = cover_raw if cover_raw and cover_raw != "local_basic" else COVER_NAMES.get(cover_key, "Local Travel Basic")
     origin    = bc_data.get("depart_airport", "—").split("—")[0].strip()
     dest      = bc_data.get("arrive_airport",  "—").split("—")[0].strip()
     dep_date  = bc_data.get("date",  "—")
@@ -533,7 +541,8 @@ async def handle_payment_flow(
                     api_data   = session.get("api_data", {})
                     user_id    = api_data.get("user_id") or ""
                     account_no = data.get("pay_user_acct", "")
-                    account_name = data.get("name") or ""
+                    _bc = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
+                    account_name = _bc.get("name") or ""
                     if user_id:
                         try:
                             payout_result = await ipurvey_service.create_payout_method_bank(
@@ -577,7 +586,8 @@ async def handle_payment_flow(
             wallet_type  = data.get("pay_wallet_type", "")
             api_data     = session.get("api_data", {})
             user_id      = api_data.get("user_id") or ""
-            account_name = data.get("name") or ""
+            _bc_w = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
+            account_name = _bc_w.get("name") or ""
             if user_id:
                 try:
                     payout_result = await ipurvey_service.create_payout_method_wallet(
@@ -655,8 +665,8 @@ async def handle_payment_flow(
             else:
                 initiate_error = True
 
-            if not api_ref:
-                initiate_error = True
+            # api_ref may be None — the payment API is event-driven (data:null on success).
+            # Do NOT treat missing api_ref as an error; HTTP 200 = payment event published.
 
             if initiate_error:
                 await save_session(session)
@@ -673,7 +683,8 @@ async def handle_payment_flow(
                 await _show_payment_summary(sender_wa_id, session, flow, phone_number_id)
                 return
 
-            data["pay_m_bank_ref"] = api_ref
+            ref_display = api_ref or "Check SMS/email for reference"
+            data["pay_m_bank_ref"] = ref_display
             flow["step"] = "pay_m_bank_pending"
             await save_session(session)
             _api_data = session.get("api_data", {})
@@ -687,12 +698,12 @@ async def handle_payment_flow(
                     f"Account No.      {_acct_number or 'N/A'}"
                 )
             else:
-                _bank_details = "Please contact support for account details."
+                _bank_details = "Your payment is being processed. You will receive transfer details via SMS or email shortly."
             await _send_buttons(sender_wa_id,
-                f"🏦 *Bank Transfer*\n\n"
-                f"Please transfer *₦{amount:,}* to:\n\n"
+                f"🏦 *Bank Transfer Initiated*\n\n"
+                f"Amount: *₦{amount:,}*\n\n"
                 f"{_bank_details}\n\n"
-                f"🔑 Reference: {api_ref}\n\nAfter payment, tap below:",
+                f"🔑 Reference: {ref_display}\n\nOnce payment is complete, tap below:",
                 [
                     {"id": "pay_m_done",    "title": "✅ I have paid"},
                     {"id": "pay_m_refresh", "title": "🔄 Refresh status"},
