@@ -292,10 +292,21 @@ async def set_traveler_count(policy_id: str, count: int) -> Optional[list]:
                 json={"travelerCount": count},
             )
             if r.status_code in (200, 204):
-                logger.info(f"[ipurvey] set_traveler_count → success ({r.status_code})")
                 resp = r.json() if r.text else {}
-                data = _extract(resp)
-                return data if isinstance(data, list) else []
+                # Response shape: {"data": {"passengerIds": ["uuid1", ...]}, ...}
+                data = _extract(resp)  # returns resp["data"] → {"passengerIds": [...]}
+                pax_ids: list = []
+                if isinstance(data, dict):
+                    pax_ids = data.get("passengerIds") or data.get("passenger_ids") or []
+                elif isinstance(data, list):
+                    pax_ids = data
+                if not isinstance(pax_ids, list):
+                    pax_ids = []
+                logger.info(
+                    f"[ipurvey] set_traveler_count → success ({r.status_code}), "
+                    f"passenger_ids={pax_ids}"
+                )
+                return pax_ids
             logger.warning(f"[ipurvey] set_traveler_count {r.status_code}: {r.text[:200]}")
             return None
     except Exception as e:
@@ -390,7 +401,12 @@ async def submit_itinerary(
                 },
             )
             ok = r.status_code in (200, 204)
-            logger.info(f"[ipurvey] submit_itinerary → {'success' if ok else 'failed'} ({r.status_code})")
+            if ok:
+                logger.info(f"[ipurvey] submit_itinerary → success ({r.status_code})")
+            else:
+                logger.error(
+                    f"[ipurvey] submit_itinerary → failed ({r.status_code}): {r.text[:400]}"
+                )
             return ok
     except Exception as e:
         logger.error(f"[ipurvey] submit_itinerary failed: {e}")

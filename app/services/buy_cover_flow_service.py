@@ -151,13 +151,14 @@ async def start_buy_cover_flow(
         else:
             api_data["user_exists"] = False
         if not api_data.get("policy_id"):
-            _FRESH_STATES = {"DRAFT", "CREATED"}
             draft = await ipurvey_service.create_draft_policy(msisdn)
             if draft:
-                pid   = draft["policy_id"]
-                state = draft.get("creation_state", "DRAFT")
+                pid      = draft["policy_id"]
                 existing = draft.get("existing", False)
-                if existing and state not in _FRESH_STATES and pid:
+                state    = draft.get("creation_state", "DRAFT")
+                if existing and pid:
+                    # Always cancel any existing draft (even DRAFT state) and start fresh.
+                    # Old drafts may have stale passenger slots that cause add_passenger 400.
                     logger.info(
                         f"[buy_cover] existing policy '{pid}' in state '{state}' "
                         f"— cancelling and creating fresh draft"
@@ -220,18 +221,19 @@ async def handle_buy_cover_flow(
             policy_id = session.get("api_data", {}).get("policy_id")
             if policy_id:
                 try:
-                    pax_list = await ipurvey_service.set_traveler_count(policy_id, 1)
-                    if pax_list:
+                    pax_ids = await ipurvey_service.set_traveler_count(policy_id, 1)
+                    if pax_ids:
                         api_data = session.setdefault("api_data", {})
+                        # pax_ids is already a list of UUID strings e.g. ["492af597-..."]
                         api_data["passenger_ids"] = [
-                            p.get("passengerId") or p.get("id")
-                            for p in pax_list
-                            if p.get("passengerId") or p.get("id")
+                            (p if isinstance(p, str) else (p.get("passengerId") or p.get("id") or ""))
+                            for p in pax_ids
+                            if p
                         ]
                         logger.info(f"[BUY_COVER] pre-allocated passenger_ids: {api_data['passenger_ids']}")
                         await save_session(session)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.error(f"[BUY_COVER] set_traveler_count(1) failed: {exc}")
             await _send_text(sender_wa_id, (
                 "*👤 Please enter your name*\n"
                 "Enter your first name and surname, as it appears on your ticket\n\n"
@@ -270,18 +272,19 @@ async def handle_buy_cover_flow(
         policy_id = session.get("api_data", {}).get("policy_id")
         if policy_id:
             try:
-                pax_list = await ipurvey_service.set_traveler_count(policy_id, others_count + 1)
-                if pax_list:
+                pax_ids = await ipurvey_service.set_traveler_count(policy_id, others_count + 1)
+                if pax_ids:
                     api_data = session.setdefault("api_data", {})
+                    # pax_ids is already a list of UUID strings
                     api_data["passenger_ids"] = [
-                        p.get("passengerId") or p.get("id")
-                        for p in pax_list
-                        if p.get("passengerId") or p.get("id")
+                        (p if isinstance(p, str) else (p.get("passengerId") or p.get("id") or ""))
+                        for p in pax_ids
+                        if p
                     ]
                     logger.info(f"[BUY_COVER] pre-allocated passenger_ids: {api_data['passenger_ids']}")
                     await save_session(session)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.error(f"[BUY_COVER] set_traveler_count({others_count + 1}) failed: {exc}")
         await _send_text(sender_wa_id, (
             "*👤 Lead traveler — please enter your name*\n"
             "Enter your first name and surname, as it appears on your ticket\n\n"
