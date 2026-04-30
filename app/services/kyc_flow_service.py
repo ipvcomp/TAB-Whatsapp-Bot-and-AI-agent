@@ -277,6 +277,7 @@ async def handle_kyc_flow(
                 email    = bc_data.get("email", "")
 
                 if not user_id:
+                    # ── NEW USER: create account then link ────────────────────
                     user_result = await ipurvey_service.create_user(
                         msisdn=msisdn, first_name=fn, last_name=ln, email=email,
                         identity_type=method, identity_number=id_number,
@@ -286,7 +287,22 @@ async def handle_kyc_flow(
                         if uid:
                             session.setdefault("api_data", {})["user_id"] = uid
                             user_id = uid
+                            logger.info(f"[kyc] new user created → user_id='{uid}', linking to policy")
                             await ipurvey_service.link_user_to_policy(policy_id, uid)
+                else:
+                    # ── EXISTING USER: update name/email then link ────────────
+                    update_fields: dict = {}
+                    if fn:
+                        update_fields["firstName"] = fn
+                    if ln:
+                        update_fields["lastName"] = ln
+                    if email:
+                        update_fields["email"] = email
+                    if update_fields:
+                        logger.info(f"[kyc] existing user → PATCH update_user user_id='{user_id}'")
+                        await ipurvey_service.update_user(user_id, update_fields)
+                    logger.info(f"[kyc] existing user → linking user_id='{user_id}' to policy")
+                    await ipurvey_service.link_user_to_policy(policy_id, user_id)
 
                 if user_id:
                     kyc_result = await ipurvey_service.initiate_kyc(user_id, method, id_number)
