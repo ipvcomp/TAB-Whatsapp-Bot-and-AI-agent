@@ -72,9 +72,9 @@ def _normalize_policy(raw: dict) -> dict:
             if isinstance(t, str):
                 name = t
             else:
-                first = t.get("firstName", "")
-                surname = t.get("surname") or t.get("lastName", "")
-                name = (first + " " + surname).strip() or t.get("name") or t.get("fullName") or ""
+                first = t.get("firstName") or ""
+                surname = t.get("surname") or t.get("lastName") or ""
+                name = ((first + " " + surname).strip()) or t.get("name") or t.get("fullName") or ""
             if name:
                 travelers.append(name)
     else:

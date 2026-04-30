@@ -45,9 +45,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # ── TEMPORARY TEST OVERRIDE ───────────────────────────────────────────────────
-# Set this to a wa_id (digits only, no +) to force all incoming messages to be
-# treated as coming from that number. Set to None to disable.
-TEST_OVERRIDE_WA_ID: str | None = "2349066662020"
+# Sender override disabled — WhatsApp replies go to actual sender.
+# Ipurvey MSISDN override is in app/core/test_overrides.py
+TEST_OVERRIDE_WA_ID: str | None = None
 # ─────────────────────────────────────────────────────────────────────────────
 
 

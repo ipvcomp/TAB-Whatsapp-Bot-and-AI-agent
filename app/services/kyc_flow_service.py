@@ -3,6 +3,7 @@ from typing import Optional
 
 import app.services.ipurvey_service as ipurvey_service
 
+from app.core.test_overrides import get_msisdn
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -269,7 +270,7 @@ async def handle_kyc_flow(
         if policy_id:
             try:
                 bc_data  = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
-                msisdn   = f"+{sender_wa_id}" if not sender_wa_id.startswith("+") else sender_wa_id
+                msisdn   = get_msisdn(sender_wa_id)
                 raw_name = bc_data.get("name", "")
                 parts    = raw_name.strip().split(None, 1)
                 fn       = parts[0] if parts else raw_name

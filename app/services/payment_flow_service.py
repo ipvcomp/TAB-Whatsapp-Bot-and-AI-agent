@@ -3,6 +3,7 @@ from typing import Optional
 
 import app.services.ipurvey_service as ipurvey_service
 
+from app.core.test_overrides import get_msisdn
 from app.services.session_service import get_session, save_session, invalidate_policy_cache
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -250,7 +251,7 @@ async def _do_policy_submission(
     pay_data = session.get("temp_data", {}).get(PAYMENT_FLOW_KEY,   {}).get("data", {})
     api_data = session.get("api_data", {})
 
-    msisdn = f"+{wa_id}" if not wa_id.startswith("+") else wa_id
+    msisdn = get_msisdn(wa_id)
 
     raw_name = bc_data.get("name", "")
     parts    = raw_name.strip().split(None, 1)
@@ -735,7 +736,7 @@ async def handle_payment_flow(
             policy_id  = session.get("api_data", {}).get("policy_id")
             payment_id = session.get("api_data", {}).get("payment_id")
             if policy_id:
-                msisdn = f"+{sender_wa_id}" if not sender_wa_id.startswith("+") else sender_wa_id
+                msisdn = get_msisdn(sender_wa_id)
                 try:
                     status_result = await ipurvey_service.get_payment_status(
                         policy_id=policy_id, msisdn=msisdn

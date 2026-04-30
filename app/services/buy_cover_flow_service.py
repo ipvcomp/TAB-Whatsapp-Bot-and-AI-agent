@@ -5,6 +5,7 @@ from typing import Optional
 
 import app.services.ipurvey_service as ipurvey_service
 
+from app.core.test_overrides import get_msisdn
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -140,7 +141,7 @@ async def start_buy_cover_flow(
     session["api_data"] = {}
     await save_session(session)
 
-    msisdn = f"+{wa_id}" if not wa_id.startswith("+") else wa_id
+    msisdn = get_msisdn(wa_id)
     try:
         api_data = session.setdefault("api_data", {})
         user = await ipurvey_service.check_user_exists(msisdn)
@@ -272,7 +273,7 @@ async def handle_buy_cover_flow(
 
     # ── Resume choice ─────────────────────────────────────────────────────────
     if step == "buy_cover_resume_choice":
-        msisdn_r = f"+{sender_wa_id}" if not sender_wa_id.startswith("+") else sender_wa_id
+        msisdn_r = get_msisdn(sender_wa_id)
         if reply_id == "resume_fresh":
             resume_data = session.get("api_data", {}).pop("resume_draft", {})
             old_pid = resume_data.get("policy_id")
