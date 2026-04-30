@@ -16,10 +16,10 @@ from app.services.buy_cover_flow_service import (
     is_in_buy_cover_flow, start_buy_cover_flow, handle_buy_cover_flow,
 )
 from app.services.kyc_flow_service import (
-    is_in_kyc_flow, handle_kyc_flow,
+    is_in_kyc_flow, handle_kyc_flow, start_kyc_flow,
 )
 from app.services.payment_flow_service import (
-    is_in_payment_flow, handle_payment_flow,
+    is_in_payment_flow, handle_payment_flow, start_payment_flow,
 )
 from app.services.bp_link_flow_service import (
     is_in_bp_link_flow, handle_bp_link_flow, start_bp_link_flow,
@@ -295,6 +295,79 @@ async def _process_change(entry_id: str, change):
                         )
                         log_event("MAIN_MENU_TRIGGER", {"to": sender_wa_id, "text": text_lower_mm})
                         continue
+
+                # ── Global shortcuts: 9 = help, 0 = go back ──────────────────
+                if message.type == "text" and message.text:
+                    _nav_text = message.text.body.strip()
+                    _nav_norm = _nav_text.lower()
+
+                    # 9 or #help → start help flow (works from anywhere)
+                    if _nav_text == "9" or _nav_norm == "#help":
+                        if user_session:
+                            td = user_session.setdefault("temp_data", {})
+                            for fk in ("buy_cover_flow", "kyc_flow", "payment_flow",
+                                       "bp_link_flow", "check_policy_flow", "update_details_flow"):
+                                if td.get(fk, {}).get("active"):
+                                    td[fk] = {}
+                            await save_session(user_session)
+                        await start_help_flow(
+                            wa_id=sender_wa_id,
+                            phone_number_id=msg_phone_number_id,
+                        )
+                        log_event("SHORTCUT_HELP", {"to": sender_wa_id})
+                        continue
+
+                    # 0 or #back → restart current active flow from beginning
+                    if _nav_text == "0" or _nav_norm == "#back":
+                        from app.services.auto_reply_service import send_main_menu
+                        if is_in_check_policy_flow(user_session):
+                            if user_session:
+                                user_session.setdefault("temp_data", {})["check_policy_flow"] = {}
+                                await save_session(user_session)
+                            await start_check_policy_flow(
+                                wa_id=sender_wa_id,
+                                phone_number_id=msg_phone_number_id,
+                            )
+                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "check_policy"})
+                        elif is_in_buy_cover_flow(user_session):
+                            await start_buy_cover_flow(
+                                wa_id=sender_wa_id,
+                                phone_number_id=msg_phone_number_id,
+                            )
+                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "buy_cover"})
+                        elif is_in_kyc_flow(user_session):
+                            await start_kyc_flow(
+                                wa_id=sender_wa_id,
+                                phone_number_id=msg_phone_number_id,
+                            )
+                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "kyc"})
+                        elif is_in_payment_flow(user_session):
+                            await start_payment_flow(
+                                wa_id=sender_wa_id,
+                                phone_number_id=msg_phone_number_id,
+                            )
+                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "payment"})
+                        elif is_in_bp_link_flow(user_session):
+                            await start_bp_link_flow(
+                                wa_id=sender_wa_id,
+                                phone_number_id=msg_phone_number_id,
+                            )
+                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "bp_link"})
+                        elif is_in_help_flow(user_session):
+                            await start_help_flow(
+                                wa_id=sender_wa_id,
+                                phone_number_id=msg_phone_number_id,
+                            )
+                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "help"})
+                        else:
+                            await send_main_menu(
+                                to=sender_wa_id,
+                                phone_number_id=msg_phone_number_id,
+                                wa_id=sender_wa_id,
+                            )
+                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "none→menu"})
+                        continue
+                # ─────────────────────────────────────────────────────────────
 
                 if is_in_update_details_flow(user_session):
                     log_event("FLOW", {"from": sender_wa_id, "trigger": "UPDATE_DETAILS"})
