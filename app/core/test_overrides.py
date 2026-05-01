@@ -7,7 +7,7 @@ Set values to None to disable. Remove this file entirely before production.
 # WhatsApp replies still go to the actual sender's number.
 # Use this when you need OTP on a specific verified number without adding
 # that number to Meta's allowed recipient list.
-TEST_OVERRIDE_MSISDN: str | None = None
+TEST_OVERRIDE_MSISDN: str | None = "+2349066662020"
 
 
 def get_msisdn(wa_id: str) -> str:
