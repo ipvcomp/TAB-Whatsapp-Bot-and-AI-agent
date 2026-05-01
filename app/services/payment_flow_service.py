@@ -811,7 +811,20 @@ async def handle_payment_flow(
                 except Exception as exc:
                     logger.error(f"[payment] get_payment_status failed: {exc}")
             if payment_confirmed:
-                await _submit_and_confirm(sender_wa_id, session, flow, amount, ref, cname, phone_number_id)
+                api_data_ = session.get("api_data", {})
+                policy_ref = (
+                    api_data_.get("policy_code")
+                    or api_data_.get("policy_id")
+                    or ref
+                )
+                flow.setdefault("data", {})["pay_policy"] = policy_ref
+                session["active_policy_code"]   = policy_ref
+                session["active_policy_status"] = "submitted"
+                if api_data_.get("policy_id"):
+                    session["active_policy_id"] = api_data_["policy_id"]
+                invalidate_policy_cache(session)
+                await save_session(session)
+                await _send_success(sender_wa_id, session, flow, amount, ref, policy_ref, cname, phone_number_id)
             else:
                 await _send_buttons(sender_wa_id,
                     f"🏦 *Bank Transfer*\n\n"
@@ -921,14 +934,26 @@ async def handle_payment_flow(
                 phone_number_id,
             )
 
-    # ── Submission retry ──────────────────────────────────────────────────────
+    # ── Submission retry (legacy — submission removed, redirect to success) ────
     elif step == "pay_submit_retry":
         err_ref    = data.get("submission_ref", "—")
         err_cname  = data.get("submission_cname", "—")
         err_amount = data.get("submission_amount", amount)
-        err_msg    = data.get("submission_error", "Unknown error")
         if reply_id == "pay_retry_submit":
-            await _submit_and_confirm(sender_wa_id, session, flow, err_amount, err_ref, err_cname, phone_number_id)
+            api_data_ = session.get("api_data", {})
+            policy_ref = (
+                api_data_.get("policy_code")
+                or api_data_.get("policy_id")
+                or err_ref
+            )
+            flow.setdefault("data", {})["pay_policy"] = policy_ref
+            session["active_policy_code"]   = policy_ref
+            session["active_policy_status"] = "submitted"
+            if api_data_.get("policy_id"):
+                session["active_policy_id"] = api_data_["policy_id"]
+            invalidate_policy_cache(session)
+            await save_session(session)
+            await _send_success(sender_wa_id, session, flow, err_amount, err_ref, policy_ref, err_cname, phone_number_id)
         elif reply_id == "pay_home":
             session["temp_data"][PAYMENT_FLOW_KEY] = {}
             session["temp_data"][BUY_COVER_FLOW_KEY] = {}

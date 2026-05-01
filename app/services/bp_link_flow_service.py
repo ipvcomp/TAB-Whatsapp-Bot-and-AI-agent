@@ -541,18 +541,13 @@ async def handle_bp_link_flow(
                                 passengers = api_pol.get("passengers") or []
                                 if passengers:
                                     passenger_id = passengers[0].get("id") or passengers[0].get("passengerId") or ""
-                        flight_id = (
-                            session.get("api_data", {}).get("flight_id")
-                            or data.get("bp_sel_flight", "")
-                        )
-                        logger.info(f"[bp_link] upload → pol_id={effective_pol_id} pax_id={passenger_id} flight_id={flight_id}")
+                        logger.info(f"[bp_link] upload → pol_id={effective_pol_id} pax_id={passenger_id}")
                         if effective_pol_id and passenger_id:
                             upload_result = await ipurvey_service.upload_boarding_pass(
                                 policy_id=effective_pol_id,
                                 passenger_id=passenger_id,
                                 file_bytes=file_bytes,
                                 file_name=filename,
-                                flight_id=flight_id,
                             )
                             if upload_result:
                                 logger.info(f"[bp_link] boarding pass uploaded OK for {pol_code}")

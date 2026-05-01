@@ -1067,7 +1067,6 @@ async def upload_boarding_pass(
     passenger_id: str,
     file_bytes: bytes,
     file_name: str,
-    flight_id: str,
 ) -> bool:
     logger.info(f"[ipurvey] upload_boarding_pass policy_id='{policy_id}' passenger_id='{passenger_id}' file='{file_name}' size={len(file_bytes)}B")
     try:
@@ -1084,7 +1083,6 @@ async def upload_boarding_pass(
             r = await c.post(
                 f"{_base()}/api/tab-plc/policies/{policy_id}/passengers/{passenger_id}/boarding-pass",
                 files={"file": (file_name, file_bytes, content_type)},
-                data={"flightId": flight_id},
             )
             ok = r.status_code in (200, 201, 204)
             logger.info(f"[ipurvey] upload_boarding_pass → {'success' if ok else 'failed'} ({r.status_code})")
