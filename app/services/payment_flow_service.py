@@ -161,6 +161,18 @@ async def _send_bank_page(wa_id: str, pages: list, page_idx: int, all_banks: lis
     )
 
 
+_PAYMENT_TYPE_MAP: dict[str, dict] = {
+    "BANK_TRANSFER":          {"id": "pay_m_bank",   "title": "🏦 Bank Transfer"},
+    "CARD":                   {"id": "pay_m_card",   "title": "💳 Card Payment"},
+    "USSD":                   {"id": "pay_m_ussd",   "title": "📞 USSD"},
+    "SMARTCASH_MOBILE_MONEY": {"id": "pay_m_wallet", "title": "📱 Mobile Money"},
+    "MOBILE_MONEY":           {"id": "pay_m_wallet", "title": "📱 Mobile Money"},
+}
+_PAYMENT_TYPE_PRIORITY = [
+    "BANK_TRANSFER", "CARD", "USSD", "SMARTCASH_MOBILE_MONEY", "MOBILE_MONEY"
+]
+
+
 async def _show_payment_summary(
     wa_id: str,
     session: dict,
@@ -178,6 +190,26 @@ async def _show_payment_summary(
     flow["step"] = "pay_method_choice"
     await save_session(session)
 
+    # Fetch available payment types dynamically; fallback to BANK_TRANSFER only
+    try:
+        api_types = await ipurvey_service.get_payment_types(country="NG")
+    except Exception:
+        api_types = ["BANK_TRANSFER"]
+
+    # Build buttons in priority order, max 3 (WhatsApp limit)
+    seen_ids: set[str] = set()
+    buttons: list[dict] = []
+    for ptype in _PAYMENT_TYPE_PRIORITY:
+        if ptype in api_types:
+            btn = _PAYMENT_TYPE_MAP.get(ptype)
+            if btn and btn["id"] not in seen_ids:
+                buttons.append(btn)
+                seen_ids.add(btn["id"])
+            if len(buttons) == 3:
+                break
+    if not buttons:
+        buttons = [{"id": "pay_m_bank", "title": "🏦 Bank Transfer"}]
+
     await _send_buttons(
         wa_id,
         f"🎫 *You're one step away from activating your cover*\n\n"
@@ -189,9 +221,7 @@ async def _show_payment_summary(
         f"🔒 KYC         ✅ Verified\n"
         f"💰 Amount      ₦{amount:,}\n\n"
         f"Choose a payment method below:",
-        [
-            {"id": "pay_m_bank", "title": "🏦 Bank transfer"},
-        ],
+        buttons,
         phone_number_id,
     )
 

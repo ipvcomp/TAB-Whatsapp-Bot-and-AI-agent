@@ -967,7 +967,10 @@ async def handle_buy_cover_flow(
                     policy_id = session.get("api_data", {}).get("policy_id")
                     if policy_id and prod_id:
                         try:
-                            await ipurvey_service.select_cover(policy_id, prod_id)
+                            policy_code = await ipurvey_service.select_cover(policy_id, prod_id)
+                            if policy_code:
+                                session.setdefault("api_data", {})["policy_code"] = policy_code
+                                logger.info(f"[buy_cover] saved policyCode='{policy_code}'")
                         except Exception:
                             pass
             except (ValueError, IndexError):

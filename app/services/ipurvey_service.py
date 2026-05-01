@@ -475,7 +475,8 @@ async def fetch_quotes(policy_id: str) -> Optional[list]:
         return None
 
 
-async def select_cover(policy_id: str, product_id: str) -> bool:
+async def select_cover(policy_id: str, product_id: str) -> Optional[str]:
+    """Select cover for policy. Returns policyCode on success, None on failure."""
     logger.info(f"[ipurvey] select_cover policy_id='{policy_id}' product_id='{product_id}'")
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
@@ -484,11 +485,22 @@ async def select_cover(policy_id: str, product_id: str) -> bool:
                 json={"productId": product_id},
             )
             ok = r.status_code in (200, 204)
-            logger.info(f"[ipurvey] select_cover → {'success' if ok else 'failed'} ({r.status_code})")
-            return ok
+            policy_code: Optional[str] = None
+            try:
+                body = r.json()
+                data = _extract(body)
+                if isinstance(data, dict):
+                    policy_code = data.get("policyCode") or data.get("policy_code")
+            except Exception:
+                pass
+            logger.info(
+                f"[ipurvey] select_cover → {'success' if ok else 'failed'} "
+                f"({r.status_code}) policyCode={policy_code}"
+            )
+            return policy_code if ok else None
     except Exception as e:
         logger.error(f"[ipurvey] select_cover failed: {e}")
-        return False
+        return None
 
 
 async def link_user_to_policy(policy_id: str, user_id: str) -> bool:
@@ -666,11 +678,18 @@ async def verify_kyc_otp(user_id: str, session_id: str, otp: str) -> bool:
                 body = r.json()
                 data = body.get("data") or {}
                 api_verified = data.get("verified")
-                api_status   = data.get("status", "")
+                api_status   = (data.get("status") or "").upper()
                 logger.info(
                     f"[ipurvey] verify_kyc_otp → http={r.status_code} "
                     f"data.verified={api_verified} data.status={api_status}"
                 )
+                # If HTTP 200 but API explicitly says verification failed, treat as failure
+                if ok and api_verified is False and api_status in ("FAILED", "FAIL", "ERROR", "REJECTED"):
+                    logger.warning(
+                        f"[ipurvey] verify_kyc_otp → HTTP {r.status_code} but "
+                        f"data.verified=False status={api_status} — treating as FAILED"
+                    )
+                    ok = False
             except Exception:
                 logger.info(f"[ipurvey] verify_kyc_otp → http={r.status_code} (no JSON body)")
             return ok
@@ -723,20 +742,20 @@ async def create_payout_method_bank(
     is_default: bool = True,
 ) -> Optional[dict]:
     logger.info(f"[ipurvey] create_payout_method_bank user_id='{user_id}' bank='{bank_name}' code='{bank_code}'")
+    body = {
+        "type": "BANK_ACCOUNT",
+        "accountNumber": account_number,
+        "accountName": account_name,
+        "isDefault": is_default,
+        "active": True,
+        "config": {
+            "bank_code": bank_code,
+            "bank_name": bank_name,
+            "country": "NG",
+            "currency": "NGN",
+        },
+    }
     try:
-        body = {
-            "type": "BANK_ACCOUNT",
-            "accountNumber": account_number,
-            "accountName": account_name,
-            "isDefault": is_default,
-            "active": True,
-            "config": {
-                "bank_code": bank_code,
-                "bank_name": bank_name,
-                "country": "NG",
-                "currency": "NGN",
-            },
-        }
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
             r = await c.post(
                 f"{_base()}/api/tab-ums/users/{user_id}/payout-methods",
@@ -745,10 +764,64 @@ async def create_payout_method_bank(
             if r.status_code in (200, 201):
                 logger.info(f"[ipurvey] create_payout_method_bank → success ({r.status_code})")
                 return _extract(r.json())
+            # Handle "already exists" — fetch existing and return matching one
+            if r.status_code == 400 and "already exists" in r.text.lower():
+                logger.warning(
+                    f"[ipurvey] create_payout_method_bank → duplicate detected, "
+                    f"fetching existing payout methods for user_id='{user_id}'"
+                )
+                existing = await get_payout_methods(user_id)
+                if existing:
+                    for pm in existing:
+                        if (
+                            pm.get("type") == "BANK_ACCOUNT"
+                            and pm.get("accountNumber") == account_number
+                        ):
+                            logger.info(
+                                f"[ipurvey] create_payout_method_bank → reusing existing id={pm.get('id')}"
+                            )
+                            return pm
+                    # No exact match — try PATCH update on the first BANK_ACCOUNT
+                    for pm in existing:
+                        if pm.get("type") == "BANK_ACCOUNT":
+                            pm_id = pm.get("id") or pm.get("payoutMethodId")
+                            if pm_id:
+                                logger.info(
+                                    f"[ipurvey] create_payout_method_bank → PATCH update id={pm_id}"
+                                )
+                                updated = await update_payout_method(user_id, pm_id, body)
+                                return updated or pm
+                logger.warning("[ipurvey] create_payout_method_bank → could not find/update existing, continuing")
+                return {"id": None, "type": "BANK_ACCOUNT", "accountNumber": account_number}
             logger.error(f"[ipurvey] create_payout_method_bank {r.status_code}: {r.text[:200]}")
             return None
     except Exception as e:
         logger.error(f"[ipurvey] create_payout_method_bank failed: {e}")
+        return None
+
+
+async def update_payout_method(
+    user_id: str,
+    payout_method_id: str,
+    body: dict,
+) -> Optional[dict]:
+    logger.info(f"[ipurvey] update_payout_method user_id='{user_id}' id='{payout_method_id}'")
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.patch(
+                f"{_base()}/api/tab-ums/users/{user_id}/payout-methods/{payout_method_id}",
+                json=body,
+            )
+            if r.status_code in (200, 204):
+                logger.info(f"[ipurvey] update_payout_method → success ({r.status_code})")
+                try:
+                    return _extract(r.json())
+                except Exception:
+                    return {"id": payout_method_id}
+            logger.error(f"[ipurvey] update_payout_method {r.status_code}: {r.text[:200]}")
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] update_payout_method failed: {e}")
         return None
 
 
@@ -789,6 +862,27 @@ async def create_payout_method_wallet(
 
 
 # ── PAYMENT ───────────────────────────────────────────────────────────────────
+
+async def get_payment_types(country: str = "NG") -> list[str]:
+    """Fetch available payment types from /enums/payment-types?country=<country>."""
+    logger.info(f"[ipurvey] get_payment_types country='{country}'")
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(
+                f"{_base()}/enums/payment-types",
+                params={"country": country},
+            )
+            if r.status_code == 200:
+                body = r.json()
+                data = body.get("data") if isinstance(body, dict) else body
+                if isinstance(data, list):
+                    logger.info(f"[ipurvey] get_payment_types → {data}")
+                    return data
+            logger.warning(f"[ipurvey] get_payment_types → {r.status_code}: {r.text[:100]}")
+    except Exception as e:
+        logger.error(f"[ipurvey] get_payment_types failed: {e}")
+    return ["CARD", "BANK_TRANSFER"]
+
 
 async def initiate_payment(
     policy_id: str,
