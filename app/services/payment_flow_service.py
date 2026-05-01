@@ -586,6 +586,7 @@ async def handle_payment_flow(
                                 pm_id = payout_result.get("id") or payout_result.get("payoutMethodId")
                                 if pm_id:
                                     session.setdefault("api_data", {})["payout_method_id"] = pm_id
+                                    logger.info(f"[payment] saved payout_method_id='{pm_id}'")
                         except Exception as exc:
                             logger.error(f"[payment] create_payout_method_bank failed: {exc}")
                     await save_session(session)
@@ -659,6 +660,7 @@ async def handle_payment_flow(
                             or pay_result.get("paymentRef")
                         )
                         payment_id = pay_result.get("paymentId") or pay_result.get("id")
+                        policy_code_from_api = pay_result.get("policyCode")
                         bank_account_name = (
                             pay_result.get("accountName")
                             or pay_result.get("account_name")
@@ -678,6 +680,9 @@ async def handle_payment_flow(
                         api_data = session.setdefault("api_data", {})
                         if payment_id:
                             api_data["payment_id"] = payment_id
+                        if policy_code_from_api:
+                            api_data["policy_code"] = policy_code_from_api
+                            logger.info(f"[payment] saved policy_code='{policy_code_from_api}' from initiate_payment")
                         api_data.pop("bank_account_name", None)
                         api_data.pop("bank_account_number", None)
                         api_data.pop("bank_name", None)
@@ -774,13 +779,17 @@ async def handle_payment_flow(
         if reply_id in ("pay_m_done", "pay_m_refresh"):
             payment_confirmed = False
             policy_ref = None
-            policy_id  = session.get("api_data", {}).get("policy_id")
-            payment_id = session.get("api_data", {}).get("payment_id")
-            if policy_id:
+            api_data_  = session.get("api_data", {})
+            policy_id  = api_data_.get("policy_id")
+            payment_id = api_data_.get("payment_id")
+            # Use policyCode (e.g. TA-NG-TAIN-...) for status check — API does not accept UUID
+            policy_code_for_status = api_data_.get("policy_code") or policy_id
+            if policy_code_for_status:
                 msisdn = get_msisdn(sender_wa_id)
+                logger.info(f"[payment] checking status for policy_code='{policy_code_for_status}'")
                 try:
                     status_result = await ipurvey_service.get_payment_status(
-                        policy_id=policy_id, msisdn=msisdn
+                        policy_id=policy_code_for_status, msisdn=msisdn
                     )
                     if status_result and isinstance(status_result, dict):
                         # API returns "paymentStatus" field (not "status")
