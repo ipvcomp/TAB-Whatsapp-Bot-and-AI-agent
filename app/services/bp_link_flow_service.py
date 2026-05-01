@@ -524,16 +524,18 @@ async def handle_bp_link_flow(
                     file_bytes    = media_result["bytes"] if media_result else None
                     detected_mime = media_result.get("mime_type", "") if media_result else ""
                     if file_bytes:
-                        passenger_id = ""
+                        # Use pre-stored passenger_id when jumping here from payment success
+                        passenger_id = data.get("bp_sel_passenger_id") or ""
                         effective_pol_id = pol_id
                         if not effective_pol_id:
                             api_pol = await ipurvey_service.get_policy_by_code(pol_code)
                             if api_pol and isinstance(api_pol, dict):
                                 effective_pol_id = api_pol.get("id") or api_pol.get("policyId") or ""
                                 passengers = api_pol.get("passengers") or []
-                                if passengers:
+                                if passengers and not passenger_id:
                                     passenger_id = passengers[0].get("id") or passengers[0].get("passengerId") or ""
-                        else:
+                        elif not passenger_id:
+                            # Only fetch if we don't already have passenger_id
                             api_pol = await ipurvey_service.get_policy_by_code(pol_code or pol_id)
                             if api_pol and isinstance(api_pol, dict):
                                 passengers = api_pol.get("passengers") or []
@@ -543,6 +545,7 @@ async def handle_bp_link_flow(
                             session.get("api_data", {}).get("flight_id")
                             or data.get("bp_sel_flight", "")
                         )
+                        logger.info(f"[bp_link] upload → pol_id={effective_pol_id} pax_id={passenger_id} flight_id={flight_id}")
                         if effective_pol_id and passenger_id:
                             upload_result = await ipurvey_service.upload_boarding_pass(
                                 policy_id=effective_pol_id,

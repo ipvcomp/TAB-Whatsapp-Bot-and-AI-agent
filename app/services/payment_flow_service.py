@@ -798,13 +798,16 @@ async def handle_payment_flow(
                             or status_result.get("status")
                             or ""
                         ).upper()
-                        if status_val in ("PAID", "SUCCESS", "COMPLETED", "CONFIRMED"):
+                        # TEMP: allow PENDING through for staging testing
+                        # Remove "PENDING" once real bank confirmations are available
+                        if status_val in ("PAID", "SUCCESS", "COMPLETED", "CONFIRMED", "PENDING"):
                             payment_confirmed = True
                             policy_ref = (
                                 status_result.get("policyCode")
                                 or status_result.get("policyReference")
                                 or status_result.get("policyNumber")
                             )
+                            logger.info(f"[payment] status={status_val} → proceeding (PENDING bypass active)")
                 except Exception as exc:
                     logger.error(f"[payment] get_payment_status failed: {exc}")
             if payment_confirmed:
@@ -865,8 +868,25 @@ async def handle_payment_flow(
                 f"Your policy is active. TravelAssist will monitor your flight automatically.",
                 phone_number_id)
         elif reply_id == "pay_upload_bp":
-            from app.services.bp_link_flow_service import start_bp_link_flow
-            await start_bp_link_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+            from app.services.bp_link_flow_service import BP_LINK_FLOW_KEY, _ask_upload
+            bc_data_     = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
+            api_data_up  = session.get("api_data", {})
+            pax_ids_     = api_data_up.get("passenger_ids", [])
+            bp_data_ = {
+                "bp_action":           "upload",
+                "bp_sel_policy_id":    api_data_up.get("policy_id", ""),
+                "bp_sel_ref":          api_data_up.get("policy_code", ""),
+                "bp_sel_flight":       bc_data_.get("flight_num", ""),
+                "bp_sel_date":         bc_data_.get("date", ""),
+                "bp_sel_traveler":     bc_data_.get("name", ""),
+                "bp_sel_name":         bc_data_.get("name", ""),
+                "bp_sel_passenger_id": pax_ids_[0] if pax_ids_ else "",
+            }
+            bp_flow_ = {"active": True, "step": "bp_awaiting_doc", "data": bp_data_}
+            session.setdefault("temp_data", {})[BP_LINK_FLOW_KEY] = bp_flow_
+            flow["active"] = False
+            await save_session(session)
+            await _ask_upload(sender_wa_id, session, bp_flow_, {}, phone_number_id)
         elif reply_id == "pay_home":
             session["temp_data"][PAYMENT_FLOW_KEY] = {}
             session["temp_data"][BUY_COVER_FLOW_KEY] = {}
