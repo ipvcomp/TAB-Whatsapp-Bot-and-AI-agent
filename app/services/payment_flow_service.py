@@ -783,12 +783,17 @@ async def handle_payment_flow(
                         policy_id=policy_id, msisdn=msisdn
                     )
                     if status_result and isinstance(status_result, dict):
-                        status_val = (status_result.get("status") or "").upper()
+                        # API returns "paymentStatus" field (not "status")
+                        status_val = (
+                            status_result.get("paymentStatus")
+                            or status_result.get("status")
+                            or ""
+                        ).upper()
                         if status_val in ("PAID", "SUCCESS", "COMPLETED", "CONFIRMED"):
                             payment_confirmed = True
                             policy_ref = (
-                                status_result.get("policyReference")
-                                or status_result.get("policyCode")
+                                status_result.get("policyCode")
+                                or status_result.get("policyReference")
                                 or status_result.get("policyNumber")
                             )
                 except Exception as exc:

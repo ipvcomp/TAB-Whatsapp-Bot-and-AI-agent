@@ -291,18 +291,10 @@ async def handle_kyc_flow(
                             logger.info(f"[kyc] new user created → user_id='{uid}', linking to policy")
                             await ipurvey_service.link_user_to_policy(policy_id, uid)
                 else:
-                    # ── EXISTING USER: update name/email then link ────────────
-                    update_fields: dict = {}
-                    if fn:
-                        update_fields["firstName"] = fn
-                    if ln:
-                        update_fields["lastName"] = ln
-                    if email:
-                        update_fields["email"] = email
-                    if update_fields:
-                        logger.info(f"[kyc] existing user → PATCH update_user user_id='{user_id}'")
-                        await ipurvey_service.update_user(user_id, update_fields)
-                    logger.info(f"[kyc] existing user → linking user_id='{user_id}' to policy")
+                    # ── EXISTING USER: link only — do NOT update name/email ────
+                    # The user is already verified (Samuel Olamide / BVN/NIN).
+                    # Patching their details would corrupt the verified identity.
+                    logger.info(f"[kyc] existing user → linking user_id='{user_id}' to policy (no update)")
                     await ipurvey_service.link_user_to_policy(policy_id, user_id)
 
                 if user_id:
