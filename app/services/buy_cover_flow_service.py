@@ -41,6 +41,20 @@ def _split_name(full: str) -> tuple[str, str]:
     return (parts[0], parts[1] if len(parts) > 1 else "")
 
 
+def _is_valid_name(value: str) -> bool:
+    """Return True only if value looks like a real name (not email/number/gibberish)."""
+    v = value.strip()
+    if not v or len(v) < 2:
+        return False
+    if "@" in v:                        # email address
+        return False
+    if any(c.isdigit() for c in v) and not any(c.isalpha() for c in v):
+        return False                    # pure numbers
+    if not any(c.isalpha() for c in v):
+        return False                    # no letters at all
+    return True
+
+
 def is_in_buy_cover_flow(session: Optional[dict]) -> bool:
     if not session:
         return False
@@ -529,8 +543,15 @@ async def handle_buy_cover_flow(
 
     # ── Name ──────────────────────────────────────────────────────────────────
     elif step == "buy_cover_name":
-        if not text:
-            await _send_text(sender_wa_id, "Please type your name to continue.", phone_number_id)
+        if not text or not _is_valid_name(text):
+            hint = (
+                "⚠️ That looks like an email address — please enter your *name* instead.\n\n"
+                "_Example: Yusuf Abdullahi_"
+            ) if text and "@" in text else (
+                "⚠️ Please enter a valid *full name*.\n\n"
+                "_Example: Yusuf Abdullahi_"
+            )
+            await _send_text(sender_wa_id, hint, phone_number_id)
             return
         data["name"] = text
         policy_id = session.get("api_data", {}).get("policy_id")
@@ -576,8 +597,15 @@ async def handle_buy_cover_flow(
 
     # ── Additional traveler names ──────────────────────────────────────────────
     elif step == "buy_cover_other_name":
-        if not text:
-            await _send_text(sender_wa_id, "Please type the traveler's name to continue.", phone_number_id)
+        if not text or not _is_valid_name(text):
+            hint = (
+                "⚠️ That looks like an email address — please enter the traveler's *name* instead.\n\n"
+                "_Example: Amina Bello_"
+            ) if text and "@" in text else (
+                "⚠️ Please enter a valid *full name*.\n\n"
+                "_Example: Amina Bello_"
+            )
+            await _send_text(sender_wa_id, hint, phone_number_id)
             return
         travelers = data.get("travelers", [])
         travelers.append(text)
