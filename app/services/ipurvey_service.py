@@ -1067,7 +1067,10 @@ async def upload_boarding_pass(
     passenger_id: str,
     file_bytes: bytes,
     file_name: str,
-) -> bool:
+) -> Optional[dict]:
+    """Upload boarding pass. Returns parsed response dict on success, None on failure.
+    Response contains 'status' field: PENDING | VERIFIED | REJECTED.
+    """
     logger.info(f"[ipurvey] upload_boarding_pass policy_id='{policy_id}' passenger_id='{passenger_id}' file='{file_name}' size={len(file_bytes)}B")
     try:
         ext = file_name.lower().rsplit(".", 1)[-1] if "." in file_name else ""
@@ -1086,10 +1089,17 @@ async def upload_boarding_pass(
             )
             ok = r.status_code in (200, 201, 204)
             logger.info(f"[ipurvey] upload_boarding_pass → {'success' if ok else 'failed'} ({r.status_code})")
-            return ok
+            if ok:
+                try:
+                    body = _extract(r.json())
+                    return body if isinstance(body, dict) else {}
+                except Exception:
+                    return {}
+            logger.error(f"[ipurvey] upload_boarding_pass error body: {r.text[:300]}")
+            return None
     except Exception as e:
         logger.error(f"[ipurvey] upload_boarding_pass failed: {e}")
-        return False
+        return None
 
 
 async def poll_boarding_pass_status(

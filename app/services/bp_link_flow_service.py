@@ -163,6 +163,60 @@ async def _ask_upload(wa_id: str, session: dict, flow: dict, pol: dict, phone_nu
         phone_number_id)
 
 
+async def _show_bp_status(
+    wa_id: str,
+    session: dict,
+    flow: dict,
+    status: str,
+    phone_number_id: Optional[str],
+):
+    """Show boarding pass verification status to user."""
+    data = flow.get("data", {})
+    ref  = data.get("bp_sel_ref", "—")
+
+    if status == "VERIFIED":
+        flow["step"] = "bp_upload_done"
+        await save_session(session)
+        await _send_buttons(
+            wa_id,
+            f"✅ *Boarding pass verified!*\n\n"
+            f"Policy: *{ref}*\n\n"
+            f"Your cover is now fully active. Enjoy your trip! ✈️",
+            [{"id": "bp_home", "title": "🏠 Main menu"}],
+            phone_number_id,
+            header="✅ Verified",
+        )
+    elif status == "REJECTED":
+        flow["step"] = "bp_awaiting_doc"
+        await save_session(session)
+        await _send_buttons(
+            wa_id,
+            f"❌ *Boarding pass rejected*\n\n"
+            f"Policy: *{ref}*\n\n"
+            f"Please upload a clearer image. Make sure all details are visible.\n\n"
+            + UPLOAD_INSTRUCTIONS,
+            [{"id": "bp_cancel", "title": "❌ Cancel"}],
+            phone_number_id,
+            header="❌ Rejected — Please Re-upload",
+        )
+    else:
+        flow["step"] = "bp_pending_status"
+        await save_session(session)
+        await _send_buttons(
+            wa_id,
+            f"⏳ *Verification in progress...*\n\n"
+            f"Policy: *{ref}*\n\n"
+            f"Your boarding pass has been received and is being verified. "
+            f"Tap *Check Status* to see the result.",
+            [
+                {"id": "bp_check_status", "title": "🔄 Check Status"},
+                {"id": "bp_home",         "title": "🏠 Main menu"},
+            ],
+            phone_number_id,
+            header="📎 Boarding Pass Uploaded",
+        )
+
+
 async def _show_upload_confirmed(wa_id: str, session: dict, flow: dict, phone_number_id: Optional[str]):
     flow["step"] = "bp_upload_done"
     data = flow.get("data", {})
@@ -543,17 +597,23 @@ async def handle_bp_link_flow(
                                     passenger_id = passengers[0].get("id") or passengers[0].get("passengerId") or ""
                         logger.info(f"[bp_link] upload → pol_id={effective_pol_id} pax_id={passenger_id}")
                         if effective_pol_id and passenger_id:
-                            upload_result = await ipurvey_service.upload_boarding_pass(
+                            upload_resp = await ipurvey_service.upload_boarding_pass(
                                 policy_id=effective_pol_id,
                                 passenger_id=passenger_id,
                                 file_bytes=file_bytes,
                                 file_name=filename,
                             )
-                            if upload_result:
-                                logger.info(f"[bp_link] boarding pass uploaded OK for {pol_code}")
+                            if upload_resp is not None:
+                                bp_status = upload_resp.get("status", "PENDING").upper()
+                                logger.info(f"[bp_link] boarding pass uploaded OK for {pol_code} → status={bp_status}")
+                                data["bp_passenger_id"] = passenger_id
+                                data["bp_policy_id"]    = effective_pol_id
                                 invalidate_policy_cache(session)
+                                await save_session(session)
+                                await _show_bp_status(sender_wa_id, session, flow, bp_status, phone_number_id)
+                                return
                             else:
-                                logger.warning(f"[bp_link] boarding pass upload returned falsy for {pol_code}")
+                                logger.warning(f"[bp_link] boarding pass upload failed for {pol_code}")
                         else:
                             logger.warning(f"[bp_link] missing pol_id={effective_pol_id} or passenger_id={passenger_id} for BP upload")
                     else:
@@ -575,6 +635,31 @@ async def handle_bp_link_flow(
             await _go_home(sender_wa_id, session, phone_number_id)
         else:
             await _show_upload_confirmed(sender_wa_id, session, flow, phone_number_id)
+
+    # ── Boarding pass pending verification ────────────────────────────────────
+    elif step == "bp_pending_status":
+        if reply_id == "bp_check_status":
+            pol_id = data.get("bp_policy_id") or data.get("bp_sel_policy_id", "")
+            pax_id = data.get("bp_passenger_id") or data.get("bp_sel_passenger_id", "")
+            if pol_id and pax_id:
+                status_result = await ipurvey_service.poll_boarding_pass_status(pol_id, pax_id)
+                if status_result and isinstance(status_result, dict):
+                    bp_status = status_result.get("status", "PENDING").upper()
+                    logger.info(f"[bp_link] poll status → {bp_status}")
+                else:
+                    bp_status = "PENDING"
+                    logger.warning("[bp_link] poll_boarding_pass_status returned no data")
+                await _show_bp_status(sender_wa_id, session, flow, bp_status, phone_number_id)
+            else:
+                await _send_text(
+                    sender_wa_id,
+                    "⚠️ Could not check status — policy details not found. Please contact support.",
+                    phone_number_id,
+                )
+        elif reply_id in ("bp_home", "bp_cancel"):
+            await _go_home(sender_wa_id, session, phone_number_id)
+        else:
+            await _show_bp_status(sender_wa_id, session, flow, "PENDING", phone_number_id)
 
     # ── Screen 3 (Path B): Link confirmation ─────────────────────────────────
     elif step == "bp_link_confirm":
