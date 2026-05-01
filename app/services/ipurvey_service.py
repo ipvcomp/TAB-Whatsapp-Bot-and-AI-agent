@@ -683,13 +683,6 @@ async def verify_kyc_otp(user_id: str, session_id: str, otp: str) -> bool:
                     f"[ipurvey] verify_kyc_otp → http={r.status_code} "
                     f"data.verified={api_verified} data.status={api_status}"
                 )
-                # If HTTP 200 but API explicitly says verification failed, treat as failure
-                if ok and api_verified is False and api_status in ("FAILED", "FAIL", "ERROR", "REJECTED"):
-                    logger.warning(
-                        f"[ipurvey] verify_kyc_otp → HTTP {r.status_code} but "
-                        f"data.verified=False status={api_status} — treating as FAILED"
-                    )
-                    ok = False
             except Exception:
                 logger.info(f"[ipurvey] verify_kyc_otp → http={r.status_code} (no JSON body)")
             return ok

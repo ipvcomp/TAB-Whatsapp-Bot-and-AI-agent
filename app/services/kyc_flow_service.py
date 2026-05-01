@@ -311,17 +311,27 @@ async def handle_kyc_flow(
                     if kyc_result and isinstance(kyc_result, dict):
                         sid    = kyc_result.get("sessionId") or kyc_result.get("session_id")
                         status = (kyc_result.get("status") or "").upper()
+                        resp_verified = kyc_result.get("verified")
                         if sid:
                             api_session_id = sid
                             session.setdefault("api_data", {})["kyc_session_id"] = sid
-                        if status in ("VERIFIED", "SUCCESS", "COMPLETED", "PASSED"):
+                        if (
+                            status in ("VERIFIED", "SUCCESS", "COMPLETED", "PASSED")
+                            or resp_verified is True
+                        ):
                             api_verified = True
+                        logger.info(
+                            f"[kyc] initiate_kyc result: method={method} "
+                            f"status={status} verified={resp_verified} "
+                            f"sessionId={'set' if sid else 'none'}"
+                        )
 
                 await save_session(session)
             except Exception as exc:
                 logger.error(f"[kyc] id_input API calls failed: {exc}")
 
         if api_verified:
+            # Both NIN and BVN — verified from initiate_kyc response
             data["kyc_verified"] = True
             flow["step"] = "kyc_verified"
             await save_session(session)
@@ -337,13 +347,14 @@ async def handle_kyc_flow(
                 ],
                 phone_number_id,
             )
-        elif api_session_id:
+        elif api_session_id and method == "BVN":
+            # BVN only — OTP step needed
             flow["step"] = "kyc_otp_input"
             await save_session(session)
             await _send_buttons(
                 sender_wa_id,
                 f"🔐 *OTP Sent*\n"
-                f"A one-time PIN has been sent to the phone number linked to your *{method}*.\n\n"
+                f"A one-time PIN has been sent to the phone number linked to your *BVN*.\n\n"
                 "Please enter the *6-digit OTP* to verify your identity:",
                 [
                     {"id": "kyc_otp_resend", "title": "📲 Resend OTP"},
