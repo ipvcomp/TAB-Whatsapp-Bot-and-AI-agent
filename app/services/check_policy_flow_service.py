@@ -240,7 +240,7 @@ async def handle_check_policy_flow(
     # ── Entry menu ─────────────────────────────────────────────────────────────
     if step == "pol_menu":
         if reply_id == "pol_by_phone":
-            await _show_phone_policies(session, sender_wa_id, policies, phone_number_id)
+            await _show_phone_confirm(session, sender_wa_id, phone_number_id)
         elif reply_id == "pol_by_number":
             await _set_step(session, "pol_ref_input")
             await _send_text(sender_wa_id,
@@ -253,6 +253,16 @@ async def handle_check_policy_flow(
         else:
             await _reset(session)
             await start_check_policy_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+
+    # ── Phone: confirm before fetching ────────────────────────────────────────
+    elif step == "pol_phone_confirm":
+        if reply_id == "pol_phone_continue":
+            await _show_phone_policies(session, sender_wa_id, policies, phone_number_id)
+        elif reply_id in ("pol_back_menu", "pol_home"):
+            await _reset(session)
+            await start_check_policy_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+        else:
+            await _show_phone_confirm(session, sender_wa_id, phone_number_id)
 
     # ── Phone: select from list ────────────────────────────────────────────────
     elif step == "pol_phone_list":
@@ -542,6 +552,21 @@ async def _go_home(session: dict, wa_id: str, phone_number_id: Optional[str]):
 _PAGE_SIZE = 8
 
 
+async def _show_phone_confirm(session: dict, wa_id: str, phone_number_id: Optional[str]):
+    await _set_step(session, "pol_phone_confirm")
+    await _send_list(
+        wa_id,
+        "We'll check for active policies linked to this WhatsApp number.",
+        "Continue",
+        [{"title": "Options", "rows": [
+            {"id": "pol_phone_continue", "title": "✅ Continue"},
+            {"id": "pol_back_menu",      "title": "↩️ Back"},
+        ]}],
+        phone_number_id,
+        header="📱 My phone number",
+    )
+
+
 async def _show_phone_policies(
     session: dict,
     wa_id: str,
@@ -630,27 +655,61 @@ async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Op
     p = _normalize_policy(pol)
 
     status_emoji = "✅" if p["status"].lower() == "active" else "ℹ️"
-    status_label = p["status"].capitalize() if p["status"] else "—"
+    status_label = p["status"].capitalize() if p["status"] else "Unknown"
+    traveler = p["travelers"][0] if p.get("travelers") else "—"
 
-    body = (
-        f"📋 *Policy No:* {p['ref']}\n"
-        f"🏷️ *Status:* {status_emoji} {status_label}\n\n"
-        f"✈️ *Flight:* {p['airline']} {p['flight']}\n"
-        f"📅 *Departure:* {p['date']}\n"
-        f"📍 *Route:* {p['origin']} → {p['dest']}\n\n"
-        f"🛡️ *Product:* {p['name']}\n"
-        f"💰 *Cover:* {p['cover']}\n"
-        f"👤 *Traveler:* {p['travelers'][0] if p['travelers'] else '—'}\n"
+    card_body = (
+        f"*{p['name']}*\n"
+        f"Policy No: *{p['ref']}*   {status_emoji} {status_label}\n\n"
+        f"✈️ Airline      {p['airline'] or '—'}\n"
+        f"✈️ Flight         {p['flight'] or '—'}\n"
+        f"📅 Date          {p['date'] or '—'}\n"
+        f"👤 Traveller   {traveler}\n"
     )
 
-    await _send_buttons(wa_id, body,
-        [
-            {"id": "pol_download", "title": "📄 Download Doc"},
-            {"id": "pol_all",      "title": "📋 View all policies"},
-            {"id": "pol_home",     "title": "🏠 Main Menu"},
-        ],
+    if p.get("doc_url"):
+        cta_payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type":    "individual",
+            "to":                wa_id,
+            "type":              "interactive",
+            "interactive": {
+                "type":   "cta_url",
+                "header": {"type": "text", "text": "Policy Details"},
+                "body":   {"text": card_body},
+                "action": {
+                    "name": "cta_url",
+                    "parameters": {
+                        "display_text": "⬇️ Download Policy Document",
+                        "url": p["doc_url"],
+                    },
+                },
+            },
+        }
+        await send_whatsapp_payload(
+            whatsapp_payload=cta_payload,
+            phone_number_id=phone_number_id,
+            source="check_policy_flow",
+        )
+    else:
+        await send_text_message(
+            to=wa_id,
+            body=f"🛡️ *Policy Details*\n\n{card_body}\n_Policy document not yet available._",
+            phone_number_id=phone_number_id,
+            source="check_policy_flow",
+        )
+
+    await _send_list(
+        wa_id,
+        "What would you like to do?",
+        "More options",
+        [{"title": "Actions", "rows": [
+            {"id": "pol_manage_alerts", "title": "🔔 Manage alerts"},
+            {"id": "pol_help",          "title": "🤝 Help"},
+            {"id": "pol_all",           "title": "📋 All my policies"},
+        ]}],
         phone_number_id,
-        header="Your Policy Details")
+    )
 
 
 async def _show_all_policies(
