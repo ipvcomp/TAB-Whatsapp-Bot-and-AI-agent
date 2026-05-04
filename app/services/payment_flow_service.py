@@ -249,18 +249,24 @@ async def _send_success(
 
     await _send_text(
         wa_id,
-        f"✅ *Payment Successful!*\nYour cover is now active 🎉\n\n"
-        f"🗓️ Policy No:   {policy}\n✈️ Flight:       {flight}\n"
-        f"📅 Date:         {date}\n😊 Traveller:   *{name}*",
+        f"✅ *Payment Successful!*\n"
+        f"Your cover is now active 🎉\n\n"
+        f"📋 Policy No:  {policy}\n"
+        f"✈️ Flight:       {flight}\n"
+        f"🗓️ Date:          {date}\n"
+        f"😊 Traveller:   *{name}*",
         phone_number_id,
     )
     await _send_buttons(
         wa_id,
-        "📎 *Got your boarding pass? Upload it now 👍*\n\nWhat would you like to do next?",
+        "📎 *Got your boarding pass handy? Upload it now* 👍\n"
+        "If not, no worries — you can upload it later. "
+        "We'll just need it before any payout.\n\n"
+        "What would you like to do next?",
         [
-            {"id": "pay_upload_bp", "title": "⬆️ Upload boarding"},
+            {"id": "pay_view_doc",  "title": "📄 View policy doc"},
+            {"id": "pay_upload_bp", "title": "📤 Upload boarding"},
             {"id": "pay_home",      "title": "🏠 Main menu"},
-            {"id": "pay_new",       "title": "✈️ Buy new cover"},
         ],
         phone_number_id,
     )
@@ -873,7 +879,7 @@ async def handle_payment_flow(
     elif step == "pay_success":
         pol = data.get("pay_policy", "—")
         ref = data.get("pay_ref",    "—")
-        if reply_id == "pay_view_policy":
+        if reply_id in ("pay_view_policy", "pay_view_doc"):
             await _send_text(sender_wa_id,
                 f"📄 *Your Policy Document*\n\n"
                 f"🗓️ Policy No:  *{pol}*\n🔑 Reference:  *{ref}*\n"
@@ -920,16 +926,22 @@ async def handle_payment_flow(
             date    = bc_data.get("date",       "—")
             name    = bc_data.get("name",       "—")
             await _send_text(sender_wa_id,
-                f"✅ *Payment Successful!*\nYour cover is now active 🎉\n\n"
-                f"🗓️ Policy No:   {pol}\n✈️ Flight:       {flight}\n"
-                f"📅 Date:         {date}\n😊 Traveller:   *{name}*",
+                f"✅ *Payment Successful!*\n"
+                f"Your cover is now active 🎉\n\n"
+                f"📋 Policy No:  {pol}\n"
+                f"✈️ Flight:       {flight}\n"
+                f"🗓️ Date:          {date}\n"
+                f"😊 Traveller:   *{name}*",
                 phone_number_id)
             await _send_buttons(sender_wa_id,
-                "📎 *Got your boarding pass? Upload it now 👍*\n\nWhat would you like to do next?",
+                "📎 *Got your boarding pass handy? Upload it now* 👍\n"
+                "If not, no worries — you can upload it later. "
+                "We'll just need it before any payout.\n\n"
+                "What would you like to do next?",
                 [
-                    {"id": "pay_upload_bp", "title": "⬆️ Upload boarding"},
+                    {"id": "pay_view_doc",  "title": "📄 View policy doc"},
+                    {"id": "pay_upload_bp", "title": "📤 Upload boarding"},
                     {"id": "pay_home",      "title": "🏠 Main menu"},
-                    {"id": "pay_new",       "title": "✈️ Buy new cover"},
                 ],
                 phone_number_id,
             )
