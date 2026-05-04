@@ -60,8 +60,9 @@ def _normalize_policy(raw: dict) -> dict:
     The function also accepts legacy/alternative field names so it degrades
     gracefully when the API adds or renames fields.
     """
-    # DEBUG: log the raw response with PII masked so field names can be confirmed
-    # in production without exposing personal data.  Set LOG_LEVEL=DEBUG to see this.
+    # Temporary INFO log: print all keys + URL-like values (PII-safe) for field discovery
+    url_keys = {k: v for k, v in raw.items() if any(x in k.lower() for x in ("url", "doc", "download", "link", "cert", "file", "pdf"))}
+    logger.info("[POLICY_FIELDS] all_keys=%s | url_candidates=%s", list(raw.keys()), url_keys)
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("Raw policy dict (PII masked): %s", _mask_pii(raw))
 
