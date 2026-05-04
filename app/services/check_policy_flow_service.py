@@ -255,17 +255,27 @@ async def handle_check_policy_flow(
 
     # ── Phone: select from list ────────────────────────────────────────────────
     elif step == "pol_phone_list":
-        if reply_id and reply_id.startswith("psel_"):
-            phone_policies = data.get("pol_phone_results", [])
-            idx = int(reply_id.split("_")[1])
-            if 0 <= idx < len(phone_policies):
-                pol = _normalize_policy(phone_policies[idx])
-                await _save_data(session, "pol_selected", pol)
-                await _show_detail(session, sender_wa_id, pol, phone_number_id)
+        phone_policies = data.get("pol_phone_results", policies)
+        cur_page = data.get("pol_page", 0)
+        if reply_id == "pol_next_page":
+            await _show_phone_policies(session, sender_wa_id, phone_policies, phone_number_id, page=cur_page + 1)
+        elif reply_id == "pol_prev_page":
+            await _show_phone_policies(session, sender_wa_id, phone_policies, phone_number_id, page=max(0, cur_page - 1))
+        elif reply_id and reply_id.startswith("psel_"):
+            try:
+                idx = int(reply_id.split("_")[1])
+                if 0 <= idx < len(phone_policies):
+                    pol = _normalize_policy(phone_policies[idx])
+                    await _save_data(session, "pol_selected", pol)
+                    await _show_detail(session, sender_wa_id, pol, phone_number_id)
+                else:
+                    await _show_phone_policies(session, sender_wa_id, phone_policies, phone_number_id, page=cur_page)
+            except (ValueError, IndexError):
+                await _show_phone_policies(session, sender_wa_id, phone_policies, phone_number_id, page=cur_page)
         elif reply_id == "pol_home":
             await _go_home(session, sender_wa_id, phone_number_id)
         else:
-            await _show_phone_policies(session, sender_wa_id, policies, phone_number_id)
+            await _show_phone_policies(session, sender_wa_id, phone_policies, phone_number_id, page=cur_page)
 
     # ── Flight number input ────────────────────────────────────────────────────
     elif step == "pol_flight_input":
@@ -371,16 +381,26 @@ async def handle_check_policy_flow(
 
     # ── All policies list ──────────────────────────────────────────────────────
     elif step == "pol_all_list":
-        if reply_id and reply_id.startswith("pall_"):
-            idx = int(reply_id.split("_")[1])
-            if 0 <= idx < len(policies):
-                pol = policies[idx]
-                await _save_data(session, "pol_selected", pol)
-                await _show_detail(session, sender_wa_id, pol, phone_number_id)
+        cur_all_page = data.get("pol_all_page", 0)
+        if reply_id == "pall_next_page":
+            await _show_all_policies(session, sender_wa_id, policies, phone_number_id, page=cur_all_page + 1)
+        elif reply_id == "pall_prev_page":
+            await _show_all_policies(session, sender_wa_id, policies, phone_number_id, page=max(0, cur_all_page - 1))
+        elif reply_id and reply_id.startswith("pall_"):
+            try:
+                idx = int(reply_id.split("_")[1])
+                if 0 <= idx < len(policies):
+                    pol = policies[idx]
+                    await _save_data(session, "pol_selected", pol)
+                    await _show_detail(session, sender_wa_id, pol, phone_number_id)
+                else:
+                    await _show_all_policies(session, sender_wa_id, policies, phone_number_id, page=cur_all_page)
+            except (ValueError, IndexError):
+                await _show_all_policies(session, sender_wa_id, policies, phone_number_id, page=cur_all_page)
         elif reply_id == "pol_home":
             await _go_home(session, sender_wa_id, phone_number_id)
         else:
-            await _show_all_policies(session, sender_wa_id, policies, phone_number_id)
+            await _show_all_policies(session, sender_wa_id, policies, phone_number_id, page=cur_all_page)
 
     # ── Download / policy doc subflow ──────────────────────────────────────────
     elif step == "pol_download":
@@ -513,20 +533,30 @@ async def _go_home(session: dict, wa_id: str, phone_number_id: Optional[str]):
     await send_main_menu(to=wa_id, phone_number_id=phone_number_id)
 
 
-async def _show_phone_policies(session: dict, wa_id: str, policies: list, phone_number_id: Optional[str]):
+_PAGE_SIZE = 8
+
+
+async def _show_phone_policies(
+    session: dict,
+    wa_id: str,
+    policies: list,
+    phone_number_id: Optional[str],
+    page: int = 0,
+):
     await _set_step(session, "pol_phone_list")
 
     msisdn = get_msisdn(wa_id)
-    phone_pols = []
-    try:
-        phone_pols = await fetch_policies_by_msisdn(msisdn)
-    except Exception:
-        pass
+    phone_pols = session.get("temp_data", {}).get(CHECK_POLICY_FLOW_KEY, {}).get("data", {}).get("pol_phone_results")
+    if phone_pols is None:
+        try:
+            phone_pols = await fetch_policies_by_msisdn(msisdn)
+        except Exception:
+            phone_pols = []
+        if not phone_pols:
+            phone_pols = policies
+        await _save_data(session, "pol_phone_results", phone_pols)
 
-    if not phone_pols:
-        phone_pols = policies
-
-    await _save_data(session, "pol_phone_results", phone_pols)
+    await _save_data(session, "pol_page", page)
 
     if not phone_pols:
         await _send_text(wa_id,
@@ -534,21 +564,36 @@ async def _show_phone_policies(session: dict, wa_id: str, policies: list, phone_
             phone_number_id)
         return
 
-    rows = []
-    for i, p in enumerate(phone_pols):
-        pol = _normalize_policy(p)
-        rows.append({
-            "id": f"psel_{i}",
-            "title": f"{pol['name']}"[:24],
-            "description": f"{pol['ref']} · {pol['date']}",
-        })
+    total  = len(phone_pols)
+    start  = page * _PAGE_SIZE
+    end    = min(start + _PAGE_SIZE, total)
+    slice_ = phone_pols[start:end]
 
-    await _send_list(wa_id,
-        f"📱 We found *{len(phone_pols)} policies* for your number.\n\nSelect a policy to view details:",
+    rows = []
+    for i, p in enumerate(slice_):
+        pol = _normalize_policy(p)
+        abs_idx = start + i
+        rows.append({
+            "id":          f"psel_{abs_idx}",
+            "title":       pol["name"][:24],
+            "description": f"{pol['ref']} · {pol['status']}"[:72],
+        })
+    if page > 0:
+        rows.append({"id": "pol_prev_page", "title": "⬅️ Previous page",
+                     "description": f"Back to {start - _PAGE_SIZE + 1}–{start}"})
+    if end < total:
+        rows.append({"id": "pol_next_page", "title": "➡️ Next page",
+                     "description": f"Show {end + 1}–{min(end + _PAGE_SIZE, total)} of {total}"})
+
+    await _send_list(
+        wa_id,
+        f"📱 We found *{total} {'policy' if total == 1 else 'policies'}* for your number.\n"
+        f"Showing *{start + 1}–{end}*. Select a policy to view details:",
         "Select policy",
-        [{"title": "Your Policies", "rows": rows}],
+        [{"title": f"Your Policies ({start + 1}–{end} of {total})", "rows": rows}],
         phone_number_id,
-        header="📱 My Policies")
+        header=f"📱 My Policies",
+    )
 
 
 async def _ask_flight_number(session: dict, wa_id: str, phone_number_id: Optional[str]):
@@ -585,28 +630,50 @@ async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Op
         header="🛡️ Policy Details")
 
 
-async def _show_all_policies(session: dict, wa_id: str, policies: list, phone_number_id: Optional[str]):
+async def _show_all_policies(
+    session: dict,
+    wa_id: str,
+    policies: list,
+    phone_number_id: Optional[str],
+    page: int = 0,
+):
     await _set_step(session, "pol_all_list")
-    
+    await _save_data(session, "pol_all_page", page)
+
     if not policies:
         await _send_text(wa_id, "⚠️ No policies found.", phone_number_id)
         return
 
-    rows = []
-    for i, p in enumerate(policies):
-        pol = _normalize_policy(p)
-        rows.append({
-            "id": f"pall_{i}",
-            "title": f"{pol['name']}"[:24],
-            "description": f"{pol['ref']} · {pol['date']}",
-        })
+    total  = len(policies)
+    start  = page * _PAGE_SIZE
+    end    = min(start + _PAGE_SIZE, total)
+    slice_ = policies[start:end]
 
-    await _send_list(wa_id,
-        f"📋 You have *{len(policies)} policies* in total.\n\nSelect a policy to view details:",
+    rows = []
+    for i, p in enumerate(slice_):
+        pol = _normalize_policy(p)
+        abs_idx = start + i
+        rows.append({
+            "id":          f"pall_{abs_idx}",
+            "title":       pol["name"][:24],
+            "description": f"{pol['ref']} · {pol['status']}"[:72],
+        })
+    if page > 0:
+        rows.append({"id": "pall_prev_page", "title": "⬅️ Previous page",
+                     "description": f"Back to {start - _PAGE_SIZE + 1}–{start}"})
+    if end < total:
+        rows.append({"id": "pall_next_page", "title": "➡️ Next page",
+                     "description": f"Show {end + 1}–{min(end + _PAGE_SIZE, total)} of {total}"})
+
+    await _send_list(
+        wa_id,
+        f"📋 You have *{total} {'policy' if total == 1 else 'policies'}* in total.\n"
+        f"Showing *{start + 1}–{end}*. Select a policy to view details:",
         "Select policy",
-        [{"title": "All Policies", "rows": rows}],
+        [{"title": f"All Policies ({start + 1}–{end} of {total})", "rows": rows}],
         phone_number_id,
-        header="📋 All My Policies")
+        header="📋 All My Policies",
+    )
 
 
 async def _show_document(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
