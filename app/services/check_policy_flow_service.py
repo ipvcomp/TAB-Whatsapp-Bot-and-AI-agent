@@ -590,9 +590,9 @@ async def _show_phone_policies(
         f"📱 We found *{total} {'policy' if total == 1 else 'policies'}* for your number.\n"
         f"Showing *{start + 1}–{end}*. Select a policy to view details:",
         "Select policy",
-        [{"title": f"Your Policies ({start + 1}–{end} of {total})", "rows": rows}],
+        [{"title": "Your Policies", "rows": rows}],
         phone_number_id,
-        header=f"📱 My Policies",
+        header="📱 My Policies",
     )
 
 
@@ -670,7 +670,7 @@ async def _show_all_policies(
         f"📋 You have *{total} {'policy' if total == 1 else 'policies'}* in total.\n"
         f"Showing *{start + 1}–{end}*. Select a policy to view details:",
         "Select policy",
-        [{"title": f"All Policies ({start + 1}–{end} of {total})", "rows": rows}],
+        [{"title": "All Policies", "rows": rows}],
         phone_number_id,
         header="📋 All My Policies",
     )
