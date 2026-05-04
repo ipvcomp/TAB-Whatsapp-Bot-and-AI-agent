@@ -358,15 +358,18 @@ async def handle_kyc_flow(
             data["kyc_verified"] = False
             flow["step"] = "kyc_failed"
             await save_session(session)
+            _other = "NIN" if method == "BVN" else "BVN"
+            _retry_id = "kyc_try_bvn" if method == "BVN" else "kyc_try_nin"
+            _other_id = "kyc_try_nin" if method == "BVN" else "kyc_try_bvn"
             await _send_buttons(
                 sender_wa_id,
                 "⚠️ *Verification Incomplete*\n"
                 "> We could not complete verification automatically.\n\n"
                 "Please choose:",
                 [
-                    {"id": "kyc_try_bvn", "title": "🪪 Try BVN again"},
-                    {"id": "kyc_try_nin", "title": "🪪 Try NIN instead"},
-                    {"id": "kyc_help",    "title": "🆘 Get help"},
+                    {"id": _retry_id, "title": f"🪪 Try {method} again"},
+                    {"id": _other_id, "title": f"🪪 Try {_other} instead"},
+                    {"id": "kyc_help", "title": "🆘 Get help"},
                 ],
                 phone_number_id,
             )
@@ -391,15 +394,18 @@ async def handle_kyc_flow(
             data["kyc_verified"] = False
             flow["step"] = "kyc_failed"
             await save_session(session)
+            _other = "NIN" if method == "BVN" else "BVN"
+            _retry_id = "kyc_try_bvn" if method == "BVN" else "kyc_try_nin"
+            _other_id = "kyc_try_nin" if method == "BVN" else "kyc_try_bvn"
             await _send_buttons(
                 sender_wa_id,
                 "⚠️ *Verification Incomplete*\n"
                 "> We could not complete verification automatically.\n\n"
                 "Please choose:",
                 [
-                    {"id": "kyc_try_bvn", "title": "🪪 Try BVN again"},
-                    {"id": "kyc_try_nin", "title": "🪪 Try NIN instead"},
-                    {"id": "kyc_help",    "title": "🆘 Get help"},
+                    {"id": _retry_id, "title": f"🪪 Try {method} again"},
+                    {"id": _other_id, "title": f"🪪 Try {_other} instead"},
+                    {"id": "kyc_help", "title": "🆘 Get help"},
                 ],
                 phone_number_id,
             )
