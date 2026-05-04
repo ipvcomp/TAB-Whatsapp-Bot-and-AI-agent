@@ -889,9 +889,23 @@ async def handle_payment_flow(
         elif reply_id == "pay_upload_bp":
             from app.services.bp_link_flow_service import start_bp_link_flow
             flow["active"] = False
-            invalidate_policy_cache(session)
             await save_session(session)
-            await start_bp_link_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+            bc_data = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
+            flight_raw = bc_data.get("flight_num", "—")
+            direct_policy = {
+                "name":      bc_data.get("cover", "Your Policy"),
+                "ref":       session.get("active_policy_code", "—"),
+                "policy_id": session.get("active_policy_id", ""),
+                "flight":    flight_raw,
+                "date":      bc_data.get("date", "—"),
+                "traveler":  bc_data.get("name", "—"),
+                "airline":   flight_raw[:2] if flight_raw and flight_raw != "—" else "—",
+            }
+            await start_bp_link_flow(
+                wa_id=sender_wa_id,
+                phone_number_id=phone_number_id,
+                direct_policy=direct_policy,
+            )
         elif reply_id == "pay_home":
             session["temp_data"][PAYMENT_FLOW_KEY] = {}
             session["temp_data"][BUY_COVER_FLOW_KEY] = {}

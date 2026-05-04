@@ -388,21 +388,56 @@ async def start_bp_link_flow(
     wa_id: str,
     phone_number_id: Optional[str],
     in_reply_to: Optional[str] = None,
+    direct_policy: Optional[dict] = None,
 ):
     session = await get_session(wa_id) or {}
+
+    # ── Fast path: called from payment success with a known policy ────────────
+    # Skip the intro screen and policy list — go straight to upload prompt.
+    if direct_policy:
+        logger.info(
+            "[bp_link] direct_policy path — skipping intro+list for %s ref=%s",
+            wa_id[:4] + "****", direct_policy.get("ref", "?"),
+        )
+        flow_data = {
+            "bp_action":        "upload",
+            "bp_sel_name":      direct_policy.get("name",      "—"),
+            "bp_sel_ref":       direct_policy.get("ref",       "—"),
+            "bp_sel_airline":   direct_policy.get("airline",   "—"),
+            "bp_sel_flight":    direct_policy.get("flight",    "—"),
+            "bp_sel_date":      direct_policy.get("date",      "—"),
+            "bp_sel_traveler":  direct_policy.get("traveler",  "—"),
+            "bp_sel_policy_id": direct_policy.get("policy_id", ""),
+            "policies":         [],
+        }
+        session.setdefault("temp_data", {})[BP_LINK_FLOW_KEY] = {
+            "active": True,
+            "step":   "bp_awaiting_doc",
+            "data":   flow_data,
+        }
+        session["temp_data"].get(PAYMENT_FLOW_KEY, {}).update({"active": False})
+        if "user_id" not in session:
+            session["user_id"] = wa_id
+        await save_session(session)
+        flow = session["temp_data"][BP_LINK_FLOW_KEY]
+        await _ask_upload(wa_id, session, flow, direct_policy, phone_number_id)
+        return
+
+    # ── Generic path: from welcome "Submit Boarding Pass" button ─────────────
+    # Always fetch fresh when stale to avoid showing empty list.
     policies, is_stale = get_policy_cache_allow_stale(session)
-    if policies is None:
+    if policies is None or is_stale:
         policies = await fetch_policies_by_msisdn(wa_id)
         set_policy_cache(session, policies)
-        logger.info("Fetched and cached %d policies for %s", len(policies), wa_id[:4] + "****")
-    elif is_stale:
         logger.info(
-            "Serving stale cached policies (%d) for %s; background refresh scheduled",
+            "[bp_link] Fetched fresh %d policies for %s",
             len(policies), wa_id[:4] + "****",
         )
-        schedule_policy_cache_refresh(wa_id)
     else:
-        logger.info("Using cached policies (%d) for %s", len(policies), wa_id[:4] + "****")
+        logger.info(
+            "[bp_link] Using cached %d policies for %s",
+            len(policies), wa_id[:4] + "****",
+        )
     session.setdefault("temp_data", {})[BP_LINK_FLOW_KEY] = {
         "active": True,
         "step":   "bp_choose",
