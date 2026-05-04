@@ -797,7 +797,7 @@ async def _show_manage_alerts(session: dict, wa_id: str, pol: dict, phone_number
         wa_id,
         body,
         [
-            {"id": "pol_alerts_keep", "title": "✅ Keep alerts on"},
+            {"id": "pol_alerts_keep", "title": "🔔 Keep alerts on"},
             {"id": "pol_alerts_off",  "title": "🔕 Turn off alerts"},
             {"id": "pol_home",        "title": "🏠 Main menu"},
         ],
