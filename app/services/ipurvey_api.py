@@ -145,9 +145,8 @@ def _normalize_policy(raw: dict) -> dict:
     doc_url = (
         raw.get("documentUrl")
         or raw.get("downloadUrl")
-        or raw.get("url")
         or raw.get("doc_url")
-        or (f"{IPURVEY_BASE_URL}/policies/{ref}/document" if ref else "")
+        or ""
     )
     policy_id = raw.get("id") or raw.get("policyId") or ref
 

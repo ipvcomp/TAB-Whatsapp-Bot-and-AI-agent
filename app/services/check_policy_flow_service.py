@@ -679,7 +679,7 @@ async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Op
                 "action": {
                     "name": "cta_url",
                     "parameters": {
-                        "display_text": "⬇️ Download Policy Document",
+                        "display_text": "Download Policy Document",
                         "url": p["doc_url"],
                     },
                 },
