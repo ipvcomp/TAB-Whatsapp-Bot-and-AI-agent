@@ -146,7 +146,7 @@ async def _show_policy_list(wa_id: str, session: dict, flow: dict, action: str, 
         for i, pol in enumerate(policies[:10])
     ]
     await _send_list(wa_id, body, "Select policy",
-        [{"title": "Your Active Policies", "rows": rows}],
+        [{"title": "Your Policies", "rows": rows}],
         phone_number_id,
         header="📋 Your Policies")
 
@@ -530,16 +530,35 @@ async def handle_bp_link_flow(
                     data["bp_sel_dest"]      = pol.get("dest") or pol.get("arrivalAirport") or "—"
                     data["bp_sel_policy_id"] = pol.get("id") or pol.get("policyId") or ""
                     await save_session(session)
+                    pol_status = (pol.get("status") or "").upper()
                     if action == "link":
                         await _show_link_confirm(sender_wa_id, session, flow, phone_number_id)
                     elif action == "eligibility":
                         await _show_eligibility(sender_wa_id, session, flow, phone_number_id)
+                    elif pol_status in ("EXPIRED", "CANCELLED", "LAPSED"):
+                        await _send_buttons(
+                            sender_wa_id,
+                            f"⚠️ *This policy has expired*\n\n"
+                            f"Policy: *{data.get('bp_sel_ref', '—')}*\n\n"
+                            f"Boarding pass upload is only available for active policies. "
+                            f"Please select an active policy or return to the main menu.",
+                            [
+                                {"id": "bp_back_to_list", "title": "↩️ Choose another"},
+                                {"id": "bp_home",         "title": "🏠 Main menu"},
+                            ],
+                            phone_number_id,
+                            header="⚠️ Policy Expired",
+                        )
                     else:
                         await _ask_upload(sender_wa_id, session, flow, pol, phone_number_id)
                 else:
                     await _show_policy_list(sender_wa_id, session, flow, action, phone_number_id)
             except (ValueError, IndexError):
                 await _show_policy_list(sender_wa_id, session, flow, action, phone_number_id)
+        elif reply_id in ("bp_home", "bp_cancel"):
+            await _go_home(sender_wa_id, session, phone_number_id)
+        elif reply_id == "bp_back_to_list":
+            await _show_policy_list(sender_wa_id, session, flow, action, phone_number_id)
         else:
             await _show_policy_list(sender_wa_id, session, flow, action, phone_number_id)
 
