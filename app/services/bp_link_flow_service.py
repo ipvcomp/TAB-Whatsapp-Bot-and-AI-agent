@@ -328,45 +328,64 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
             logger.error(f"[bp_link] check_eligibility failed: {exc}")
 
     if eligibility and isinstance(eligibility, dict):
-        eligible    = eligibility.get("eligible", False)
-        delay_str   = eligibility.get("delayDuration") or eligibility.get("delay") or "3hrs 20mins"
-        payout_amt  = eligibility.get("payoutAmount") or eligibility.get("amount") or 2500
+        eligible       = eligibility.get("eligible", False)
+        delay_str      = eligibility.get("delayDuration") or eligibility.get("delay") or "3hrs 20mins"
+        min_delay      = eligibility.get("minimumDelay") or eligibility.get("minDelay") or "3 hours"
+        current_delay  = eligibility.get("currentDelay") or eligibility.get("actualDelay") or "—"
+        payout_amt     = eligibility.get("payoutAmount") or eligibility.get("amount") or 2500
         try:
             payout_fmt = f"₦{float(payout_amt):,.0f}"
         except (ValueError, TypeError):
             payout_fmt = f"₦{payout_amt}"
+
         if not eligible:
-            await _send_buttons(wa_id,
-                "❌ *Not yet eligible for a payout*\n\n"
-                f"✈️  Flight\t\t{flight} — {airline}\n"
-                f"📋  Policy\t\t{ref}\n\n"
-                "_The flight delay threshold has not been met or no disruption was recorded._",
-                [
-                    {"id": "bp_upload_first", "title": "📤 Upload pass"},
-                    {"id": "bp_home",         "title": "🏠 Main menu"},
-                ],
-                phone_number_id)
+            await _send_list(
+                wa_id,
+                "⏳ *Not yet eligible*\n"
+                "Your delay hasn't reached the minimum threshold yet\n\n"
+                f"✈️  Flight\t\t\t{flight} — {airline}\n"
+                f"⏱️  Current delay\t{current_delay}\n"
+                f"⏱️  Minimum required\t{min_delay}\n"
+                f"📋  Policy\t\t\t{ref}\n\n"
+                f"We're monitoring your flight. If the delay reaches "
+                f"{min_delay}, we'll notify you automatically.",
+                "Choose an option",
+                [{"title": "Options", "rows": [
+                    {"id": "bp_keep_alerts",  "title": "🔔 Keep alerts on",       "description": "Stay notified when threshold is met"},
+                    {"id": "bp_upload_first", "title": "📤 Upload boarding pass", "description": "Attach your boarding pass now"},
+                    {"id": "bp_get_help",     "title": "🧑 Get help",             "description": "Speak to our support team"},
+                    {"id": "bp_home",         "title": "🏠 Main menu",            "description": "Return to main menu"},
+                ]}],
+                phone_number_id,
+                header="⏳ Not yet eligible",
+            )
             return
-        delay_display = delay_str
+        delay_display  = delay_str
         payout_display = payout_fmt
     else:
         delay_display  = "3hrs 20mins"
         payout_display = "₦2,500"
+        min_delay      = "3 hours"
 
-    await _send_buttons(wa_id,
+    await _send_list(
+        wa_id,
         "✅ *You are eligible for a payout!*\n"
         "_Your flight delay meets the cover threshold_\n\n"
-        f"✈️  Flight\t\t{flight} — {airline}\n"
-        f"⏱️  Delay\t\t{delay_display}\n"
-        f"📋  Policy\t\t{ref}\n"
+        f"✈️  Flight\t\t\t{flight} — {airline}\n"
+        f"⏱️  Delay\t\t\t{delay_display}\n"
+        f"📋  Policy\t\t\t{ref}\n"
         f"💰  Payout amount\t*{payout_display}*\n\n"
-        "Your payout will be sent to your registered\nbank account or wallet automatically.",
-        [
-            {"id": "bp_confirm_payout", "title": "✅ Confirm payout"},
-            {"id": "bp_upload_first",   "title": "📤 Upload pass first"},
-            {"id": "bp_home",           "title": "🏠 Main menu"},
-        ],
-        phone_number_id)
+        "Your payout will be sent to your registered bank account automatically.",
+        "Choose an option",
+        [{"title": "Options", "rows": [
+            {"id": "bp_confirm_payout", "title": "✅ Confirm payout",        "description": "Initiate your payout now"},
+            {"id": "bp_upload_first",   "title": "📤 Upload boarding pass",  "description": "Attach boarding pass first"},
+            {"id": "bp_get_help",       "title": "🧑 Get help",              "description": "Speak to our support team"},
+            {"id": "bp_home",           "title": "🏠 Main menu",             "description": "Return to main menu"},
+        ]}],
+        phone_number_id,
+        header="✅ Eligible for payout",
+    )
 
 
 async def _show_payout_initiated(wa_id: str, session: dict, flow: dict, phone_number_id: Optional[str]):
@@ -733,8 +752,29 @@ async def handle_bp_link_flow(
     elif step == "bp_eligibility_result":
         if reply_id == "bp_confirm_payout":
             await _show_payout_initiated(sender_wa_id, session, flow, phone_number_id)
+        elif reply_id == "bp_keep_alerts":
+            await _send_buttons(
+                sender_wa_id,
+                "🔔 *Alerts are on!*\n\n"
+                "We're actively monitoring your flight. You'll be notified automatically "
+                "as soon as the delay threshold is reached — no action needed from you.",
+                [
+                    {"id": "bp_eligibility", "title": "🔍 Check again"},
+                    {"id": "bp_upload_first", "title": "📤 Upload pass"},
+                    {"id": "bp_home",         "title": "🏠 Main menu"},
+                ],
+                phone_number_id,
+                header="🔔 Flight Monitoring Active",
+            )
         elif reply_id == "bp_upload_first":
-            await start_bp_link_flow(sender_wa_id, phone_number_id)
+            await _ask_upload(sender_wa_id, session, flow, {}, phone_number_id)
+        elif reply_id == "bp_get_help":
+            session["temp_data"][BP_LINK_FLOW_KEY] = {}
+            await save_session(session)
+            from app.services.help_flow_service import start_help_flow
+            await start_help_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+        elif reply_id == "bp_eligibility":
+            await _show_eligibility(sender_wa_id, session, flow, phone_number_id)
         elif reply_id == "bp_back":
             action = data.get("bp_action", "upload")
             if action == "link":

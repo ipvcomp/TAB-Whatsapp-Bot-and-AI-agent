@@ -32,18 +32,22 @@ def _mask_id(val: str) -> str:
 
 
 _UTILITY = (
-    "*Utility options:*\n"
-    "0 ↩️ Back  |  9 🆘 Help  |  00 🏠 Main menu\n"
-    "99 ❌ Cancel/Exit"
+    "*Utility options:*\n0 ↩️ Back  |  9 🆘 Help  |  00 🏠 Main menu\n99 ❌ Cancel/Exit"
 )
 
 
 async def _send_text(to: str, body: str, phone_number_id: Optional[str]):
-    await send_text_message(to=to, body=body, phone_number_id=phone_number_id, source="kyc_flow")
-    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="kyc_flow")
+    await send_text_message(
+        to=to, body=body, phone_number_id=phone_number_id, source="kyc_flow"
+    )
+    await send_text_message(
+        to=to, body=_UTILITY, phone_number_id=phone_number_id, source="kyc_flow"
+    )
 
 
-async def _send_buttons(to: str, body: str, buttons: list, phone_number_id: Optional[str]):
+async def _send_buttons(
+    to: str, body: str, buttons: list, phone_number_id: Optional[str]
+):
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
@@ -60,8 +64,12 @@ async def _send_buttons(to: str, body: str, buttons: list, phone_number_id: Opti
             },
         },
     }
-    await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="kyc_flow")
-    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="kyc_flow")
+    await send_whatsapp_payload(
+        whatsapp_payload=payload, phone_number_id=phone_number_id, source="kyc_flow"
+    )
+    await send_text_message(
+        to=to, body=_UTILITY, phone_number_id=phone_number_id, source="kyc_flow"
+    )
 
 
 async def _send_list(
@@ -86,8 +94,12 @@ async def _send_list(
         "type": "interactive",
         "interactive": interactive,
     }
-    await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="kyc_flow")
-    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="kyc_flow")
+    await send_whatsapp_payload(
+        whatsapp_payload=payload, phone_number_id=phone_number_id, source="kyc_flow"
+    )
+    await send_text_message(
+        to=to, body=_UTILITY, phone_number_id=phone_number_id, source="kyc_flow"
+    )
 
 
 async def _send_help(wa_id: str, session: dict, phone_number_id: Optional[str]):
@@ -103,8 +115,8 @@ async def _send_help(wa_id: str, session: dict, phone_number_id: Optional[str]):
         "> 🔢 Both BVN and NIN are 11 digits — example: 12345678901\n\n"
         "Ready to verify?",
         [
-            {"id": "kyc_bvn",   "title": "🪪 Verify with BVN"},
-            {"id": "kyc_nin",   "title": "🪪 Verify with NIN"},
+            {"id": "kyc_bvn", "title": "🪪 Verify with BVN"},
+            {"id": "kyc_nin", "title": "🪪 Verify with NIN"},
             {"id": "kyc_agent", "title": "📞 Speak to agent"},
         ],
         phone_number_id,
@@ -132,17 +144,20 @@ async def start_kyc_flow(
         try:
             kyc_status = await ipurvey_service.check_kyc_status(policy_id)
             if kyc_status and isinstance(kyc_status, dict):
-                status_val = (kyc_status.get("status") or kyc_status.get("kycStatus") or "").upper()
+                status_val = (
+                    kyc_status.get("status") or kyc_status.get("kycStatus") or ""
+                ).upper()
                 if status_val in ("VERIFIED", "COMPLETED", "SUCCESS", "PASSED"):
                     session["temp_data"][KYC_FLOW_KEY]["step"] = "kyc_verified"
                     session["temp_data"][KYC_FLOW_KEY]["data"]["kyc_verified"] = True
                     await save_session(session)
                     from app.services.payment_flow_service import start_payment_flow
+
                     await _send_buttons(
                         wa_id,
                         "✅ *Identity Already Verified*\nYour identity is confirmed. Proceeding to payment.",
                         [
-                            {"id": "kyc_pay",  "title": "1. Continue to pay"},
+                            {"id": "kyc_pay", "title": "1. Continue to pay"},
                             {"id": "kyc_home", "title": "2. Main menu"},
                         ],
                         phone_number_id,
@@ -162,8 +177,8 @@ async def start_kyc_flow(
         "How would you like to verify your identity?\n"
         "Select the country that issued your national biometric ID:",
         [
-            {"id": "kyc_bvn",  "title": "🪪 BVN (Nigeria)"},
-            {"id": "kyc_nin",  "title": "🪪 NIN (Nigeria)"},
+            {"id": "kyc_bvn", "title": "🪪 BVN (Nigeria)"},
+            {"id": "kyc_nin", "title": "🪪 NIN (Nigeria)"},
             {"id": "kyc_help", "title": "🆘 Help"},
         ],
         phone_number_id,
@@ -191,9 +206,13 @@ async def handle_kyc_flow(
             br = inter.get("button_reply") or inter.get("list_reply")
             reply_id = br.get("id") if br else None
         else:
-            br = getattr(inter, "button_reply", None) or getattr(inter, "list_reply", None)
+            br = getattr(inter, "button_reply", None) or getattr(
+                inter, "list_reply", None
+            )
             if br:
-                reply_id = br.get("id") if isinstance(br, dict) else getattr(br, "id", None)
+                reply_id = (
+                    br.get("id") if isinstance(br, dict) else getattr(br, "id", None)
+                )
 
     # ── KYC intro ─────────────────────────────────────────────────────────────
     if step == "kyc_intro":
@@ -209,7 +228,7 @@ async def handle_kyc_flow(
                 "your identity for this purchase.",
                 [
                     {"id": "kyc_consent_yes", "title": "1. ✅ Yes, continue"},
-                    {"id": "kyc_consent_no",  "title": "2. Go back"},
+                    {"id": "kyc_consent_no", "title": "2. 🔙Go back"},
                 ],
                 phone_number_id,
             )
@@ -223,7 +242,7 @@ async def handle_kyc_flow(
                 "your identity for this purchase.",
                 [
                     {"id": "kyc_consent_yes", "title": "1. ✅ Yes, continue"},
-                    {"id": "kyc_consent_no",  "title": "2. Go back"},
+                    {"id": "kyc_consent_no", "title": "2. Go back"},
                 ],
                 phone_number_id,
             )
@@ -249,7 +268,9 @@ async def handle_kyc_flow(
     # ── BVN / NIN input ───────────────────────────────────────────────────────
     elif step == "kyc_id_input":
         if not text:
-            await _send_text(sender_wa_id, "Please type your ID number to continue.", phone_number_id)
+            await _send_text(
+                sender_wa_id, "Please type your ID number to continue.", phone_number_id
+            )
             return
         id_number = text.replace(" ", "")
         method = data.get("kyc_method", "BVN")
@@ -261,47 +282,63 @@ async def handle_kyc_flow(
             phone_number_id,
         )
 
-        api_verified   = False
+        api_verified = False
         api_session_id = None
-        api_call_done  = False
+        api_call_done = False
         policy_id = session.get("api_data", {}).get("policy_id")
-        user_id   = session.get("api_data", {}).get("user_id")
+        user_id = session.get("api_data", {}).get("user_id")
 
         if policy_id:
             try:
-                bc_data  = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
-                msisdn   = get_msisdn(sender_wa_id)
+                bc_data = (
+                    session.get("temp_data", {})
+                    .get(BUY_COVER_FLOW_KEY, {})
+                    .get("data", {})
+                )
+                msisdn = get_msisdn(sender_wa_id)
                 raw_name = bc_data.get("name", "")
-                parts    = raw_name.strip().split(None, 1)
-                fn       = parts[0] if parts else raw_name
-                ln       = parts[1] if len(parts) > 1 else ""
-                email    = bc_data.get("email", "")
+                parts = raw_name.strip().split(None, 1)
+                fn = parts[0] if parts else raw_name
+                ln = parts[1] if len(parts) > 1 else ""
+                email = bc_data.get("email", "")
 
                 if not user_id:
                     # ── NEW USER: create account then link ────────────────────
                     user_result = await ipurvey_service.create_user(
-                        msisdn=msisdn, first_name=fn, last_name=ln, email=email,
-                        identity_type=method, identity_number=id_number,
+                        msisdn=msisdn,
+                        first_name=fn,
+                        last_name=ln,
+                        email=email,
+                        identity_type=method,
+                        identity_number=id_number,
                     )
                     if user_result and isinstance(user_result, dict):
                         uid = user_result.get("userId") or user_result.get("id")
                         if uid:
                             session.setdefault("api_data", {})["user_id"] = uid
                             user_id = uid
-                            logger.info(f"[kyc] new user created → user_id='{uid}', linking to policy")
+                            logger.info(
+                                f"[kyc] new user created → user_id='{uid}', linking to policy"
+                            )
                             await ipurvey_service.link_user_to_policy(policy_id, uid)
                 else:
                     # ── EXISTING USER: link only — do NOT update name/email ────
                     # The user is already verified (Samuel Olamide / BVN/NIN).
                     # Patching their details would corrupt the verified identity.
-                    logger.info(f"[kyc] existing user → linking user_id='{user_id}' to policy (no update)")
+                    logger.info(
+                        f"[kyc] existing user → linking user_id='{user_id}' to policy (no update)"
+                    )
                     await ipurvey_service.link_user_to_policy(policy_id, user_id)
 
                 if user_id:
-                    kyc_result = await ipurvey_service.initiate_kyc(user_id, method, id_number)
+                    kyc_result = await ipurvey_service.initiate_kyc(
+                        user_id, method, id_number
+                    )
                     api_call_done = True
                     if kyc_result and isinstance(kyc_result, dict):
-                        sid    = kyc_result.get("sessionId") or kyc_result.get("session_id")
+                        sid = kyc_result.get("sessionId") or kyc_result.get(
+                            "session_id"
+                        )
                         status = (kyc_result.get("status") or "").upper()
                         resp_verified = kyc_result.get("verified")
                         if sid:
@@ -333,9 +370,9 @@ async def handle_kyc_flow(
                 "Your identity has been confirmed. You can now continue to payment.\n\n"
                 "What would you like to do next?",
                 [
-                    {"id": "kyc_pay",    "title": "1. Continue to pay"},
+                    {"id": "kyc_pay", "title": "1. Continue to pay"},
                     {"id": "kyc_review", "title": "2. Review trip"},
-                    {"id": "kyc_home",   "title": "3. Main menu"},
+                    {"id": "kyc_home", "title": "3. Main menu"},
                 ],
                 phone_number_id,
             )
@@ -350,7 +387,7 @@ async def handle_kyc_flow(
                 "Please enter the *6-digit OTP* to verify your identity:",
                 [
                     {"id": "kyc_otp_resend", "title": "📲 Resend OTP"},
-                    {"id": "kyc_help",       "title": "🆘 Get help"},
+                    {"id": "kyc_help", "title": "🆘 Get help"},
                 ],
                 phone_number_id,
             )
@@ -382,9 +419,9 @@ async def handle_kyc_flow(
                 "Your identity has been confirmed. You can now continue to payment.\n\n"
                 "What would you like to do next?",
                 [
-                    {"id": "kyc_pay",    "title": "1. Continue to pay"},
-                    {"id": "kyc_review", "title": "2. Review trip"},
-                    {"id": "kyc_home",   "title": "3. Main menu"},
+                    {"id": "kyc_pay", "title": "1.💳Continue to pay"},
+                    {"id": "kyc_review", "title": "2.🗒️Review trip"},
+                    {"id": "kyc_home", "title": "3.🏠Main menu"},
                 ],
                 phone_number_id,
             )
@@ -408,9 +445,9 @@ async def handle_kyc_flow(
 
     # ── OTP input (after API initiates KYC) ───────────────────────────────────
     elif step == "kyc_otp_input":
-        method     = data.get("kyc_method", "BVN")
-        masked     = _mask_id(data.get("kyc_id", ""))
-        user_id    = session.get("api_data", {}).get("user_id")
+        method = data.get("kyc_method", "BVN")
+        masked = _mask_id(data.get("kyc_id", ""))
+        user_id = session.get("api_data", {}).get("user_id")
         session_id = session.get("api_data", {}).get("kyc_session_id")
 
         if reply_id == "kyc_otp_resend":
@@ -422,8 +459,8 @@ async def handle_kyc_flow(
                     pass
             msg = (
                 "📲 *OTP Resent!*\nA new OTP has been sent to your phone.\n\nEnter the 6-digit code:"
-                if resent else
-                "📲 *OTP Resend Requested*\nCheck your phone for the OTP.\n\nEnter the 6-digit code:"
+                if resent
+                else "📲 *OTP Resend Requested*\nCheck your phone for the OTP.\n\nEnter the 6-digit code:"
             )
             await _send_text(sender_wa_id, msg, phone_number_id)
             return
@@ -434,13 +471,19 @@ async def handle_kyc_flow(
 
         otp = text.strip()
         if not otp or not otp.isdigit():
-            await _send_text(sender_wa_id, "Please enter the *6-digit OTP* sent to your phone:", phone_number_id)
+            await _send_text(
+                sender_wa_id,
+                "Please enter the *6-digit OTP* sent to your phone:",
+                phone_number_id,
+            )
             return
 
         verified = False
         if user_id and session_id:
             try:
-                verified = await ipurvey_service.verify_kyc_otp(user_id, session_id, otp)
+                verified = await ipurvey_service.verify_kyc_otp(
+                    user_id, session_id, otp
+                )
             except Exception:
                 pass
 
@@ -454,9 +497,9 @@ async def handle_kyc_flow(
                 "Your identity has been confirmed. You can now continue to payment.\n\n"
                 "What would you like to do next?",
                 [
-                    {"id": "kyc_pay",    "title": "1. Continue to pay"},
+                    {"id": "kyc_pay", "title": "1. Continue to pay"},
                     {"id": "kyc_review", "title": "2. Review trip"},
-                    {"id": "kyc_home",   "title": "3. Main menu"},
+                    {"id": "kyc_home", "title": "3. Main menu"},
                 ],
                 phone_number_id,
             )
@@ -467,7 +510,7 @@ async def handle_kyc_flow(
                 "Please try again or request a new OTP:",
                 [
                     {"id": "kyc_otp_resend", "title": "📲 Resend OTP"},
-                    {"id": "kyc_help",       "title": "🆘 Get help"},
+                    {"id": "kyc_help", "title": "🆘 Get help"},
                 ],
                 phone_number_id,
             )
@@ -476,13 +519,19 @@ async def handle_kyc_flow(
     elif step == "kyc_verified":
         if reply_id == "kyc_pay":
             from app.services.payment_flow_service import start_payment_flow
-            await start_payment_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+
+            await start_payment_flow(
+                wa_id=sender_wa_id, phone_number_id=phone_number_id
+            )
         elif reply_id == "kyc_review":
-            bc_data = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
+            bc_data = (
+                session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
+            )
             travelers = bc_data.get("travelers", [])
             traveler_lines = (
-                "\n".join(f"  {i+1} — {n}" for i, n in enumerate(travelers))
-                if travelers else f"  1 — {bc_data.get('name', '—')}"
+                "\n".join(f"  {i + 1} — {n}" for i, n in enumerate(travelers))
+                if travelers
+                else f"  1 — {bc_data.get('name', '—')}"
             )
             dep = bc_data.get("depart_airport", "").split("—")[0].strip() or "—"
             arr = bc_data.get("arrive_airport", "").split("—")[0].strip() or "—"
@@ -503,9 +552,9 @@ async def handle_kyc_flow(
                 sender_wa_id,
                 "What would you like to do next?",
                 [
-                    {"id": "kyc_pay",    "title": "1. Continue to pay"},
+                    {"id": "kyc_pay", "title": "1. Continue to pay"},
                     {"id": "kyc_review", "title": "2. Review trip"},
-                    {"id": "kyc_home",   "title": "3. Main menu"},
+                    {"id": "kyc_home", "title": "3. Main menu"},
                 ],
                 phone_number_id,
             )
@@ -514,6 +563,7 @@ async def handle_kyc_flow(
             session["temp_data"][BUY_COVER_FLOW_KEY] = {}
             await save_session(session)
             from app.services.auto_reply_service import send_main_menu
+
             await send_main_menu(to=sender_wa_id, phone_number_id=phone_number_id)
 
     # ── Failed — retry options ────────────────────────────────────────────────
@@ -528,7 +578,7 @@ async def handle_kyc_flow(
                 "your identity for this purchase.",
                 [
                     {"id": "kyc_consent_yes", "title": "1. ✅ Yes, continue"},
-                    {"id": "kyc_consent_no",  "title": "2. Go back"},
+                    {"id": "kyc_consent_no", "title": "2. Go back"},
                 ],
                 phone_number_id,
             )
@@ -542,7 +592,7 @@ async def handle_kyc_flow(
                 "your identity for this purchase.",
                 [
                     {"id": "kyc_consent_yes", "title": "1. ✅ Yes, continue"},
-                    {"id": "kyc_consent_no",  "title": "2. Go back"},
+                    {"id": "kyc_consent_no", "title": "2. Go back"},
                 ],
                 phone_number_id,
             )
@@ -561,7 +611,7 @@ async def handle_kyc_flow(
                 "your identity for this purchase.",
                 [
                     {"id": "kyc_consent_yes", "title": "1. ✅ Yes, continue"},
-                    {"id": "kyc_consent_no",  "title": "2. Go back"},
+                    {"id": "kyc_consent_no", "title": "2. Go back"},
                 ],
                 phone_number_id,
             )
@@ -575,7 +625,7 @@ async def handle_kyc_flow(
                 "your identity for this purchase.",
                 [
                     {"id": "kyc_consent_yes", "title": "1. ✅ Yes, continue"},
-                    {"id": "kyc_consent_no",  "title": "2. Go back"},
+                    {"id": "kyc_consent_no", "title": "2. Go back"},
                 ],
                 phone_number_id,
             )
@@ -599,6 +649,7 @@ async def handle_kyc_flow(
         session["temp_data"][BUY_COVER_FLOW_KEY] = {}
         await save_session(session)
         from app.services.auto_reply_service import send_main_menu
+
         await send_main_menu(to=sender_wa_id, phone_number_id=phone_number_id)
 
 
@@ -609,8 +660,8 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
     data = flow.get("data", {})
 
     _PREV = {
-        "kyc_consent":   "kyc_intro",
-        "kyc_id_input":  "kyc_consent",
+        "kyc_consent": "kyc_intro",
+        "kyc_id_input": "kyc_consent",
         "kyc_otp_input": "kyc_id_input",
     }
 
@@ -620,6 +671,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         session["temp_data"][KYC_FLOW_KEY] = {}
         await save_session(session)
         from app.services.auto_reply_service import send_main_menu
+
         await send_main_menu(to=wa_id, phone_number_id=phone_number_id, wa_id=wa_id)
         return
 
@@ -636,8 +688,8 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             "How would you like to verify your identity?\n"
             "Select the country that issued your national biometric ID:",
             [
-                {"id": "kyc_bvn",  "title": "🪪 BVN (Nigeria)"},
-                {"id": "kyc_nin",  "title": "🪪 NIN (Nigeria)"},
+                {"id": "kyc_bvn", "title": "🪪 BVN (Nigeria)"},
+                {"id": "kyc_nin", "title": "🪪 NIN (Nigeria)"},
                 {"id": "kyc_help", "title": "🆘 Help"},
             ],
             phone_number_id,
@@ -651,7 +703,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             "Do you consent to proceed?",
             [
                 {"id": "kyc_consent_yes", "title": "1. ✅ Yes, continue"},
-                {"id": "kyc_consent_no",  "title": "2. Go back"},
+                {"id": "kyc_consent_no", "title": "2. Go back"},
             ],
             phone_number_id,
         )
