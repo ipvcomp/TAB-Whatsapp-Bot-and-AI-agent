@@ -224,6 +224,7 @@ async def _show_upload_confirmed(wa_id: str, session: dict, flow: dict, phone_nu
         [
             {"id": "bp_eligibility", "title": "📋 Check eligibility"},
             {"id": "bp_home",        "title": "🏠 Main menu"},
+            {"id": "bp_cancel",      "title": "99 ❌ Cancel/Exit"},
         ],
         phone_number_id,
         header="✅ Boarding pass upload confirmed")
