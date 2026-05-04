@@ -42,7 +42,7 @@ def _split_name(full: str) -> tuple[str, str]:
 
 
 def _is_valid_name(value: str) -> bool:
-    """Return True only if value looks like a real name (not email/number/gibberish)."""
+    """Return True only if value looks like a real full name (first + surname required)."""
     v = value.strip()
     if not v or len(v) < 2:
         return False
@@ -52,6 +52,9 @@ def _is_valid_name(value: str) -> bool:
         return False                    # pure numbers
     if not any(c.isalpha() for c in v):
         return False                    # no letters at all
+    parts = [p for p in v.split() if p]
+    if len(parts) < 2:
+        return False                    # must have at least first name + surname
     return True
 
 
@@ -544,24 +547,37 @@ async def handle_buy_cover_flow(
     # ── Name ──────────────────────────────────────────────────────────────────
     elif step == "buy_cover_name":
         if not text or not _is_valid_name(text):
-            hint = (
-                "⚠️ That looks like an email address — please enter your *name* instead.\n\n"
-                "_Example: Yusuf Abdullahi_"
-            ) if text and "@" in text else (
-                "⚠️ Please enter a valid *full name*.\n\n"
-                "_Example: Yusuf Abdullahi_"
-            )
+            if text and "@" in text:
+                hint = "⚠️ That looks like an email address — please enter your *name* instead.\n\n_Example: Yusuf Abdullahi_"
+            elif text and len([p for p in text.strip().split() if p]) < 2:
+                hint = "⚠️ Please enter *both your first name and surname*.\n\n_Example: Yusuf Abdullahi_"
+            else:
+                hint = "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Yusuf Abdullahi_"
             await _send_text(sender_wa_id, hint, phone_number_id)
             return
-        data["name"] = text
         policy_id = session.get("api_data", {}).get("policy_id")
         if policy_id:
+            fn, ln = _split_name(text)
             try:
-                fn, ln = _split_name(text)
                 result = await ipurvey_service.add_passenger(policy_id, fn, ln, is_primary=True)
                 logger.info(f"[BUY_COVER] add_passenger (primary) → {fn} {ln} result={result}")
+                if result is None:
+                    logger.error(f"[BUY_COVER] add_passenger (primary) returned None for '{fn} {ln}'")
+                    await _send_text(sender_wa_id, (
+                        "⚠️ We couldn't save your name — please enter your *full name* "
+                        "(first name and surname) as it appears on your ticket.\n\n"
+                        "_Example: Yusuf Abdullahi_"
+                    ), phone_number_id)
+                    return
             except Exception as exc:
                 logger.error(f"[BUY_COVER] add_passenger (primary) failed: {exc}")
+                await _send_text(sender_wa_id, (
+                    "⚠️ We couldn't save your name — please enter your *full name* "
+                    "(first name and surname) as it appears on your ticket.\n\n"
+                    "_Example: Yusuf Abdullahi_"
+                ), phone_number_id)
+                return
+        data["name"] = text
         if data.get("who") == "me_and_others":
             travelers = data.get("travelers", [])
             travelers.append(text)
@@ -587,26 +603,39 @@ async def handle_buy_cover_flow(
     # ── Additional traveler names ──────────────────────────────────────────────
     elif step == "buy_cover_other_name":
         if not text or not _is_valid_name(text):
-            hint = (
-                "⚠️ That looks like an email address — please enter the traveler's *name* instead.\n\n"
-                "_Example: Amina Bello_"
-            ) if text and "@" in text else (
-                "⚠️ Please enter a valid *full name*.\n\n"
-                "_Example: Amina Bello_"
-            )
+            if text and "@" in text:
+                hint = "⚠️ That looks like an email address — please enter the traveler's *name* instead.\n\n_Example: Amina Bello_"
+            elif text and len([p for p in text.strip().split() if p]) < 2:
+                hint = "⚠️ Please enter *both first name and surname* for this traveler.\n\n_Example: Amina Bello_"
+            else:
+                hint = "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Amina Bello_"
             await _send_text(sender_wa_id, hint, phone_number_id)
             return
+        policy_id = session.get("api_data", {}).get("policy_id")
+        if policy_id:
+            fn, ln = _split_name(text)
+            try:
+                result = await ipurvey_service.add_passenger(policy_id, fn, ln, is_primary=False)
+                logger.info(f"[BUY_COVER] add_passenger (additional) → {fn} {ln} result={result}")
+                if result is None:
+                    logger.error(f"[BUY_COVER] add_passenger (additional) returned None for '{fn} {ln}'")
+                    await _send_text(sender_wa_id, (
+                        "⚠️ We couldn't save this traveler's name — please enter their *full name* "
+                        "(first name and surname) as it appears on their ticket.\n\n"
+                        "_Example: Amina Bello_"
+                    ), phone_number_id)
+                    return
+            except Exception as exc:
+                logger.error(f"[BUY_COVER] add_passenger (additional) failed: {exc}")
+                await _send_text(sender_wa_id, (
+                    "⚠️ We couldn't save this traveler's name — please enter their *full name* "
+                    "(first name and surname) as it appears on their ticket.\n\n"
+                    "_Example: Amina Bello_"
+                ), phone_number_id)
+                return
         travelers = data.get("travelers", [])
         travelers.append(text)
         data["travelers"] = travelers
-        policy_id = session.get("api_data", {}).get("policy_id")
-        if policy_id:
-            try:
-                fn, ln = _split_name(text)
-                result = await ipurvey_service.add_passenger(policy_id, fn, ln, is_primary=False)
-                logger.info(f"[BUY_COVER] add_passenger (additional) → {fn} {ln} result={result}")
-            except Exception as exc:
-                logger.error(f"[BUY_COVER] add_passenger (additional) failed: {exc}")
         others_count = data.get("others_count", 1)
         others_collected = len(travelers) - 1
         if others_collected < others_count:
@@ -891,9 +920,16 @@ async def handle_buy_cover_flow(
                     "arrivalDate":     arr_date,
                     "arrivalTime":     arr_time,
                 }]
-                await ipurvey_service.submit_itinerary(
+                itinerary_ok = await ipurvey_service.submit_itinerary(
                     policy_id, trip_type, data.get("booking_ref", ""), legs
                 )
+                if not itinerary_ok:
+                    await _send_text(sender_wa_id, (
+                        "⚠️ *We couldn't submit your trip details.*\n\n"
+                        "This usually happens when traveler names are missing or incomplete. "
+                        "Please type *#cancel* to restart and ensure all names are entered correctly."
+                    ), phone_number_id)
+                    return
                 quotes = await ipurvey_service.fetch_quotes(policy_id)
             except Exception as exc:
                 logger.error(f"[buy_cover] itinerary/quotes API failed: {exc}")
