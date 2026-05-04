@@ -580,3 +580,104 @@ async def _send_success(
             {"id": "upd_home", "title": "🏠 Main menu"},
         ],
         phone_number_id)
+
+
+async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
+    """Go back exactly one step in the update details flow instead of restarting."""
+    session, flow = await _get_flow_state(wa_id)
+    step = flow.get("step", "upd_menu")
+    data = flow.get("data", {})
+
+    async def _show_menu():
+        flow["step"] = "upd_menu"
+        await save_session(session)
+        await _send_list(
+            to=wa_id,
+            header="✏️ Update your details",
+            body="What would you like to update?",
+            button_label="Select option",
+            sections=[{"title": "Update your details", "rows": [
+                {"id": "upd_opt_name",   "title": "👤 Name"},
+                {"id": "upd_opt_email",  "title": "✉️ Email address"},
+                {"id": "upd_opt_bank",   "title": "🏦 Bank payout details"},
+                {"id": "upd_opt_wallet", "title": "👛 Wallet payout"},
+                {"id": "upd_opt_kyc",    "title": "🔒 KYC (BVN / NIN)"},
+            ]}],
+            phone_number_id=phone_number_id,
+        )
+
+    # At the menu or done screen — exit to main menu
+    if step in ("upd_menu", "upd_done"):
+        await _reset(session)
+        from app.services.auto_reply_service import send_main_menu
+        await send_main_menu(to=wa_id, phone_number_id=phone_number_id, wa_id=wa_id)
+        return
+
+    # Name sub-flow: input → who selector (or menu if single traveler)
+    if step == "upd_name_input":
+        travelers: list = data.get("travelers", [])
+        if len(travelers) > 1:
+            await _start_name_flow(session, wa_id, data, phone_number_id)
+        else:
+            await _show_menu()
+        return
+
+    # Name sub-flow: who selector → menu
+    if step == "upd_name_who":
+        await _show_menu()
+        return
+
+    # Email → menu
+    if step == "upd_email_input":
+        await _show_menu()
+        return
+
+    # Bank: select → search prompt
+    if step == "upd_bank_select":
+        flow["step"] = "upd_bank_search"
+        await save_session(session)
+        await _send_text(wa_id,
+            "🔍 Enter at least 2 characters of your\n"
+            "bank name to search:\n\n_Example: Zen, GT, Wem_",
+            phone_number_id)
+        return
+
+    # Bank: search → account number prompt
+    if step == "upd_bank_search":
+        flow["step"] = "upd_bank_acct"
+        await save_session(session)
+        await _send_text(wa_id,
+            "🏦 *Update Bank Payout Details*\n\n"
+            "Please enter your account number.\n"
+            "This will be used to receive funds\n"
+            "in the event of a claim.\n\n"
+            "_Example: 0123456789_",
+            phone_number_id)
+        return
+
+    # Bank: account number → menu
+    if step == "upd_bank_acct":
+        await _show_menu()
+        return
+
+    # Wallet: phone input → wallet provider select
+    if step == "upd_wallet_phone":
+        flow["step"] = "upd_wallet_select"
+        await save_session(session)
+        await _send_buttons(wa_id,
+            "👛 *Update Wallet Payout*\n\nSelect your wallet provider:",
+            [
+                {"id": "upd_w_9psb",      "title": "9PSB"},
+                {"id": "upd_w_smartcash", "title": "SmartCash"},
+                {"id": "upd_w_opay",      "title": "OPay"},
+            ],
+            phone_number_id)
+        return
+
+    # Wallet: provider select → menu
+    if step == "upd_wallet_select":
+        await _show_menu()
+        return
+
+    # Fallback — go back to menu
+    await _show_menu()

@@ -722,3 +722,61 @@ async def _show_payout_initiated(session: dict, wa_id: str, pol: dict, phone_num
     await _set_step(session, "pol_payout_done")
     await _send_text(wa_id, "💰 *Payout Initiated!*\n\nYour payout is being processed and will be sent to your account soon.", phone_number_id)
     await _show_detail(session, wa_id, pol, phone_number_id)
+
+
+async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
+    """Go back exactly one step in the check policy flow instead of restarting."""
+    session, flow = await _get_flow_state(wa_id)
+    step = flow.get("step", "pol_menu")
+    data = flow.get("data", {})
+
+    # Steps that are sub-screens of pol_detail — go back to pol_detail
+    _DETAIL_SUB = {"pol_download", "pol_eligibility", "pol_payout_done"}
+
+    # Steps that go back to pol_menu
+    _TO_MENU = {"pol_phone_list", "pol_ref_input", "pol_flight_input",
+                "pol_detail", "pol_all_list"}
+
+    if step in _DETAIL_SUB:
+        pol = data.get("pol_selected") or {}
+        if pol:
+            await _show_detail(session, wa_id, pol, phone_number_id)
+        else:
+            # No selection cached — fall back to menu
+            flow["step"] = "pol_menu"
+            await save_session(session)
+            await _send_buttons(wa_id,
+                "How would you like to find your policy?",
+                [
+                    {"id": "pol_by_phone",  "title": "📱 My phone number"},
+                    {"id": "pol_by_number", "title": "🔢 Policy number"},
+                    {"id": "pol_by_flight", "title": "✈️ By flight no"},
+                ],
+                phone_number_id,
+                header="📋 Check my policy")
+        return
+
+    if step == "pol_date_input":
+        # Back from date input → ask flight number again
+        await _ask_flight_number(session, wa_id, phone_number_id)
+        return
+
+    if step in _TO_MENU or step == "pol_menu":
+        # At menu or any search-entry step → exit to main menu
+        await _reset(session)
+        from app.services.auto_reply_service import send_main_menu
+        await send_main_menu(to=wa_id, phone_number_id=phone_number_id, wa_id=wa_id)
+        return
+
+    # Unknown step — reset and go to pol_menu
+    flow["step"] = "pol_menu"
+    await save_session(session)
+    await _send_buttons(wa_id,
+        "How would you like to find your policy?",
+        [
+            {"id": "pol_by_phone",  "title": "📱 My phone number"},
+            {"id": "pol_by_number", "title": "🔢 Policy number"},
+            {"id": "pol_by_flight", "title": "✈️ By flight no"},
+        ],
+        phone_number_id,
+        header="📋 Check my policy")

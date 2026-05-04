@@ -349,14 +349,19 @@ async def _process_change(entry_id: str, change):
                             )
                             log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "bp_link"})
                         elif is_in_check_policy_flow(user_session):
-                            if user_session:
-                                user_session.setdefault("temp_data", {})["check_policy_flow"] = {}
-                                await save_session(user_session)
-                            await start_check_policy_flow(
+                            from app.services.check_policy_flow_service import go_back_one_step as _cp_back
+                            await _cp_back(
                                 wa_id=sender_wa_id,
                                 phone_number_id=msg_phone_number_id,
                             )
                             log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "check_policy"})
+                        elif is_in_update_details_flow(user_session):
+                            from app.services.update_details_flow_service import go_back_one_step as _upd_back
+                            await _upd_back(
+                                wa_id=sender_wa_id,
+                                phone_number_id=msg_phone_number_id,
+                            )
+                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "update_details"})
                         elif is_in_help_flow(user_session):
                             await start_help_flow(
                                 wa_id=sender_wa_id,
