@@ -558,21 +558,10 @@ async def handle_buy_cover_flow(
         if policy_id:
             try:
                 fn, ln = _split_name(text)
-                api_data = session.setdefault("api_data", {})
-                pids = api_data.get("passenger_ids", [])
-                if pids:
-                    # Use pre-allocated slot (index 0 = primary traveler)
-                    await ipurvey_service.update_passenger(policy_id, pids[0], fn, ln, is_primary=True)
-                    logger.info(f"[BUY_COVER] updated primary passenger {pids[0]} → {fn} {ln}")
-                else:
-                    # Fallback: no pre-allocated IDs, POST new passenger
-                    result = await ipurvey_service.add_passenger(policy_id, fn, ln, is_primary=True)
-                    if result and isinstance(result, dict):
-                        pax_id = result.get("passengerId") or result.get("id")
-                        if pax_id:
-                            api_data.setdefault("passenger_ids", []).insert(0, pax_id)
-            except Exception:
-                pass
+                result = await ipurvey_service.add_passenger(policy_id, fn, ln, is_primary=True)
+                logger.info(f"[BUY_COVER] add_passenger (primary) → {fn} {ln} result={result}")
+            except Exception as exc:
+                logger.error(f"[BUY_COVER] add_passenger (primary) failed: {exc}")
         if data.get("who") == "me_and_others":
             travelers = data.get("travelers", [])
             travelers.append(text)
@@ -614,24 +603,10 @@ async def handle_buy_cover_flow(
         if policy_id:
             try:
                 fn, ln = _split_name(text)
-                api_data = session.setdefault("api_data", {})
-                pids = api_data.get("passenger_ids", [])
-                # index: travelers list now includes primary + all collected so far
-                # additional travelers start at index 1 (index 0 = primary)
-                pax_index = len(travelers) - 1
-                if pids and pax_index < len(pids):
-                    # Use pre-allocated slot at this index
-                    await ipurvey_service.update_passenger(policy_id, pids[pax_index], fn, ln, is_primary=False)
-                    logger.info(f"[BUY_COVER] updated passenger[{pax_index}] {pids[pax_index]} → {fn} {ln}")
-                else:
-                    # Fallback: POST new passenger
-                    result = await ipurvey_service.add_passenger(policy_id, fn, ln, is_primary=False)
-                    if result and isinstance(result, dict):
-                        pax_id = result.get("passengerId") or result.get("id")
-                        if pax_id:
-                            api_data.setdefault("passenger_ids", []).append(pax_id)
-            except Exception:
-                pass
+                result = await ipurvey_service.add_passenger(policy_id, fn, ln, is_primary=False)
+                logger.info(f"[BUY_COVER] add_passenger (additional) → {fn} {ln} result={result}")
+            except Exception as exc:
+                logger.error(f"[BUY_COVER] add_passenger (additional) failed: {exc}")
         others_count = data.get("others_count", 1)
         others_collected = len(travelers) - 1
         if others_collected < others_count:
