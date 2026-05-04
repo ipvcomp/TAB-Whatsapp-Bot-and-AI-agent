@@ -359,7 +359,6 @@ async def handle_kyc_flow(
             flow["step"] = "kyc_failed"
             await save_session(session)
             _other = "NIN" if method == "BVN" else "BVN"
-            _retry_id = "kyc_try_bvn" if method == "BVN" else "kyc_try_nin"
             _other_id = "kyc_try_nin" if method == "BVN" else "kyc_try_bvn"
             await _send_buttons(
                 sender_wa_id,
@@ -367,7 +366,6 @@ async def handle_kyc_flow(
                 "> We could not complete verification automatically.\n\n"
                 "Please choose:",
                 [
-                    {"id": _retry_id, "title": f"🪪 Try {method} again"},
                     {"id": _other_id, "title": f"🪪 Try {_other} instead"},
                     {"id": "kyc_help", "title": "🆘 Get help"},
                 ],
@@ -395,7 +393,6 @@ async def handle_kyc_flow(
             flow["step"] = "kyc_failed"
             await save_session(session)
             _other = "NIN" if method == "BVN" else "BVN"
-            _retry_id = "kyc_try_bvn" if method == "BVN" else "kyc_try_nin"
             _other_id = "kyc_try_nin" if method == "BVN" else "kyc_try_bvn"
             await _send_buttons(
                 sender_wa_id,
@@ -403,7 +400,6 @@ async def handle_kyc_flow(
                 "> We could not complete verification automatically.\n\n"
                 "Please choose:",
                 [
-                    {"id": _retry_id, "title": f"🪪 Try {method} again"},
                     {"id": _other_id, "title": f"🪪 Try {_other} instead"},
                     {"id": "kyc_help", "title": "🆘 Get help"},
                 ],
