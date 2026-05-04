@@ -350,12 +350,16 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
                 f"We're monitoring your flight. If the delay reaches "
                 f"{min_delay}, we'll notify you automatically.",
                 "Choose an option",
-                [{"title": "Options", "rows": [
-                    {"id": "bp_keep_alerts",  "title": "🔔 Keep alerts on",       "description": "Stay notified when threshold is met"},
-                    {"id": "bp_upload_first", "title": "📤 Upload boarding pass", "description": "Attach your boarding pass now"},
-                    {"id": "bp_get_help",     "title": "🧑 Get help",             "description": "Speak to our support team"},
-                    {"id": "bp_home",         "title": "🏠 Main menu",            "description": "Return to main menu"},
-                ]}],
+                [
+                    {"title": "📌 Actions", "rows": [
+                        {"id": "bp_keep_alerts",  "title": "🔔 Keep alerts on",       "description": "Stay notified when threshold is met"},
+                        {"id": "bp_upload_first", "title": "📤 Upload boarding pass", "description": "Attach your boarding pass now"},
+                    ]},
+                    {"title": "🔧 Support & Navigation", "rows": [
+                        {"id": "bp_get_help", "title": "🧑 Get help",    "description": "Speak to our support team"},
+                        {"id": "bp_home",     "title": "🏠 Main menu",   "description": "Return to main menu"},
+                    ]},
+                ],
                 phone_number_id,
                 header="⏳ Not yet eligible",
             )
@@ -377,12 +381,16 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
         f"💰  Payout amount\t*{payout_display}*\n\n"
         "Your payout will be sent to your registered bank account automatically.",
         "Choose an option",
-        [{"title": "Options", "rows": [
-            {"id": "bp_confirm_payout", "title": "✅ Confirm payout",        "description": "Initiate your payout now"},
-            {"id": "bp_upload_first",   "title": "📤 Upload boarding pass",  "description": "Attach boarding pass first"},
-            {"id": "bp_get_help",       "title": "🧑 Get help",              "description": "Speak to our support team"},
-            {"id": "bp_home",           "title": "🏠 Main menu",             "description": "Return to main menu"},
-        ]}],
+        [
+            {"title": "📌 Actions", "rows": [
+                {"id": "bp_confirm_payout", "title": "✅ Confirm payout",       "description": "Initiate your payout now"},
+                {"id": "bp_upload_first",   "title": "📤 Upload boarding pass", "description": "Attach boarding pass first"},
+            ]},
+            {"title": "🔧 Support & Navigation", "rows": [
+                {"id": "bp_get_help", "title": "🧑 Get help",   "description": "Speak to our support team"},
+                {"id": "bp_home",     "title": "🏠 Main menu",  "description": "Return to main menu"},
+            ]},
+        ],
         phone_number_id,
         header="✅ Eligible for payout",
     )
