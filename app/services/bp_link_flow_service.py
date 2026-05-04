@@ -716,3 +716,49 @@ async def handle_bp_link_flow(
     # ── Catch-all ─────────────────────────────────────────────────────────────
     else:
         await start_bp_link_flow(sender_wa_id, phone_number_id)
+
+
+async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
+    """Go back exactly one step in the boarding pass flow instead of restarting."""
+    session, flow = await _get_flow_state(wa_id)
+    step = flow.get("step", "bp_choose")
+
+    _PREV = {
+        "bp_policy":           "bp_choose",
+        "bp_policy_card":      "bp_policy",
+        "bp_link_confirm":     "bp_policy_card",
+        "bp_awaiting_doc":     "bp_policy",
+        "bp_pending_status":   "bp_policy",
+        "bp_eligibility_result": "bp_policy",
+        "bp_upload_done":      "bp_policy",
+    }
+
+    prev = _PREV.get(step)
+
+    if not prev or step == "bp_choose":
+        await _go_home(wa_id, session, phone_number_id)
+        return
+
+    flow["step"] = prev
+    await save_session(session)
+
+    if prev == "bp_choose":
+        await _send_buttons(wa_id,
+            "Please choose an option:",
+            [
+                {"id": "bp_upload_me", "title": "📋 Upload pass"},
+                {"id": "bp_help",      "title": "🙋 Help"},
+            ],
+            phone_number_id,
+            header="🧳 Upload boarding pass")
+
+    elif prev == "bp_policy":
+        await _show_policy_list(wa_id, session, flow,
+                                flow.get("data", {}).get("bp_action", "upload"),
+                                phone_number_id)
+
+    elif prev == "bp_policy_card":
+        await _show_policy_card(wa_id, session, flow, phone_number_id)
+
+    else:
+        await start_bp_link_flow(wa_id=wa_id, phone_number_id=phone_number_id)

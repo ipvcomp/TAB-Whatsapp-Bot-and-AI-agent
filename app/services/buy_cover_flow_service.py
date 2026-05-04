@@ -1144,3 +1144,190 @@ async def handle_buy_cover_flow(
                 ],
                 phone_number_id,
             )
+
+
+async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
+    """Go back exactly one step in the buy cover flow instead of restarting."""
+    session, flow = await _get_flow_state(wa_id)
+    step = flow.get("step", "buy_cover_who")
+    data = flow.get("data", {})
+
+    _PREV: dict[str, Optional[str]] = {
+        "buy_cover_name":               "buy_cover_who",
+        "buy_cover_traveler_count":     "buy_cover_who",
+        "buy_cover_other_name":         "buy_cover_name",
+        "buy_cover_email":              None,
+        "buy_cover_trip_type":          "buy_cover_email",
+        "buy_cover_booking_ref":        "buy_cover_trip_type",
+        "buy_cover_flight_num":         "buy_cover_booking_ref",
+        "buy_cover_date":               "buy_cover_flight_num",
+        "buy_cover_depart_time":        "buy_cover_date",
+        "buy_cover_depart_airport_pick":"buy_cover_depart_time",
+        "buy_cover_arrive_time":        "buy_cover_depart_airport_pick",
+        "buy_cover_arrive_airport_pick":"buy_cover_arrive_time",
+        "buy_cover_airline":            "buy_cover_arrive_airport_pick",
+        "buy_cover_summary":            "buy_cover_airline",
+        "buy_cover_select_cover":       "buy_cover_summary",
+        "buy_cover_next_steps":         "buy_cover_select_cover",
+        "buy_cover_cancel_confirm":     "buy_cover_next_steps",
+    }
+
+    if step == "buy_cover_email":
+        prev: Optional[str] = (
+            "buy_cover_other_name"
+            if data.get("who") == "me_and_others"
+            else "buy_cover_name"
+        )
+    else:
+        prev = _PREV.get(step)
+
+    if not prev or step in ("buy_cover_who", "buy_cover_resume_choice"):
+        await _reset(session, wa_id)
+        from app.services.auto_reply_service import send_main_menu
+        await send_main_menu(to=wa_id, phone_number_id=phone_number_id, wa_id=wa_id)
+        return
+
+    flow["step"] = prev
+    await save_session(session)
+
+    if prev == "buy_cover_who":
+        await _send_buttons(wa_id,
+            "✈️ Great choice — let's protect your trip!\n"
+            "This will only take a few steps 😊\n\n"
+            "Is this cover for:",
+            [
+                {"id": "cover_just_me", "title": "1. 🧑 Just me"},
+                {"id": "cover_others",  "title": "2. 👥 Me & Others"},
+            ],
+            phone_number_id)
+
+    elif prev == "buy_cover_traveler_count":
+        await _send_text(wa_id,
+            "👨‍👩‍👧 *How many additional travelers are joining you?*\n"
+            "_(Not counting yourself)_\n\n_Type a number — 1, 2, 3 or 4_",
+            phone_number_id)
+
+    elif prev == "buy_cover_name":
+        await _send_text(wa_id,
+            "*👤 Please enter your name*\n"
+            "Enter your first name and surname, as it appears on your ticket\n\n"
+            "_Example: Yusuf Usman_",
+            phone_number_id)
+
+    elif prev == "buy_cover_other_name":
+        travelers    = data.get("travelers", [])
+        others_count = data.get("others_count", 1)
+        next_num     = len(travelers) + 1
+        total        = others_count + 1
+        await _send_text(wa_id,
+            f"*👤 Traveler {next_num} of {total} — please enter their name*\n"
+            "Enter first name and surname, as it appears on their ticket\n\n"
+            "_Example: Amina Bello_",
+            phone_number_id)
+
+    elif prev == "buy_cover_email":
+        await _send_text(wa_id,
+            "*📧 Please enter your email address*\n"
+            "So we can send your policy documents\n\n"
+            "_Example: yusuf@email.com_",
+            phone_number_id)
+
+    elif prev == "buy_cover_trip_type":
+        await _send_buttons(wa_id,
+            "🗺️ What type of trip is this?",
+            [
+                {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
+                {"id": "trip_return", "title": "2. 🔄 Return"},
+            ],
+            phone_number_id)
+
+    elif prev == "buy_cover_booking_ref":
+        await _send_text(wa_id,
+            "*🎫 Please enter your booking reference*\n\n_Examples: AB1XY2, 2990FA62_",
+            phone_number_id)
+
+    elif prev == "buy_cover_flight_num":
+        await _send_text(wa_id,
+            "*✈️ Please enter your flight number*\n\n_Example: P47123, Q1402_",
+            phone_number_id)
+
+    elif prev == "buy_cover_date":
+        await _send_text(wa_id,
+            "*📅 What date are you flying?*\n\n_Example: 12 April 2026, 12/04/2026_",
+            phone_number_id)
+
+    elif prev == "buy_cover_depart_time":
+        await _send_text(wa_id,
+            "*⏰ What time is your flight scheduled to depart?*\n"
+            "Example: 13:40, 1:40 PM",
+            phone_number_id)
+
+    elif prev == "buy_cover_depart_airport_pick":
+        await _send_text(wa_id,
+            "*✈️ What airport are you flying from?*\n\n"
+            "Type at least 3 characters of the airport name or IATA code to search.\n\n"
+            "_Example: LOS, Mur, NBO_",
+            phone_number_id)
+
+    elif prev == "buy_cover_arrive_time":
+        await _send_text(wa_id,
+            "*⏰ What time is your flight scheduled to arrive?*\n"
+            "Example: 15:00, 3:00 PM",
+            phone_number_id)
+
+    elif prev == "buy_cover_arrive_airport_pick":
+        await _send_text(wa_id,
+            "*✈️ What airport are you arriving at?*\n\n"
+            "Type at least 3 characters of the airport name or IATA code to search.\n\n"
+            "_Example: LHR, Heathrow, JFK_",
+            phone_number_id)
+
+    elif prev == "buy_cover_airline":
+        await _send_text(wa_id,
+            "*✈️  Who are you flying with?*\n\n_Example: Ibom Air, Air Peace_",
+            phone_number_id)
+
+    elif prev == "buy_cover_summary":
+        dep = data.get("depart_airport", "").split("—")[0].strip()
+        arr = data.get("arrive_airport", "").split("—")[0].strip()
+        travelers    = data.get("travelers", [])
+        traveler_line = (
+            "  ".join(f"{i+1} — {n}" for i, n in enumerate(travelers))
+            if travelers else f"1 — {data.get('name', '')}"
+        )
+        summary = (
+            "*✈️ YOUR TRIP*\n\n"
+            f"Airline\t\t\t*{data.get('airline', '')}*\n"
+            f"Route\t\t\t*{dep} → {arr}*\n"
+            f"Flight\t\t\t*{data.get('flight_num', '')}*\n"
+            f"Date\t\t\t*{data.get('date', '')}*\n"
+            f"Departs\t\t\t*{data.get('depart_time', '')}*\n"
+            f"Arrives\t\t\t*{data.get('arrive_time', '')}*\n"
+            f"Travellers\t*{traveler_line}*"
+        )
+        await _send_buttons(wa_id,
+            "📋 *Trip Summary*\n\n" + summary,
+            [
+                {"id": "summary_confirm", "title": "✅ Confirm"},
+                {"id": "summary_edit",    "title": "✏️ Edit details"},
+            ],
+            phone_number_id)
+
+    elif prev == "buy_cover_select_cover":
+        await _send_text(wa_id,
+            "🛡️ Please select a cover plan.\n"
+            "Type any letter or number to reload the list.",
+            phone_number_id)
+
+    elif prev == "buy_cover_next_steps":
+        await _send_buttons(wa_id,
+            "What would you like to do next?",
+            [
+                {"id": "next_kyc",    "title": "1. Continue to KYC"},
+                {"id": "next_ask",    "title": "2. Ask a question"},
+                {"id": "next_cancel", "title": "3. Cancel"},
+            ],
+            phone_number_id)
+
+    else:
+        await start_buy_cover_flow(wa_id=wa_id, phone_number_id=phone_number_id)

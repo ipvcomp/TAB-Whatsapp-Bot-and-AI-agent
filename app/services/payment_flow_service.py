@@ -988,3 +988,66 @@ async def handle_payment_flow(
         await save_session(session)
         from app.services.auto_reply_service import send_main_menu
         await send_main_menu(to=sender_wa_id, phone_number_id=phone_number_id)
+
+
+async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
+    """Go back exactly one step in the payment flow instead of restarting."""
+    session, flow = await _get_flow_state(wa_id)
+    step = flow.get("step", "pay_payout_options")
+    data = flow.get("data", {})
+
+    _PREV = {
+        "pay_acct_number":          "pay_payout_options",
+        "pay_wallet_payout_select": "pay_payout_options",
+        "pay_bank_search":          "pay_acct_number",
+        "pay_bank_select":          "pay_bank_search",
+        "pay_wallet_payout_phone":  "pay_wallet_payout_select",
+    }
+
+    prev = _PREV.get(step)
+
+    if not prev or step in ("pay_payout_options", "pay_method_choice",
+                            "pay_m_bank_pending", "pay_success", "pay_submit_retry"):
+        await start_payment_flow(wa_id=wa_id, phone_number_id=phone_number_id)
+        return
+
+    flow["step"] = prev
+    await save_session(session)
+
+    if prev == "pay_payout_options":
+        await _send_buttons(
+            wa_id,
+            "Payout options\n\nChoose how you would like to receive money for any future payouts:",
+            [
+                {"id": "pay_bank",          "title": "🏦 Bank transfer"},
+                {"id": "pay_wallet_payout", "title": "👛 Wallet"},
+            ],
+            phone_number_id,
+        )
+
+    elif prev == "pay_acct_number":
+        await _send_text(
+            wa_id,
+            "🏦 *Bank Transfer*\n\nPlease enter your 10-digit account number for future payouts:\n\n"
+            "_Example: 0123456789_",
+            phone_number_id,
+        )
+
+    elif prev == "pay_bank_search":
+        await _send_text(
+            wa_id,
+            "Please enter at least the first 3 characters of your bank name:\n\n"
+            "_Example: Zen, Wem, GT_",
+            phone_number_id,
+        )
+
+    elif prev == "pay_wallet_payout_select":
+        await _send_buttons(
+            wa_id,
+            "👛 *Wallet*\n\nChoose your wallet provider:",
+            [{"id": w["id"], "title": w["title"]} for w in WALLET_OPTIONS],
+            phone_number_id,
+        )
+
+    else:
+        await start_payment_flow(wa_id=wa_id, phone_number_id=phone_number_id)

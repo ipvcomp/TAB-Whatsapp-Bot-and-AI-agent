@@ -598,3 +598,71 @@ async def handle_kyc_flow(
         await save_session(session)
         from app.services.auto_reply_service import send_main_menu
         await send_main_menu(to=sender_wa_id, phone_number_id=phone_number_id)
+
+
+async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
+    """Go back exactly one step in the KYC flow instead of restarting."""
+    session, flow = await _get_flow_state(wa_id)
+    step = flow.get("step", "kyc_intro")
+    data = flow.get("data", {})
+
+    _PREV = {
+        "kyc_consent":   "kyc_intro",
+        "kyc_id_input":  "kyc_consent",
+        "kyc_otp_input": "kyc_id_input",
+    }
+
+    prev = _PREV.get(step)
+
+    if not prev or step == "kyc_intro":
+        session["temp_data"][KYC_FLOW_KEY] = {}
+        await save_session(session)
+        from app.services.auto_reply_service import send_main_menu
+        await send_main_menu(to=wa_id, phone_number_id=phone_number_id, wa_id=wa_id)
+        return
+
+    flow["step"] = prev
+    await save_session(session)
+
+    if prev == "kyc_intro":
+        await _send_buttons(
+            wa_id,
+            "We may verify your identity to support any future payouts and ensure "
+            "security and accurate policy issuance.\n\n"
+            "> 🔒 *Your privacy matters*\n"
+            "> Your data is handled securely and never shared.\n\n"
+            "How would you like to verify your identity?\n"
+            "Select the country that issued your national biometric ID:",
+            [
+                {"id": "kyc_bvn",  "title": "🪪 BVN (Nigeria)"},
+                {"id": "kyc_nin",  "title": "🪪 NIN (Nigeria)"},
+                {"id": "kyc_help", "title": "🆘 Help"},
+            ],
+            phone_number_id,
+        )
+
+    elif prev == "kyc_consent":
+        method = data.get("kyc_method", "NIN")
+        await _send_buttons(
+            wa_id,
+            f"🔒 We will only use your *{method}* to verify your identity for this purchase.\n\n"
+            "Do you consent to proceed?",
+            [
+                {"id": "kyc_consent_yes", "title": "1. ✅ Yes, continue"},
+                {"id": "kyc_consent_no",  "title": "2. Go back"},
+            ],
+            phone_number_id,
+        )
+
+    elif prev == "kyc_id_input":
+        method = data.get("kyc_method", "NIN")
+        await _send_text(
+            wa_id,
+            f"🔏 *Please enter your 11-digit {method}*\n\n"
+            f"_Example: 12345678901_\n\n"
+            f"🔒 _Your {method} is handled securely — only the last 3 digits will be shown for confirmation_",
+            phone_number_id,
+        )
+
+    else:
+        await start_kyc_flow(wa_id=wa_id, phone_number_id=phone_number_id)

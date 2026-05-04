@@ -317,10 +317,38 @@ async def _process_change(entry_id: str, change):
                         log_event("SHORTCUT_HELP", {"to": sender_wa_id})
                         continue
 
-                    # 0 or #back → restart current active flow from beginning
+                    # 0 or #back → go back exactly ONE step in current flow
                     if _nav_text == "0" or _nav_norm == "#back":
                         from app.services.auto_reply_service import send_main_menu
-                        if is_in_check_policy_flow(user_session):
+                        if is_in_buy_cover_flow(user_session):
+                            from app.services.buy_cover_flow_service import go_back_one_step as _bc_back
+                            await _bc_back(
+                                wa_id=sender_wa_id,
+                                phone_number_id=msg_phone_number_id,
+                            )
+                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "buy_cover"})
+                        elif is_in_kyc_flow(user_session):
+                            from app.services.kyc_flow_service import go_back_one_step as _kyc_back
+                            await _kyc_back(
+                                wa_id=sender_wa_id,
+                                phone_number_id=msg_phone_number_id,
+                            )
+                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "kyc"})
+                        elif is_in_payment_flow(user_session):
+                            from app.services.payment_flow_service import go_back_one_step as _pay_back
+                            await _pay_back(
+                                wa_id=sender_wa_id,
+                                phone_number_id=msg_phone_number_id,
+                            )
+                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "payment"})
+                        elif is_in_bp_link_flow(user_session):
+                            from app.services.bp_link_flow_service import go_back_one_step as _bp_back
+                            await _bp_back(
+                                wa_id=sender_wa_id,
+                                phone_number_id=msg_phone_number_id,
+                            )
+                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "bp_link"})
+                        elif is_in_check_policy_flow(user_session):
                             if user_session:
                                 user_session.setdefault("temp_data", {})["check_policy_flow"] = {}
                                 await save_session(user_session)
@@ -329,30 +357,6 @@ async def _process_change(entry_id: str, change):
                                 phone_number_id=msg_phone_number_id,
                             )
                             log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "check_policy"})
-                        elif is_in_buy_cover_flow(user_session):
-                            await start_buy_cover_flow(
-                                wa_id=sender_wa_id,
-                                phone_number_id=msg_phone_number_id,
-                            )
-                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "buy_cover"})
-                        elif is_in_kyc_flow(user_session):
-                            await start_kyc_flow(
-                                wa_id=sender_wa_id,
-                                phone_number_id=msg_phone_number_id,
-                            )
-                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "kyc"})
-                        elif is_in_payment_flow(user_session):
-                            await start_payment_flow(
-                                wa_id=sender_wa_id,
-                                phone_number_id=msg_phone_number_id,
-                            )
-                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "payment"})
-                        elif is_in_bp_link_flow(user_session):
-                            await start_bp_link_flow(
-                                wa_id=sender_wa_id,
-                                phone_number_id=msg_phone_number_id,
-                            )
-                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "bp_link"})
                         elif is_in_help_flow(user_session):
                             await start_help_flow(
                                 wa_id=sender_wa_id,
