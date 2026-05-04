@@ -783,45 +783,73 @@ async def _show_document(session: dict, wa_id: str, pol: dict, phone_number_id: 
 async def _show_manage_alerts(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_alerts_manage")
     p = _normalize_policy(pol)
-    
-    await _send_buttons(wa_id,
-        f"🔔 *Manage Alerts*\nPolicy: {p['ref']}\n\n"
-        "Flight delay alerts are currently *ACTIVE* for this policy.",
+    route = f"{p['origin']} → {p['dest']}" if p.get("origin") and p.get("dest") else ""
+    route_line = f"{route} · {p['date']}" if route and p.get("date") else (route or p.get("date") or "")
+    body = (
+        f"✈️ *Flight {p['flight']}* — Monitored   ✅ Active\n"
+        + (f"{route_line}\n\n" if route_line else "\n")
+        + f"📋 Policy file:       *{p['ref']}*\n"
+        f"📱 Alerts sent to:   *This WhatsApp Number*\n"
+        f"🔔 Monitoring:        *Delays · Cancellations*\n\n"
+        f"What would you like to do?"
+    )
+    await _send_buttons(
+        wa_id,
+        body,
         [
-            {"id": "pol_alerts_keep", "title": "✅ Keep Alerts On"},
-            {"id": "pol_alerts_off",  "title": "🔕 Turn Off Alerts"},
-            {"id": "pol_back_detail", "title": "↩️ Back to Details"},
+            {"id": "pol_alerts_keep", "title": "✅ Keep alerts on"},
+            {"id": "pol_alerts_off",  "title": "🔕 Turn off alerts"},
+            {"id": "pol_home",        "title": "🏠 Main menu"},
         ],
-        phone_number_id)
+        phone_number_id,
+        header="🔔 Manage your flight alerts",
+    )
 
 
 async def _show_alerts_kept(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_alerts_kept")
-    await _send_text(wa_id, "✅ Flight delay alerts will remain *active*. We'll notify you of any disruptions.", phone_number_id)
-    await _show_detail(session, wa_id, pol, phone_number_id)
+    await _send_buttons(
+        wa_id,
+        "You'll be notified of any flight changes.",
+        [
+            {"id": "pol_back_detail", "title": "📋 View my policy"},
+            {"id": "pol_home",        "title": "🏠 Main menu"},
+        ],
+        phone_number_id,
+        header="✅ Alerts remain active",
+    )
 
 
 async def _show_alerts_off_confirm(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_alerts_off_confirm")
-    await _send_buttons(wa_id,
-        "🔕 *Turn off alerts?*\n\n"
-        "You will no longer receive real-time notifications for flight delays on this policy.",
+    p = _normalize_policy(pol)
+    flight = p.get("flight") or "this flight"
+    await _send_buttons(
+        wa_id,
+        f"You will no longer receive notifications about flight {flight}. "
+        f"Your policy cover remains active.",
         [
-            {"id": "pol_alerts_off_yes", "title": "🔕 Yes, turn off"},
-            {"id": "pol_alerts_keep",    "title": "✅ No, keep on"},
+            {"id": "pol_alerts_off_yes", "title": "✅ Yes, turn off"},
+            {"id": "pol_alerts_keep",    "title": "🔔 No, keep on"},
         ],
-        phone_number_id)
+        phone_number_id,
+        header="🔕 Turn off flight alerts?",
+    )
 
 
 async def _show_alerts_off_done(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_alerts_off_done")
-    await _send_buttons(wa_id,
-        "🔕 *Alerts Turned Off*\n\nYou will not receive notifications for this flight.",
+    await _send_buttons(
+        wa_id,
+        "You can turn this back on anytime from Check My Policy.",
         [
-            {"id": "pol_alerts_turn_back", "title": "🔔 Turn back on"},
-            {"id": "pol_back_detail",      "title": "↩️ Back to Details"},
+            {"id": "pol_alerts_turn_back", "title": "🔔 Turn alerts on"},
+            {"id": "pol_back_detail",      "title": "📋 View my policy"},
+            {"id": "pol_home",             "title": "🏠 Main menu"},
         ],
-        phone_number_id)
+        phone_number_id,
+        header="🔕 Alerts turned off",
+    )
 
 
 async def _show_link_confirm(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
