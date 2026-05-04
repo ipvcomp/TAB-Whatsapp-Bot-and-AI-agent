@@ -200,48 +200,33 @@ async def _show_bp_status(
             header="❌ Rejected — Please Re-upload",
         )
     else:
-        flow["step"] = "bp_pending_status"
-        await save_session(session)
-        await _send_buttons(
-            wa_id,
-            f"⏳ *Verification in progress...*\n\n"
-            f"Policy: *{ref}*\n\n"
-            f"Your boarding pass has been received and is being verified. "
-            f"Tap *Check Status* to see the result.",
-            [
-                {"id": "bp_check_status", "title": "🔄 Check Status"},
-                {"id": "bp_home",         "title": "🏠 Main menu"},
-            ],
-            phone_number_id,
-            header="📎 Boarding Pass Uploaded",
-        )
+        await _show_upload_confirmed(wa_id, session, flow, phone_number_id)
 
 
 async def _show_upload_confirmed(wa_id: str, session: dict, flow: dict, phone_number_id: Optional[str]):
     flow["step"] = "bp_upload_done"
     data = flow.get("data", {})
     await save_session(session)
-    ref      = data.get("bp_sel_ref",      "")
-    airline  = data.get("bp_sel_airline",  "")
-    flight   = data.get("bp_sel_flight",   "")
-    date     = data.get("bp_sel_date",     "")
-    traveler = data.get("bp_sel_traveler", "")
-    filename = data.get("bp_filename",     f"boarding_pass_{flight}.pdf")
+    ref      = data.get("bp_sel_ref",      "—")
+    airline  = data.get("bp_sel_airline",  "—")
+    flight   = data.get("bp_sel_flight",   "—")
+    date     = data.get("bp_sel_date",     "—")
+    traveler = data.get("bp_sel_traveler", "—")
 
     await _send_buttons(wa_id,
-        f"📎 *{filename}*\n\n"
-        f"Policy:      {ref}   ✅ Active\n"
-        f"✈️ Airline:    {airline}\n"
-        f"🛫 Flight:     {flight}\n"
-        f"📅 Date:       {date}\n"
-        f"👤 Traveller: {traveler}\n\n"
-        "_Your boarding pass has been saved. You can check eligibility for a payout from the main menu after your flight._",
+        f"*Boarding pass upload confirmed*\n"
+        f"Policy No: {ref}   ✅ Active\n\n"
+        f"✈️ Airline      {airline}\n"
+        f"🛫 Flight        {flight}\n"
+        f"🗓️ Date           {date}\n"
+        f"🧑 Traveller   {traveler}\n\n"
+        f"What would you like to do next?",
         [
-            {"id": "bp_home",   "title": "🏠 Main menu"},
-            {"id": "bp_cancel", "title": "❌ Cancel"},
+            {"id": "bp_eligibility", "title": "📋 Check eligibility"},
+            {"id": "bp_home",        "title": "🏠 Main menu"},
         ],
         phone_number_id,
-        header="✅ Boarding pass confirmed")
+        header="✅ Boarding pass upload confirmed")
 
 
 async def _show_link_confirm(wa_id: str, session: dict, flow: dict, phone_number_id: Optional[str]):
@@ -631,7 +616,9 @@ async def handle_bp_link_flow(
 
     # ── Screen 4 (Path A): After upload confirmed ─────────────────────────────
     elif step == "bp_upload_done":
-        if reply_id in ("bp_home", "bp_cancel"):
+        if reply_id == "bp_eligibility":
+            await _show_eligibility(sender_wa_id, session, flow, phone_number_id)
+        elif reply_id in ("bp_home", "bp_cancel"):
             await _go_home(sender_wa_id, session, phone_number_id)
         else:
             await _show_upload_confirmed(sender_wa_id, session, flow, phone_number_id)
