@@ -204,7 +204,7 @@ async def start_check_policy_flow(
         [
             {"id": "pol_by_phone",  "title": "📱 My phone number"},
             {"id": "pol_by_number", "title": "🔢 Policy number"},
-            {"id": "pol_by_flight", "title": "✈️ By flight no"},
+            {"id": "pol_by_flight", "title": "✈️ Flight number"},
         ],
         phone_number_id,
         header="📋 Check my policy")
@@ -244,8 +244,9 @@ async def handle_check_policy_flow(
         elif reply_id == "pol_by_number":
             await _set_step(session, "pol_ref_input")
             await _send_text(sender_wa_id,
-                "🔢 *Enter Policy Number*\n\n"
-                "Please type your policy number:\n\n_Example: TA-238491_",
+                "🔢 *Search by Policy Number*\n\n"
+                "Please type your policy number below.\n\n"
+                "_Example: TA-238491_",
                 phone_number_id)
         elif reply_id == "pol_by_flight":
             await _ask_flight_number(session, sender_wa_id, phone_number_id)
@@ -282,10 +283,11 @@ async def handle_check_policy_flow(
         flight = text.strip().upper()
         if len(flight) < 3:
             await _send_text(sender_wa_id,
-                "⚠️ Enter a valid flight number:\n_Example: P47123_", phone_number_id)
+                "⚠️ Please enter a valid flight number.\n\n_Example: P47123_",
+                phone_number_id)
             return
         await _save_data(session, "pol_flight_search", flight)
-        
+
         matched = []
         msisdn = get_msisdn(sender_wa_id)
         try:
@@ -308,8 +310,9 @@ async def handle_check_policy_flow(
             await _save_data(session, "pol_flight_results", matched)
             await _set_step(session, "pol_date_input")
             await _send_text(sender_wa_id,
-                f"✈️ Flight: *{flight}*\n\n"
-                "📅 *What is your travel date?*\n\n_Example: 12 April 2026_",
+                f"✈️ Flight *{flight}* matched *{len(matched)}* {'policy' if len(matched) == 1 else 'policies'}.\n\n"
+                "📅 *What is your departure date?*\n\n"
+                "_Enter the date to narrow down the results — e.g. 12 April 2026_",
                 phone_number_id)
 
     # ── Date input (narrow results) ────────────────────────────────────────────
@@ -317,7 +320,8 @@ async def handle_check_policy_flow(
         date = text.strip()
         if len(date) < 4:
             await _send_text(sender_wa_id,
-                "⚠️ Enter your travel date:\n_Example: 12 April 2026_", phone_number_id)
+                "⚠️ Please enter your departure date.\n\n_Example: 12 April 2026_",
+                phone_number_id)
             return
         results = data.get("pol_flight_results") or policies
         date_lower = date.lower()
@@ -336,7 +340,8 @@ async def handle_check_policy_flow(
         ref = text.strip()
         if len(ref) < 3:
             await _send_text(sender_wa_id,
-                "⚠️ Enter a valid policy number:\n_Example: TA-238491_", phone_number_id)
+                "⚠️ Please enter a valid policy number.\n\n_Example: TA-238491_",
+                phone_number_id)
             return
         
         pol = None
@@ -355,8 +360,9 @@ async def handle_check_policy_flow(
             await _show_detail(session, sender_wa_id, pol, phone_number_id)
         else:
             await _send_text(sender_wa_id,
-                f"⚠️ No policy found for *{ref.upper()}*\n\n"
-                "Please check the number and try again.\n_Example: TA-238491_",
+                f"⚠️ No policy found for *{ref.upper()}*.\n\n"
+                "Please double-check the number and try again.\n\n"
+                "_Example: TA-238491_",
                 phone_number_id)
 
     # ── Policy detail page ─────────────────────────────────────────────────────
@@ -559,9 +565,12 @@ async def _show_phone_policies(
     await _save_data(session, "pol_page", page)
 
     if not phone_pols:
-        await _send_text(wa_id,
-            "⚠️ No policies found linked to your phone number.",
-            phone_number_id)
+        await send_text_message(
+            to=wa_id,
+            body="⚠️ No policies found linked to your phone number.",
+            phone_number_id=phone_number_id,
+            source="check_policy_flow",
+        )
         return
 
     total  = len(phone_pols)
@@ -585,10 +594,21 @@ async def _show_phone_policies(
         rows.append({"id": "pol_next_page", "title": "➡️ Next page",
                      "description": f"Show {end + 1}–{min(end + _PAGE_SIZE, total)} of {total}"})
 
+    if page == 0:
+        await send_text_message(
+            to=wa_id,
+            body=(
+                f"🔍 Here are the *{total} {'policy' if total == 1 else 'policies'}* "
+                f"linked to your WhatsApp number.\n\n"
+                "Tap any policy below to view its details."
+            ),
+            phone_number_id=phone_number_id,
+            source="check_policy_flow",
+        )
+
     await _send_list(
         wa_id,
-        f"📱 We found *{total} {'policy' if total == 1 else 'policies'}* for your number.\n"
-        f"Showing *{start + 1}–{end}*. Select a policy to view details:",
+        f"Showing *{start + 1}–{end}* of *{total}*. Select a policy to view details:",
         "Select policy",
         [{"title": "Your Policies", "rows": rows}],
         phone_number_id,
@@ -599,35 +619,38 @@ async def _show_phone_policies(
 async def _ask_flight_number(session: dict, wa_id: str, phone_number_id: Optional[str]):
     await _set_step(session, "pol_flight_input")
     await _send_text(wa_id,
-        "✈️ *Find by Flight Number*\n\n"
-        "Please enter your flight number:\n\n_Example: P47123_",
+        "✈️ *Search by Flight Number*\n\n"
+        "Please enter your flight number to find the matching policy.\n\n"
+        "_Example: P47123_",
         phone_number_id)
 
 
 async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_detail")
     p = _normalize_policy(pol)
-    
-    status_emoji = "✅" if p['status'].lower() == "active" else "ℹ️"
-    
+
+    status_emoji = "✅" if p["status"].lower() == "active" else "ℹ️"
+    status_label = p["status"].capitalize() if p["status"] else "—"
+
     body = (
-        f"{status_emoji} *{p['name']}*\n"
-        f"Policy: {p['ref']} · {p['status']}\n\n"
+        f"📋 *Policy No:* {p['ref']}\n"
+        f"🏷️ *Status:* {status_emoji} {status_label}\n\n"
         f"✈️ *Flight:* {p['airline']} {p['flight']}\n"
-        f"📅 *Date:* {p['date']}\n"
-        f"📍 *Route:* {p['origin']} ➡️ {p['dest']}\n"
-        f"🛡️ *Cover:* {p['cover']}\n"
+        f"📅 *Departure:* {p['date']}\n"
+        f"📍 *Route:* {p['origin']} → {p['dest']}\n\n"
+        f"🛡️ *Product:* {p['name']}\n"
+        f"💰 *Cover:* {p['cover']}\n"
         f"👤 *Traveler:* {p['travelers'][0] if p['travelers'] else '—'}\n"
     )
-    
+
     await _send_buttons(wa_id, body,
         [
-            {"id": "pol_download",      "title": "📄 Download Doc"},
-            {"id": "pol_manage_alerts", "title": "🔔 Manage Alerts"},
-            {"id": "pol_home",          "title": "🏠 Main Menu"},
+            {"id": "pol_download", "title": "📄 Download Doc"},
+            {"id": "pol_all",      "title": "📋 View all policies"},
+            {"id": "pol_home",     "title": "🏠 Main Menu"},
         ],
         phone_number_id,
-        header="🛡️ Policy Details")
+        header="Your Policy Details")
 
 
 async def _show_all_policies(
@@ -667,8 +690,8 @@ async def _show_all_policies(
 
     await _send_list(
         wa_id,
-        f"📋 You have *{total} {'policy' if total == 1 else 'policies'}* in total.\n"
-        f"Showing *{start + 1}–{end}*. Select a policy to view details:",
+        f"You have *{total} {'policy' if total == 1 else 'policies'}* in total.\n"
+        f"Showing *{start + 1}–{end}*. Tap a policy to view its details:",
         "Select policy",
         [{"title": "All Policies", "rows": rows}],
         phone_number_id,
@@ -679,18 +702,21 @@ async def _show_all_policies(
 async def _show_document(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_download")
     p = _normalize_policy(pol)
-    
+
     if p.get("doc_url"):
         await _send_cta_document(wa_id, p, phone_number_id)
     else:
         await _send_text(wa_id,
-            f"📄 *Policy Document: {p['ref']}*\n\n"
-            "Your full policy document is being prepared. You will receive a link to download it shortly.",
+            f"📄 *Policy Document*\n\n"
+            f"Policy No: *{p['ref']}*\n\n"
+            "Your policy document is being prepared. "
+            "A download link will be sent to you shortly.",
             phone_number_id)
 
-    await _send_buttons(wa_id, "What would you like to do next?",
+    await _send_buttons(wa_id,
+        "What would you like to do next?",
         [
-            {"id": "pol_upload_bp",   "title": "📤 Upload Pass"},
+            {"id": "pol_upload_bp",   "title": "📤 Upload Boarding Pass"},
             {"id": "pol_back_detail", "title": "↩️ Back to Details"},
             {"id": "pol_home",        "title": "🏠 Main Menu"},
         ],
@@ -817,7 +843,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
                 [
                     {"id": "pol_by_phone",  "title": "📱 My phone number"},
                     {"id": "pol_by_number", "title": "🔢 Policy number"},
-                    {"id": "pol_by_flight", "title": "✈️ By flight no"},
+                    {"id": "pol_by_flight", "title": "✈️ Flight number"},
                 ],
                 phone_number_id,
                 header="📋 Check my policy")
@@ -843,7 +869,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         [
             {"id": "pol_by_phone",  "title": "📱 My phone number"},
             {"id": "pol_by_number", "title": "🔢 Policy number"},
-            {"id": "pol_by_flight", "title": "✈️ By flight no"},
+            {"id": "pol_by_flight", "title": "✈️ Flight number"},
         ],
         phone_number_id,
         header="📋 Check my policy")
