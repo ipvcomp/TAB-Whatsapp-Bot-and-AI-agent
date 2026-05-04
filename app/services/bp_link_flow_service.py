@@ -339,7 +339,7 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
             payout_fmt = f"₦{payout_amt}"
 
         if not eligible:
-            await _send_list(
+            await _send_buttons(
                 wa_id,
                 "⏳ *Not yet eligible*\n"
                 "Your delay hasn't reached the minimum threshold yet\n\n"
@@ -349,19 +349,21 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
                 f"📋  Policy\t\t\t{ref}\n\n"
                 f"We're monitoring your flight. If the delay reaches "
                 f"{min_delay}, we'll notify you automatically.",
-                "Choose an option",
                 [
-                    {"title": "📌 Actions", "rows": [
-                        {"id": "bp_keep_alerts",  "title": "🔔 Keep alerts on",       "description": "Stay notified when threshold is met"},
-                        {"id": "bp_upload_first", "title": "📤 Upload boarding pass", "description": "Attach your boarding pass now"},
-                    ]},
-                    {"title": "🔧 Support & Navigation", "rows": [
-                        {"id": "bp_get_help", "title": "🧑 Get help",    "description": "Speak to our support team"},
-                        {"id": "bp_home",     "title": "🏠 Main menu",   "description": "Return to main menu"},
-                    ]},
+                    {"id": "bp_keep_alerts",  "title": "🔔 Keep alerts on"},
+                    {"id": "bp_upload_first", "title": "📤 Upload pass"},
                 ],
                 phone_number_id,
                 header="⏳ Not yet eligible",
+            )
+            await _send_buttons(
+                wa_id,
+                "More options:",
+                [
+                    {"id": "bp_get_help", "title": "🧑 Get help"},
+                    {"id": "bp_home",     "title": "🏠 Main menu"},
+                ],
+                phone_number_id,
             )
             return
         delay_display  = delay_str
@@ -371,7 +373,7 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
         payout_display = "₦2,500"
         min_delay      = "3 hours"
 
-    await _send_list(
+    await _send_buttons(
         wa_id,
         "✅ *You are eligible for a payout!*\n"
         "_Your flight delay meets the cover threshold_\n\n"
@@ -380,19 +382,21 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
         f"📋  Policy\t\t\t{ref}\n"
         f"💰  Payout amount\t*{payout_display}*\n\n"
         "Your payout will be sent to your registered bank account automatically.",
-        "Choose an option",
         [
-            {"title": "📌 Actions", "rows": [
-                {"id": "bp_confirm_payout", "title": "✅ Confirm payout",       "description": "Initiate your payout now"},
-                {"id": "bp_upload_first",   "title": "📤 Upload boarding pass", "description": "Attach boarding pass first"},
-            ]},
-            {"title": "🔧 Support & Navigation", "rows": [
-                {"id": "bp_get_help", "title": "🧑 Get help",   "description": "Speak to our support team"},
-                {"id": "bp_home",     "title": "🏠 Main menu",  "description": "Return to main menu"},
-            ]},
+            {"id": "bp_confirm_payout", "title": "✅ Confirm payout"},
+            {"id": "bp_upload_first",   "title": "📤 Upload pass"},
         ],
         phone_number_id,
         header="✅ Eligible for payout",
+    )
+    await _send_buttons(
+        wa_id,
+        "More options:",
+        [
+            {"id": "bp_get_help", "title": "🧑 Get help"},
+            {"id": "bp_home",     "title": "🏠 Main menu"},
+        ],
+        phone_number_id,
     )
 
 
