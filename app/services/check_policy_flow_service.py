@@ -554,14 +554,13 @@ _PAGE_SIZE = 8
 
 async def _show_phone_confirm(session: dict, wa_id: str, phone_number_id: Optional[str]):
     await _set_step(session, "pol_phone_confirm")
-    await _send_list(
+    await _send_buttons(
         wa_id,
         "We'll check for active policies linked to this WhatsApp number.",
-        "Continue",
-        [{"title": "Options", "rows": [
+        [
             {"id": "pol_phone_continue", "title": "✅ Continue"},
             {"id": "pol_back_menu",      "title": "↩️ Back"},
-        ]}],
+        ],
         phone_number_id,
         header="📱 My phone number",
     )
@@ -699,15 +698,14 @@ async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Op
             source="check_policy_flow",
         )
 
-    await _send_list(
+    await _send_buttons(
         wa_id,
         "What would you like to do?",
-        "More options",
-        [{"title": "Actions", "rows": [
+        [
             {"id": "pol_manage_alerts", "title": "🔔 Manage alerts"},
             {"id": "pol_help",          "title": "🤝 Help"},
             {"id": "pol_all",           "title": "📋 All my policies"},
-        ]}],
+        ],
         phone_number_id,
     )
 
