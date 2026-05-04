@@ -33,7 +33,9 @@ async def _reset(session: dict):
 
 
 async def _send_text(to: str, body: str, phone_number_id: Optional[str]):
-    await send_text_message(to=to, body=body, phone_number_id=phone_number_id, source="help_flow")
+    await send_text_message(
+        to=to, body=body, phone_number_id=phone_number_id, source="help_flow"
+    )
 
 
 async def _send_buttons(
@@ -62,7 +64,9 @@ async def _send_buttons(
         "type": "interactive",
         "interactive": interactive,
     }
-    await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="help_flow")
+    await send_whatsapp_payload(
+        whatsapp_payload=payload, phone_number_id=phone_number_id, source="help_flow"
+    )
 
 
 async def start_help_flow(
@@ -71,14 +75,17 @@ async def start_help_flow(
     in_reply_to: Optional[str] = None,
 ):
     session = await get_session(wa_id) or {}
-    session.setdefault("temp_data", {})[HELP_FLOW_KEY] = {"active": True, "step": "hlp_menu"}
+    session.setdefault("temp_data", {})[HELP_FLOW_KEY] = {
+        "active": True,
+        "step": "hlp_menu",
+    }
     if "user_id" not in session:
         session["user_id"] = wa_id
     await save_session(session)
 
     await _send_text(
         to=wa_id,
-        body="🆘 *Help*\n\nWhere do you need help today?\nChoose a topic below 👇",
+        body="🆘 *Help*\n\n🙋Where do you need help today?\nChoose a topic below 👇",
         phone_number_id=phone_number_id,
     )
 
@@ -86,9 +93,9 @@ async def start_help_flow(
         to=wa_id,
         body="📦 *Coverage & Verification*",
         buttons=[
-            {"id": "hlp_buying", "title": "🛍️ Buying cover"},
-            {"id": "hlp_kyc",    "title": "✅ KYC verification"},
-            {"id": "hlp_payment","title": "💳 Payment issues"},
+            {"id": "hlp_buying", "title": "✈️ Buying cover"},
+            {"id": "hlp_kyc", "title": "💳 KYC verification"},
+            {"id": "hlp_payment", "title": "💳 Payment issues"},
         ],
         phone_number_id=phone_number_id,
     )
@@ -97,9 +104,9 @@ async def start_help_flow(
         to=wa_id,
         body="📋 *Policy & Travel Docs*",
         buttons=[
-            {"id": "hlp_policy",  "title": "📋 My policy"},
-            {"id": "hlp_boarding","title": "🛫 Boarding pass"},
-            {"id": "hlp_claim",   "title": "🏥 Claim support"},
+            {"id": "hlp_policy", "title": "📋 My policy"},
+            {"id": "hlp_boarding", "title": "🛫 Boarding pass"},
+            {"id": "hlp_claim", "title": "🏥 Claim support"},
         ],
         phone_number_id=phone_number_id,
     )
@@ -108,7 +115,7 @@ async def start_help_flow(
         to=wa_id,
         body="🤝 *Need a human?*",
         buttons=[
-            {"id": "hlp_agent", "title": "👤 Speak to an agent"},
+            {"id": "hlp_agent", "title": "📞 Speak to an agent"},
         ],
         phone_number_id=phone_number_id,
     )
@@ -127,7 +134,10 @@ async def handle_help_flow(
     if message.type == "interactive" and message.interactive:
         if message.interactive.type == "list_reply" and message.interactive.list_reply:
             reply_id = message.interactive.list_reply.id
-        elif message.interactive.type == "button_reply" and message.interactive.button_reply:
+        elif (
+            message.interactive.type == "button_reply"
+            and message.interactive.button_reply
+        ):
             reply_id = message.interactive.button_reply.id
 
     if step == "hlp_menu":
@@ -151,7 +161,7 @@ async def _handle_menu_selection(
         await _set_step(session, "hlp_topic")
         await _send_text(
             wa_id,
-            "🛍️ *Help — Buying Cover*\n\n"
+            "✈️ *Help — Buying Cover*\n\n"
             "*What you need to know:*\n\n"
             "• Buy your policy for yourself or a group\n\n"
             "• You'll need your flight details — number,\n"
@@ -310,7 +320,7 @@ async def _handle_menu_selection(
             "What would you like to do?",
             [
                 {"id": "hlp_act_policy", "title": "📋 Check my policy"},
-                {"id": "hlp_home",       "title": "🏠 Close chat"},
+                {"id": "hlp_home", "title": "🏠 Close chat"},
             ],
             phone_number_id,
         )
@@ -329,26 +339,31 @@ async def _handle_action(
     if reply_id == "hlp_act_buy":
         await _reset(session)
         from app.services.buy_cover_flow_service import start_buy_cover_flow
+
         await start_buy_cover_flow(wa_id=wa_id, phone_number_id=phone_number_id)
 
     elif reply_id == "hlp_act_kyc":
         await _reset(session)
         from app.services.kyc_flow_service import start_kyc_flow
+
         await start_kyc_flow(wa_id=wa_id, phone_number_id=phone_number_id)
 
     elif reply_id == "hlp_act_pay":
         await _reset(session)
         from app.services.payment_flow_service import start_payment_flow
+
         await start_payment_flow(wa_id=wa_id, phone_number_id=phone_number_id)
 
     elif reply_id == "hlp_act_policy":
         await _reset(session)
         from app.services.check_policy_flow_service import start_check_policy_flow
+
         await start_check_policy_flow(wa_id=wa_id, phone_number_id=phone_number_id)
 
     elif reply_id == "hlp_act_boarding":
         await _reset(session)
         from app.services.bp_link_flow_service import start_bp_link_flow
+
         await start_bp_link_flow(wa_id=wa_id, phone_number_id=phone_number_id)
 
     elif reply_id == "hlp_act_agent":
@@ -378,7 +393,7 @@ async def _handle_action(
             "What would you like to do?",
             [
                 {"id": "hlp_act_policy", "title": "📋 Check my policy"},
-                {"id": "hlp_home",       "title": "🏠 Close chat"},
+                {"id": "hlp_home", "title": "🏠 Close chat"},
             ],
             phone_number_id,
         )
@@ -386,6 +401,7 @@ async def _handle_action(
     elif reply_id == "hlp_home":
         await _reset(session)
         from app.services.auto_reply_service import send_main_menu
+
         await send_main_menu(to=wa_id, phone_number_id=phone_number_id)
 
     elif reply_id == "hlp_back":

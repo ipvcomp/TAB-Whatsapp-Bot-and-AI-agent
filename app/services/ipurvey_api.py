@@ -189,6 +189,8 @@ def _extract_policy_list(data) -> list:
 
 
 async def fetch_policies_by_msisdn(msisdn: str) -> list:
+    if msisdn and not msisdn.startswith("+"):
+        msisdn = f"+{msisdn}"
     url = f"{IPURVEY_BASE_URL}/policies/by-msisdn/{msisdn}"
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
