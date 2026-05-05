@@ -14,26 +14,67 @@ logger = logging.getLogger(__name__)
 BUY_COVER_FLOW_KEY = "buy_cover_flow"
 
 
-def _parse_date_to_iso(date_str: str) -> str:
-    for fmt in ["%d %B %Y", "%d/%m/%Y", "%d-%m-%Y", "%B %d, %Y", "%d %b %Y"]:
+def _parse_date_to_iso(date_str: str) -> Optional[str]:
+    """Parse user date input → ISO YYYY-MM-DD.  Returns None if unrecognised."""
+    clean = date_str.strip()
+    for fmt in [
+        "%d %B %Y",   # 12 April 2026
+        "%d %b %Y",   # 12 Apr 2026
+        "%d/%m/%Y",   # 12/04/2026
+        "%d-%m-%Y",   # 12-04-2026
+        "%d/%m/%y",   # 12/04/26
+        "%d-%m-%y",   # 12-04-26
+        "%B %d, %Y",  # April 12, 2026
+    ]:
         try:
-            return datetime.strptime(date_str.strip(), fmt).strftime("%Y-%m-%d")
+            return datetime.strptime(clean, fmt).strftime("%Y-%m-%d")
         except ValueError:
             continue
-    return date_str.strip()
+    return None
 
 
-def _parse_time_to_hhmm(time_str: str) -> str:
+def _parse_time_to_hhmm(time_str: str) -> Optional[str]:
+    """Parse user time input → 24-h HH:MM.  Returns None if unrecognised.
+
+    Handles: 13:40 / 1:40 / 1:40 PM / 1:40PM / 1.40 PM / 13:40pm (reject)
+    The API strictly requires HH:MM with no am/pm suffix.
+    """
     ts = time_str.strip()
+    # Pure 24-h input: H:MM or HH:MM
     if re.match(r"^\d{1,2}:\d{2}$", ts):
         h, m = ts.split(":")
-        return f"{int(h):02d}:{m}"
+        h_int, m_int = int(h), int(m)
+        if 0 <= h_int <= 23 and 0 <= m_int <= 59:
+            return f"{h_int:02d}:{m_int:02d}"
+        return None
+    # AM/PM variants — normalise dot separator and strip trailing am/pm before parsing
+    normalized = ts.replace(".", ":")
+    # Insert space before am/pm if missing: "1:40PM" → "1:40 PM"
+    normalized = re.sub(r"([AaPp][Mm])$", r" \1", normalized).strip()
     for fmt in ["%I:%M %p", "%I %p"]:
         try:
-            return datetime.strptime(ts, fmt).strftime("%H:%M")
+            return datetime.strptime(normalized.upper(), fmt).strftime("%H:%M")
         except ValueError:
             continue
-    return ts
+    return None
+
+
+def _is_past_date(iso_date: str) -> bool:
+    """Return True if the ISO date is strictly before today."""
+    try:
+        return datetime.strptime(iso_date, "%Y-%m-%d").date() < datetime.now().date()
+    except ValueError:
+        return False
+
+
+def _is_valid_flight_number(fn: str) -> bool:
+    """1–2 letters + optional space + 1–6 digits (e.g. P47123, W3 101, QI402)."""
+    return bool(re.match(r"^[A-Za-z]{1,2}\s?\d{1,6}$", fn.strip()))
+
+
+def _is_valid_email(email: str) -> bool:
+    """Basic email sanity check before hitting the API."""
+    return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email.strip()))
 
 
 def _split_name(full: str) -> tuple[str, str]:
@@ -404,30 +445,21 @@ async def handle_buy_cover_flow(
                 except Exception as exc:
                     logger.error(f"[buy_cover] resume fetch_quotes failed: {exc}")
                 if not quotes:
-                    quotes = [
-                        {
-                            "name": "Local Travel Basic",
-                            "productId": "local_basic",
-                            "price": 2500,
-                            "premiumAmount": 2500,
-                            "coverageTypes": ["Major delay", "Cancellation"],
-                            "tripType": "Single trip",
-                            "insurer": "Tangerine Insurance",
-                        },
-                        {
-                            "name": "Local Travel Premium 🔥",
-                            "productId": "local_premium",
-                            "price": 3500,
-                            "premiumAmount": 3500,
-                            "coverageTypes": [
-                                "Major delay",
-                                "Cancellation",
-                                "Travel disruption",
-                            ],
-                            "tripType": "Multi Trip",
-                            "insurer": "Tangerine Insurance",
-                        },
-                    ]
+                    flow["step"] = "buy_cover_summary"
+                    await save_session(session)
+                    await _send_buttons(
+                        sender_wa_id,
+                        (
+                            "⚠️ *We're unable to load covers right now*\n\n"
+                            "Please try again shortly"
+                        ),
+                        [
+                            {"id": "summary_confirm", "title": "🔄 Try again"},
+                            {"id": "summary_edit", "title": "✏️ Edit details"},
+                        ],
+                        phone_number_id,
+                    )
+                    return
                 session.setdefault("api_data", {})["quotes"] = quotes
                 flow["step"] = "buy_cover_select_cover"
                 await save_session(session)
@@ -776,18 +808,22 @@ async def handle_buy_cover_flow(
 
     # ── Email ─────────────────────────────────────────────────────────────────
     elif step == "buy_cover_email":
-        if not text:
+        if not text or not _is_valid_email(text):
             await _send_text(
                 sender_wa_id,
-                "Please type your email address to continue.",
+                (
+                    "⚠️ Please enter a valid email address\n\n"
+                    "_Example: yusuf@email.com_"
+                ),
                 phone_number_id,
             )
             return
-        data["email"] = text
+        email_clean = text.strip().lower()
+        data["email"] = email_clean
         policy_id = session.get("api_data", {}).get("policy_id")
         if policy_id:
             try:
-                await ipurvey_service.set_policy_email(policy_id, text.strip().lower())
+                await ipurvey_service.set_policy_email(policy_id, email_clean)
             except Exception:
                 pass
         flow["step"] = "buy_cover_trip_type"
@@ -834,50 +870,72 @@ async def handle_buy_cover_flow(
 
     # ── Flight number ─────────────────────────────────────────────────────────
     elif step == "buy_cover_flight_num":
-        if not text:
+        if not text or not _is_valid_flight_number(text):
             await _send_text(
                 sender_wa_id,
-                "Please enter your flight number to continue.",
+                (
+                    "✈️ I couldn't recognise that flight number\n\n"
+                    "Please enter it like this: *P47123*\n\n"
+                    "_Examples: P47123 — Air Peace, QI402 — Ibom Air_"
+                ),
                 phone_number_id,
             )
             return
-        data["flight_num"] = text.upper()
+        data["flight_num"] = text.strip().upper().replace(" ", "")
         flow["step"] = "buy_cover_date"
         await save_session(session)
         await _send_text(
             sender_wa_id,
-            "*📅 What date are you flying?*\n\n_Example: 12 April 2026, 12/04/2026_",
+            "*📅 What date are you flying?*\n\n_Example: 12 April 2026, 12/04/2026, 12/04/26_",
             phone_number_id,
         )
 
     # ── Flying date ───────────────────────────────────────────────────────────
     elif step == "buy_cover_date":
-        if not text:
+        iso_date = _parse_date_to_iso(text or "")
+        if not iso_date:
             await _send_text(
                 sender_wa_id,
-                "Please enter your flying date to continue.",
+                (
+                    "📅 Please enter the date like this: *12 April 2026*\n\n"
+                    "_Other accepted formats: 12/04/2026, 12-04-2026, 12/04/26_"
+                ),
                 phone_number_id,
             )
             return
-        data["date"] = text
+        if _is_past_date(iso_date):
+            await _send_text(
+                sender_wa_id,
+                (
+                    "⚠️ That date has already passed — please enter a *future* departure date\n\n"
+                    "_Example: 12 April 2026_"
+                ),
+                phone_number_id,
+            )
+            return
+        data["date"] = iso_date
         flow["step"] = "buy_cover_depart_time"
         await save_session(session)
         await _send_text(
             sender_wa_id,
-            "*⏰ What time is your flight scheduled to depart?*\nExample: 13:40, 1:40 PM",
+            "*⏰ What time is your flight scheduled to depart?*\n\n_Example: 13:40, 1:40 PM_",
             phone_number_id,
         )
 
     # ── Departure time ────────────────────────────────────────────────────────
     elif step == "buy_cover_depart_time":
-        if not text:
+        parsed_dep_time = _parse_time_to_hhmm(text or "")
+        if not parsed_dep_time:
             await _send_text(
                 sender_wa_id,
-                "Please enter your departure time to continue.",
+                (
+                    "⏰ Please enter a valid departure time\n\n"
+                    "_Example: 13:40, 1:40 PM_"
+                ),
                 phone_number_id,
             )
             return
-        data["depart_time"] = text
+        data["depart_time"] = parsed_dep_time
         flow["step"] = "buy_cover_depart_airport_pick"
         await save_session(session)
         await _send_text(
@@ -894,11 +952,15 @@ async def handle_buy_cover_flow(
             name = parts[1] if len(parts) > 1 else code
             data["depart_airport"] = f"{code} — {name}"
         elif text and len(text.strip()) >= 3:
-            airports = await ipurvey_service.search_airports(text.strip())
+            airports = await ipurvey_service.search_airports(text.strip(), country_code="NG")
             if not airports:
                 await _send_text(
                     sender_wa_id,
-                    "No airports found for that search. Please try a different name or code (at least 3 characters).",
+                    (
+                        "⚠️ No Nigerian airports found for that search\n\n"
+                        "Please enter at least 3 characters of the airport name or IATA code\n\n"
+                        "_Example: LOS, Mur, NBO_"
+                    ),
                     phone_number_id,
                 )
                 return
@@ -935,14 +997,18 @@ async def handle_buy_cover_flow(
 
     # ── Arrival time ──────────────────────────────────────────────────────────
     elif step == "buy_cover_arrive_time":
-        if not text:
+        parsed_arr_time = _parse_time_to_hhmm(text or "")
+        if not parsed_arr_time:
             await _send_text(
                 sender_wa_id,
-                "Please enter your arrival time to continue.",
+                (
+                    "⏰ Please enter a valid arrival time\n\n"
+                    "_Example: 15:00, 3:00 PM_"
+                ),
                 phone_number_id,
             )
             return
-        data["arrive_time"] = text
+        data["arrive_time"] = parsed_arr_time
         flow["step"] = "buy_cover_arrive_airport_pick"
         await save_session(session)
         await _send_text(
@@ -959,11 +1025,15 @@ async def handle_buy_cover_flow(
             name = parts[1] if len(parts) > 1 else code
             data["arrive_airport"] = f"{code} — {name}"
         elif text and len(text.strip()) >= 3:
-            airports = await ipurvey_service.search_airports(text.strip())
+            airports = await ipurvey_service.search_airports(text.strip(), country_code="NG")
             if not airports:
                 await _send_text(
                     sender_wa_id,
-                    "No airports found for that search. Please try a different name or code (at least 3 characters).",
+                    (
+                        "⚠️ No Nigerian airports found for that search\n\n"
+                        "Please enter at least 3 characters of the airport name or IATA code\n\n"
+                        "_Example: ABV, LOS, KAN_"
+                    ),
                     phone_number_id,
                 )
                 return
@@ -986,7 +1056,7 @@ async def handle_buy_cover_flow(
         else:
             await _send_text(
                 sender_wa_id,
-                "*✈️ What airport are you arriving at?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LHR, Heathrow, JFK_",
+                "*✈️ What airport are you arriving at?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: ABV, LOS, KAN_",
                 phone_number_id,
             )
             return
@@ -1065,9 +1135,9 @@ async def handle_buy_cover_flow(
                     if data.get("arrive_airport")
                     else ""
                 )
-                dep_date = _parse_date_to_iso(data.get("date", ""))
-                dep_time = _parse_time_to_hhmm(data.get("depart_time", ""))
-                arr_time = _parse_time_to_hhmm(data.get("arrive_time", ""))
+                dep_date = data.get("date", "")   # already ISO YYYY-MM-DD from validation
+                dep_time = data.get("depart_time", "")   # already HH:MM from validation
+                arr_time = data.get("arrive_time", "")   # already HH:MM from validation
                 flight_num = data.get("flight_num", "").upper().replace(" ", "")
                 carrier = flight_num[:2] if len(flight_num) >= 2 else flight_num
                 trip_raw = data.get("trip_type", "One-way 🗺️")
@@ -1091,49 +1161,56 @@ async def handle_buy_cover_flow(
                     policy_id, trip_type, data.get("booking_ref", ""), legs
                 )
                 if not itinerary_ok:
-                    await _send_text(
+                    flow["step"] = "buy_cover_summary"
+                    await save_session(session)
+                    await _send_buttons(
                         sender_wa_id,
                         (
-                            "⚠️ *We couldn't submit your trip details.*\n\n"
-                            "This usually happens when traveler names are missing or incomplete. "
-                            "Please type *#cancel* to restart and ensure all names are entered correctly."
+                            "⚠️ *We couldn't submit your trip details*\n\n"
+                            "Please check your flight details and try again, or edit them if something is incorrect"
                         ),
+                        [
+                            {"id": "summary_confirm", "title": "🔄 Try again"},
+                            {"id": "summary_edit", "title": "✏️ Edit details"},
+                        ],
                         phone_number_id,
                     )
                     return
                 quotes = await ipurvey_service.fetch_quotes(policy_id)
             except Exception as exc:
                 logger.error(f"[buy_cover] itinerary/quotes API failed: {exc}")
+                flow["step"] = "buy_cover_summary"
+                await save_session(session)
+                await _send_buttons(
+                    sender_wa_id,
+                    (
+                        "⚠️ *We're unable to complete that right now*\n\n"
+                        "Please try again shortly"
+                    ),
+                    [
+                        {"id": "summary_confirm", "title": "🔄 Try again"},
+                        {"id": "summary_edit", "title": "✏️ Edit details"},
+                    ],
+                    phone_number_id,
+                )
+                return
 
         if not quotes:
-            quotes = [
-                {
-                    "name": "Local Travel Basic",
-                    "productId": "local_basic",
-                    "price": 2500,
-                    "premiumAmount": 2500,
-                    "coverageTypes": [
-                        "Major delay",
-                        "Cancellation",
-                        "Travel disruption",
-                    ],
-                    "tripType": "Single trip",
-                    "insurer": "Tangerine Insurance",
-                },
-                {
-                    "name": "Local Travel Premium 🔥",
-                    "productId": "local_premium",
-                    "price": 3500,
-                    "premiumAmount": 3500,
-                    "coverageTypes": [
-                        "Major delay",
-                        "Cancellation",
-                        "Travel disruption",
-                    ],
-                    "tripType": "Multi Trip",
-                    "insurer": "Tangerine Insurance",
-                },
-            ]
+            flow["step"] = "buy_cover_summary"
+            await save_session(session)
+            await _send_buttons(
+                sender_wa_id,
+                (
+                    "⚠️ *We're unable to load covers right now*\n\n"
+                    "Please try again shortly"
+                ),
+                [
+                    {"id": "summary_confirm", "title": "🔄 Try again"},
+                    {"id": "summary_edit", "title": "✏️ Edit details"},
+                ],
+                phone_number_id,
+            )
+            return
 
         session.setdefault("api_data", {})["quotes"] = quotes
         await save_session(session)
@@ -1205,20 +1282,67 @@ async def handle_buy_cover_flow(
                                 logger.info(
                                     f"[buy_cover] saved policyCode='{policy_code}'"
                                 )
-                        except Exception:
-                            pass
+                            else:
+                                logger.error(
+                                    f"[buy_cover] select_cover returned no policyCode for productId='{prod_id}'"
+                                )
+                                await _send_buttons(
+                                    sender_wa_id,
+                                    (
+                                        "⚠️ *We couldn't confirm your cover selection*\n\n"
+                                        "Please try selecting it again"
+                                    ),
+                                    [{"id": f"cov_{idx}", "title": "🔄 Try again"}],
+                                    phone_number_id,
+                                )
+                                return
+                        except Exception as exc:
+                            logger.error(f"[buy_cover] select_cover API failed: {exc}")
+                            await _send_buttons(
+                                sender_wa_id,
+                                (
+                                    "⚠️ *We're unable to complete that right now*\n\n"
+                                    "Please try again shortly"
+                                ),
+                                [{"id": f"cov_{idx}", "title": "🔄 Try again"}],
+                                phone_number_id,
+                            )
+                            return
             except (ValueError, IndexError):
                 pass
         if not selected_q:
-            selected_q = quotes[-1] if quotes else {}
-            data["cover"] = str(
-                selected_q.get("name")
-                or selected_q.get("productName")
-                or "Local Travel Premium 🔥"
-            )
-            data["cover_price"] = (
-                selected_q.get("price") or selected_q.get("premiumAmount") or 0
-            )
+            # Re-show the cover list — do not auto-select
+            quotes = session.get("api_data", {}).get("quotes") or []
+            rows = []
+            for i, q in enumerate(quotes[:8]):
+                q_name = str(q.get("name") or q.get("productName") or "Cover option")[:24]
+                q_price = q.get("price") or q.get("premiumAmount") or 0
+                trip = q.get("tripType") or q.get("travelType") or ""
+                insurer = q.get("insurer") or q.get("provider") or q.get("providerName") or ""
+                coverage = q.get("coverageTypes") or []
+                price_str = f"💰 ₦{float(q_price):,.0f}"
+                trip_str = f"⏱️ {trip}" if trip else ""
+                insurer_str = f"🏢 {insurer}" if insurer else ""
+                cover_count = f"✅ {len(coverage)} covers" if coverage else ""
+                desc = "  •  ".join(filter(None, [price_str, trip_str or insurer_str, cover_count]))
+                rows.append({"id": f"cov_{i}", "title": q_name, "description": desc[:72]})
+            if rows:
+                await _send_list(
+                    sender_wa_id,
+                    "👇 Please select a cover from the list below:",
+                    "Select cover",
+                    [{"title": "🛡️ Available Covers", "rows": rows}],
+                    phone_number_id,
+                    header="🛡️ Select from available cover(s)",
+                )
+            else:
+                await _send_buttons(
+                    sender_wa_id,
+                    "⚠️ *No covers available*\n\nPlease try again shortly",
+                    [{"id": "summary_confirm", "title": "🔄 Try again"}],
+                    phone_number_id,
+                )
+            return
         flow["step"] = "buy_cover_next_steps"
         await save_session(session)
         cover_name = data.get("cover", "Selected cover")

@@ -71,14 +71,15 @@ def _extract(resp: dict):
 
 # ── AIRPORT SEARCH ────────────────────────────────────────────────────────────
 
-async def search_airports(query: str) -> list[dict]:
+async def search_airports(query: str, country_code: Optional[str] = None) -> list[dict]:
     """Search airports via the Ipurvey API.  Returns a list of dicts with keys:
     code, name, country.  Returns [] on error or no results.
 
+    Pass country_code="NG" to restrict results to Nigerian airports only.
     Results are cached in memory for _AIRPORT_CACHE_TTL seconds (default 5 min)
     with a maximum of _AIRPORT_CACHE_MAX_SIZE entries to bound memory growth.
     """
-    cache_key = query.strip().lower()
+    cache_key = f"{query.strip().lower()}:{country_code or ''}"
 
     # ── cache lookup ──────────────────────────────────────────────────────────
     cached = _airport_cache.get(cache_key)
@@ -92,11 +93,14 @@ async def search_airports(query: str) -> list[dict]:
         # expired — remove stale entry
         del _airport_cache[cache_key]
 
-    logger.info(f"[ipurvey] search_airports query='{query}'")
+    logger.info(f"[ipurvey] search_airports query='{query}' country_code='{country_code}'")
     try:
         encoded = quote(query.strip(), safe="")
+        url = f"{_base()}/api/v2/airports/search?search={encoded}"
+        if country_code:
+            url += f"&country_code={quote(country_code, safe='')}"
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
-            r = await c.get(f"{_base()}/api/v2/airports/search?search={encoded}")
+            r = await c.get(url)
             if r.status_code != 200:
                 logger.warning(f"[ipurvey] airport search {r.status_code} for '{query}'")
                 return []

@@ -804,16 +804,16 @@ async def handle_payment_flow(
                             or status_result.get("status")
                             or ""
                         ).upper()
-                        # TEMP: allow PENDING through for staging testing
-                        # Remove "PENDING" once real bank confirmations are available
-                        if status_val in ("PAID", "SUCCESS", "COMPLETED", "CONFIRMED", "PENDING"):
+                        if status_val in ("PAID", "SUCCESS", "COMPLETED", "CONFIRMED"):
                             payment_confirmed = True
                             policy_ref = (
                                 status_result.get("policyCode")
                                 or status_result.get("policyReference")
                                 or status_result.get("policyNumber")
                             )
-                            logger.info(f"[payment] status={status_val} → proceeding (PENDING bypass active)")
+                            logger.info(f"[payment] status={status_val} → payment confirmed")
+                        elif status_val == "PENDING":
+                            logger.info("[payment] status=PENDING → awaiting bank confirmation")
                 except Exception as exc:
                     logger.error(f"[payment] get_payment_status failed: {exc}")
             if payment_confirmed:
