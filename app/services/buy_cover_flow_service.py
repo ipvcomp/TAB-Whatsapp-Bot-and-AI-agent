@@ -25,6 +25,7 @@ def _parse_date_to_iso(date_str: str) -> Optional[str]:
         "%d/%m/%y",   # 12/04/26
         "%d-%m-%y",   # 12-04-26
         "%B %d, %Y",  # April 12, 2026
+        "%Y-%m-%d",   # 2026-05-15 (ISO input)
     ]:
         try:
             return datetime.strptime(clean, fmt).strftime("%Y-%m-%d")
@@ -136,12 +137,15 @@ def _build_trip_summary_text(data: dict) -> str:
         if travelers
         else f"1 — {data.get('name', '')}"
     )
+    arrive_date = data.get("arrive_date", "")
+    arrive_date_line = f"Arr Date\t\t*{arrive_date}*\n" if arrive_date else ""
     return (
         "*✈️ YOUR TRIP*\n\n"
         f"Airline\t\t\t*{data.get('airline', '')}*\n"
         f"Route\t\t\t*{dep} → {arr}*\n"
         f"Flight\t\t\t*{data.get('flight_num', '')}*\n"
-        f"Date\t\t\t*{data.get('date', '')}*\n"
+        f"Dep Date\t\t*{data.get('date', '')}*\n"
+        f"{arrive_date_line}"
         f"Departs\t\t\t*{data.get('depart_time', '')}*\n"
         f"Arrives\t\t\t*{data.get('arrive_time', '')}*\n"
         f"Travellers\t*{traveler_line}*"
@@ -175,20 +179,26 @@ async def _send_edit_menu(to: str, phone_number_id: Optional[str]):
         "Select field",
         [
             {
-                "title": "Trip Details",
+                "title": "Traveller & Trip",
                 "rows": [
                     {"id": "edit_name",          "title": "👤 Passenger name"},
                     {"id": "edit_email",          "title": "📧 Email address"},
                     {"id": "edit_booking_ref",    "title": "🎫 Booking reference"},
                     {"id": "edit_flight_num",     "title": "✈️ Flight number"},
+                    {"id": "edit_airline",        "title": "✈️ Airline"},
+                ],
+            },
+            {
+                "title": "Dates, Times & Airports",
+                "rows": [
                     {"id": "edit_date",           "title": "📅 Departure date"},
+                    {"id": "edit_arrive_date",    "title": "📅 Arrival date"},
                     {"id": "edit_depart_time",    "title": "⏰ Departure time"},
                     {"id": "edit_depart_airport", "title": "🛫 Departure airport"},
                     {"id": "edit_arrive_time",    "title": "⏰ Arrival time"},
                     {"id": "edit_arrive_airport", "title": "🛬 Arrival airport"},
-                    {"id": "edit_airline",        "title": "✈️ Airline"},
                 ],
-            }
+            },
         ],
         phone_number_id,
     )
@@ -1006,7 +1016,7 @@ async def handle_buy_cover_flow(
             await _send_text(
                 sender_wa_id,
                 (
-                    "⚠️ That date has already passed — please enter a *future* departure date\n\n"
+                    "⚠️ Please enter today's date or a future travel date\n\n"
                     "_Example: 12 April 2026_"
                 ),
                 phone_number_id,
@@ -1095,11 +1105,52 @@ async def handle_buy_cover_flow(
         if data.pop("_edit_mode", False):
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
             return
+        flow["step"] = "buy_cover_arrive_date"
+        await save_session(session)
+        await _send_text(
+            sender_wa_id,
+            (
+                "*📅 What date does your flight arrive?*\n\n"
+                "_Example: 12 April 2026, 12/04/2026, 12-04-2026_"
+            ),
+            phone_number_id,
+        )
+
+    # ── Arrival date ──────────────────────────────────────────────────────────
+    elif step == "buy_cover_arrive_date":
+        iso_arr_date = _parse_date_to_iso(text or "")
+        if not iso_arr_date:
+            await _send_text(
+                sender_wa_id,
+                (
+                    "📅 Please enter the arrival date like this: *12 April 2026*\n\n"
+                    "_Other accepted formats: 12/04/2026, 12-04-2026, 12/04/26_"
+                ),
+                phone_number_id,
+            )
+            return
+        dep_date = data.get("date", "")
+        if dep_date and iso_arr_date < dep_date:
+            await _send_text(
+                sender_wa_id,
+                (
+                    f"⚠️ Arrival date cannot be before your departure date\n\n"
+                    f"Your flight departs on *{dep_date}* — "
+                    f"please enter an arrival date on or after that\n\n"
+                    "_Example: 12 April 2026_"
+                ),
+                phone_number_id,
+            )
+            return
+        data["arrive_date"] = iso_arr_date
+        if data.pop("_edit_mode", False):
+            await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
+            return
         flow["step"] = "buy_cover_arrive_time"
         await save_session(session)
         await _send_text(
             sender_wa_id,
-            "*⏰ What time is your flight scheduled to arrive?*\nExample: 15:00, 3:00 PM",
+            "*⏰ What time is your flight scheduled to arrive?*\n\n_Example: 15:00, 3:00 PM_",
             phone_number_id,
         )
 
@@ -1117,7 +1168,9 @@ async def handle_buy_cover_flow(
             )
             return
         dep_time = data.get("depart_time", "")
-        if dep_time and parsed_arr_time <= dep_time:
+        dep_date = data.get("date", "")
+        arr_date = data.get("arrive_date", dep_date)
+        if arr_date == dep_date and dep_time and parsed_arr_time <= dep_time:
             await _send_text(
                 sender_wa_id,
                 (
@@ -1215,6 +1268,7 @@ async def handle_buy_cover_flow(
             "edit_booking_ref":   "buy_cover_booking_ref",
             "edit_flight_num":    "buy_cover_flight_num",
             "edit_date":          "buy_cover_date",
+            "edit_arrive_date":   "buy_cover_arrive_date",
             "edit_depart_time":   "buy_cover_depart_time",
             "edit_depart_airport":"buy_cover_depart_airport_pick",
             "edit_arrive_time":   "buy_cover_arrive_time",
@@ -1246,6 +1300,9 @@ async def handle_buy_cover_flow(
                 "_Example: P47123, Q1402_",
             "buy_cover_date":
                 "*📅 Please enter your updated departure date*\n\n"
+                "_Example: 12 April 2026, 12/04/2026_",
+            "buy_cover_arrive_date":
+                "*📅 Please enter your updated arrival date*\n\n"
                 "_Example: 12 April 2026, 12/04/2026_",
             "buy_cover_depart_time":
                 "*⏰ Please enter your updated departure time*\n\n"
@@ -1304,7 +1361,7 @@ async def handle_buy_cover_flow(
                 carrier = flight_num[:2] if len(flight_num) >= 2 else flight_num
                 trip_raw = data.get("trip_type", "One-way 🗺️")
                 trip_type = "RETURN" if "return" in trip_raw.lower() else "ONE_WAY"
-                arr_date = dep_date if trip_type == "ONE_WAY" else dep_date
+                arr_date = data.get("arrive_date") or dep_date
                 flight_id = f"{flight_num}-{dep_date}T{dep_time}"
                 session.setdefault("api_data", {})["flight_id"] = flight_id
                 legs = [
@@ -1677,7 +1734,8 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         "buy_cover_date": "buy_cover_flight_num",
         "buy_cover_depart_time": "buy_cover_date",
         "buy_cover_depart_airport_pick": "buy_cover_depart_time",
-        "buy_cover_arrive_time": "buy_cover_depart_airport_pick",
+        "buy_cover_arrive_date": "buy_cover_depart_airport_pick",
+        "buy_cover_arrive_time": "buy_cover_arrive_date",
         "buy_cover_arrive_airport_pick": "buy_cover_arrive_time",
         "buy_cover_airline": "buy_cover_arrive_airport_pick",
         "buy_cover_edit_select": "buy_cover_summary",
@@ -1806,6 +1864,14 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             "*✈️ What airport are you flying from?*\n\n"
             "Type at least 3 characters of the airport name or IATA code to search.\n\n"
             "_Example: LOS, Mur, NBO_",
+            phone_number_id,
+        )
+
+    elif prev == "buy_cover_arrive_date":
+        await _send_text(
+            wa_id,
+            "*📅 What date does your flight arrive?*\n\n"
+            "_Example: 12 April 2026, 12/04/2026, 12-04-2026_",
             phone_number_id,
         )
 
