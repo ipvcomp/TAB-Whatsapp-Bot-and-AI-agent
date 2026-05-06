@@ -433,7 +433,8 @@ async def submit_itinerary(
     trip_type: str,
     booking_ref: str,
     legs: list,
-) -> bool:
+) -> tuple[bool, str]:
+    """Returns (ok, error_message). error_message is empty string on success."""
     logger.info(f"[ipurvey] submit_itinerary policy_id='{policy_id}' trip_type='{trip_type}' booking_ref='{booking_ref}' legs={len(legs)}")
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
@@ -448,14 +449,24 @@ async def submit_itinerary(
             ok = r.status_code in (200, 204)
             if ok:
                 logger.info(f"[ipurvey] submit_itinerary → success ({r.status_code})")
+                return True, ""
             else:
+                try:
+                    err_body = r.json()
+                    api_msg = (
+                        err_body.get("message")
+                        or err_body.get("error")
+                        or ""
+                    )
+                except Exception:
+                    api_msg = r.text[:300]
                 logger.error(
                     f"[ipurvey] submit_itinerary → failed ({r.status_code}): {r.text[:400]}"
                 )
-            return ok
+                return False, api_msg
     except Exception as e:
         logger.error(f"[ipurvey] submit_itinerary failed: {e}")
-        return False
+        return False, str(e)
 
 
 async def fetch_quotes(policy_id: str) -> Optional[list]:

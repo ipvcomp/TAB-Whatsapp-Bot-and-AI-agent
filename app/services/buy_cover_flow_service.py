@@ -377,14 +377,58 @@ async def start_buy_cover_flow(
             pid = draft["policy_id"]
             existing = draft.get("existing", False)
             state = draft.get("creation_state", "DRAFT")
-            if existing and pid:
+
+            if existing and pid and state != "DRAFT":
+                # API returned an in-progress draft (not a blank one) →
+                # treat it the same as a resumable draft: ask user what to do
                 logger.info(
-                    f"[buy_cover] existing policy '{pid}' in state '{state}' "
+                    f"[buy_cover] create_draft returned existing '{pid}' "
+                    f"in state '{state}' — showing resume/fresh prompt"
+                )
+                api_data["resume_draft"] = {
+                    "policy_id": pid,
+                    "creation_state": state,
+                    "passengers": [],
+                    "email": "",
+                    "itinerary": {},
+                }
+                flow = session["temp_data"][BUY_COVER_FLOW_KEY]
+                flow["step"] = "buy_cover_resume_choice"
+                await save_session(session)
+                await _send_buttons(
+                    to=wa_id,
+                    body=(
+                        "📋 *Incomplete Application Found*\n\n"
+                        "We found an unfinished policy from your previous session.\n\n"
+                        "Would you like to continue where you left off?"
+                    ),
+                    buttons=[
+                        {"id": "resume_yes", "title": "▶️ Resume"},
+                        {"id": "resume_fresh", "title": "🆕 Start Fresh"},
+                    ],
+                    phone_number_id=phone_number_id,
+                )
+                return
+
+            elif existing and pid:
+                # Blank DRAFT state — silently cancel and create fresh
+                logger.info(
+                    f"[buy_cover] existing blank draft '{pid}' (state=DRAFT) "
                     f"— cancelling and creating fresh draft"
                 )
-                await ipurvey_service.cancel_draft_policy(pid)
+                cancelled = await ipurvey_service.cancel_draft_policy(pid)
                 draft = await ipurvey_service.create_draft_policy(msisdn)
-                pid = draft["policy_id"] if draft else None
+                if draft and draft.get("existing") and draft["policy_id"] == pid:
+                    # Cancel didn't work — API still returns the same old ID
+                    logger.warning(
+                        f"[buy_cover] cancel had no effect, new draft is still '{pid}' "
+                        f"— clearing policy_id from session to avoid reuse"
+                    )
+                    pid = None
+                    draft = None
+                else:
+                    pid = draft["policy_id"] if draft else None
+
             if pid:
                 api_data["policy_id"] = pid
         await save_session(session)
@@ -1430,17 +1474,19 @@ async def handle_buy_cover_flow(
                         "arrivalTime": arr_time,
                     }
                 ]
-                itinerary_ok = await ipurvey_service.submit_itinerary(
+                itinerary_ok, iti_err = await ipurvey_service.submit_itinerary(
                     policy_id, trip_type, data.get("booking_ref", ""), legs
                 )
                 if not itinerary_ok:
                     flow["step"] = "buy_cover_summary"
                     await save_session(session)
+                    err_line = f"\n\n_{iti_err}_" if iti_err else ""
                     await _send_buttons(
                         sender_wa_id,
                         (
-                            "⚠️ *We couldn't submit your trip details*\n\n"
-                            "Please check your flight details and try again, or edit them if something is incorrect"
+                            "⚠️ *We couldn't submit your trip details*"
+                            f"{err_line}\n\n"
+                            "Please check your flight details and try again, or edit them if something is incorrect."
                         ),
                         [
                             {"id": "summary_confirm", "title": "🔄 Try again"},

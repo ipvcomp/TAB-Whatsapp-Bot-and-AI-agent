@@ -3,6 +3,7 @@ from typing import Optional
 
 import app.services.ipurvey_service as ipurvey_service
 
+from app.core.test_overrides import get_msisdn
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -142,6 +143,23 @@ async def start_update_details_flow(
     }
     if "user_id" not in session:
         session["user_id"] = wa_id
+
+    # ── Fetch user profile so we have user_id and current values ──────────────
+    msisdn = get_msisdn(wa_id)
+    api_data = session.setdefault("api_data", {})
+    if not api_data.get("user_id"):
+        try:
+            user = await ipurvey_service.check_user_exists(msisdn)
+            if user and isinstance(user, dict):
+                uid = user.get("userId") or user.get("id") or user.get("user_id")
+                api_data["user_id"] = uid
+                # Cache current profile values for display in prompts
+                api_data["profile_first_name"] = user.get("firstName") or user.get("first_name") or ""
+                api_data["profile_last_name"]  = user.get("lastName")  or user.get("last_name")  or ""
+                api_data["profile_email"]      = user.get("email") or ""
+        except Exception as exc:
+            logger.warning(f"[upd_details] check_user_exists failed: {exc}")
+
     await save_session(session)
 
     await _send_list(
@@ -185,13 +203,30 @@ async def handle_update_details_flow(
     # ── Main menu ──────────────────────────────────────────────────────────────
     if step == "upd_menu":
         if reply_id == "upd_opt_name":
-            await _start_name_flow(session, sender_wa_id, data, phone_number_id)
+            # Show sub-menu: which part of name to update
+            api_data  = session.get("api_data", {})
+            cur_fn    = api_data.get("profile_first_name", "")
+            cur_ln    = api_data.get("profile_last_name", "")
+            name_line = f"Current name: *{cur_fn} {cur_ln}*\n\n" if (cur_fn or cur_ln) else ""
+            await _set_step(session, "upd_name_which")
+            await _send_buttons(sender_wa_id,
+                f"👤 *Update Name*\n\n{name_line}"
+                "Which part of your name would you like to update?",
+                [
+                    {"id": "upd_n_first", "title": "First name"},
+                    {"id": "upd_n_last",  "title": "Last name"},
+                    {"id": "upd_n_both",  "title": "Both names"},
+                ],
+                phone_number_id)
 
         elif reply_id == "upd_opt_email":
+            api_data  = session.get("api_data", {})
+            cur_email = api_data.get("profile_email", "")
+            email_line = f"Current email: *{cur_email}*\n\n" if cur_email else ""
             await _set_step(session, "upd_email_input")
             await _send_text(sender_wa_id,
-                "✉️ *Update Email Address*\n\n"
-                "Please input your email address.\n"
+                f"✉️ *Update Email Address*\n\n{email_line}"
+                "Please input your new email address.\n"
                 "This email will be used to send you\n"
                 "documents, receipts and updates.\n\n"
                 "_Example: john.doe@gmail.com_",
@@ -226,6 +261,114 @@ async def handle_update_details_flow(
         else:
             await _reset(session)
             await start_update_details_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+
+    # ── Name: which field? (first / last / both) ──────────────────────────────
+    elif step == "upd_name_which":
+        api_data = session.get("api_data", {})
+        cur_fn   = api_data.get("profile_first_name", "")
+        cur_ln   = api_data.get("profile_last_name", "")
+        if reply_id == "upd_n_first":
+            await _save_data(session, "upd_name_field", "first")
+            await _set_step(session, "upd_fname_input")
+            fn_line = f"Current first name: *{cur_fn}*\n\n" if cur_fn else ""
+            await _send_text(sender_wa_id,
+                f"👤 *Update First Name*\n\n{fn_line}"
+                "Please enter your new first name as it\n"
+                "appears on your travel document:\n\n"
+                "_Example: Samuel_",
+                phone_number_id)
+        elif reply_id == "upd_n_last":
+            await _save_data(session, "upd_name_field", "last")
+            await _set_step(session, "upd_lname_input")
+            ln_line = f"Current last name: *{cur_ln}*\n\n" if cur_ln else ""
+            await _send_text(sender_wa_id,
+                f"👤 *Update Last Name*\n\n{ln_line}"
+                "Please enter your new last name as it\n"
+                "appears on your travel document:\n\n"
+                "_Example: Olamide_",
+                phone_number_id)
+        elif reply_id == "upd_n_both":
+            await _save_data(session, "upd_name_field", "both")
+            await _set_step(session, "upd_fname_input")
+            fn_line = f"Current first name: *{cur_fn}*\n\n" if cur_fn else ""
+            await _send_text(sender_wa_id,
+                f"👤 *Update First Name*\n\n{fn_line}"
+                "Please enter your new first name:\n\n"
+                "_Example: Samuel_",
+                phone_number_id)
+        else:
+            await _reset(session)
+            await start_update_details_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+
+    # ── Name: new first name ───────────────────────────────────────────────────
+    elif step == "upd_fname_input":
+        fn = text.strip()
+        if len(fn) < 2:
+            await _send_text(sender_wa_id,
+                "⚠️ Please enter a valid *first name* (at least 2 characters):\n"
+                "_Example: Samuel_",
+                phone_number_id)
+            return
+        await _save_data(session, "new_first_name", fn)
+        name_field = data.get("upd_name_field", "first")
+        user_id    = session.get("api_data", {}).get("user_id")
+        if name_field == "both":
+            # First name done — now ask for last name
+            await _set_step(session, "upd_lname_input")
+            api_data = session.get("api_data", {})
+            cur_ln   = api_data.get("profile_last_name", "")
+            ln_line  = f"Current last name: *{cur_ln}*\n\n" if cur_ln else ""
+            await _send_text(sender_wa_id,
+                f"👤 *Update Last Name*\n\n{ln_line}"
+                "Now enter your new last name:\n\n"
+                "_Example: Olamide_",
+                phone_number_id)
+        else:
+            # Only first name — update now
+            cur_ln = session.get("api_data", {}).get("profile_last_name", "")
+            if user_id:
+                try:
+                    await ipurvey_service.update_user(user_id, {"firstName": fn, "lastName": cur_ln})
+                    session.setdefault("api_data", {})["profile_first_name"] = fn
+                    await save_session(session)
+                except Exception as exc:
+                    logger.error(f"[upd_details] update_user (firstName) failed: {exc}")
+            await _send_success(session, sender_wa_id,
+                "✅ First name updated successfully!",
+                f"First name: *{fn}*",
+                phone_number_id)
+
+    # ── Name: new last name ────────────────────────────────────────────────────
+    elif step == "upd_lname_input":
+        ln = text.strip()
+        if len(ln) < 2:
+            await _send_text(sender_wa_id,
+                "⚠️ Please enter a valid *last name* (at least 2 characters):\n"
+                "_Example: Olamide_",
+                phone_number_id)
+            return
+        await _save_data(session, "new_last_name", ln)
+        fn      = data.get("new_first_name", session.get("api_data", {}).get("profile_first_name", ""))
+        user_id = session.get("api_data", {}).get("user_id")
+        if user_id:
+            try:
+                await ipurvey_service.update_user(user_id, {"firstName": fn, "lastName": ln})
+                session.setdefault("api_data", {})["profile_first_name"] = fn
+                session.setdefault("api_data", {})["profile_last_name"]  = ln
+                await save_session(session)
+            except Exception as exc:
+                logger.error(f"[upd_details] update_user (lastName) failed: {exc}")
+        name_field = data.get("upd_name_field", "last")
+        if name_field == "both":
+            await _send_success(session, sender_wa_id,
+                "✅ Name updated successfully!",
+                f"First name: *{fn}*\nLast name: *{ln}*",
+                phone_number_id)
+        else:
+            await _send_success(session, sender_wa_id,
+                "✅ Last name updated successfully!",
+                f"Last name: *{ln}*",
+                phone_number_id)
 
     # ── Name: which traveler? ──────────────────────────────────────────────────
     elif step == "upd_name_who":
@@ -316,7 +459,18 @@ async def handle_update_details_flow(
                 phone_number_id)
             return
         await _save_data(session, "email", email)
-        policy_id = session.get("api_data", {}).get("policy_id")
+        api_data  = session.get("api_data", {})
+        user_id   = api_data.get("user_id")
+        policy_id = api_data.get("policy_id")
+        # Update user profile email
+        if user_id:
+            try:
+                await ipurvey_service.update_user(user_id, {"email": email})
+                session.setdefault("api_data", {})["profile_email"] = email
+                await save_session(session)
+            except Exception as exc:
+                logger.error(f"[upd_details] update_user (email) failed: {exc}")
+        # Also update active policy email if one is linked
         if policy_id:
             try:
                 await ipurvey_service.set_policy_email(policy_id, email)
@@ -611,6 +765,30 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         await _reset(session)
         from app.services.auto_reply_service import send_main_menu
         await send_main_menu(to=wa_id, phone_number_id=phone_number_id, wa_id=wa_id)
+        return
+
+    # Name: new first/last name → back to which-field sub-menu
+    if step in ("upd_fname_input", "upd_lname_input"):
+        api_data = session.get("api_data", {})
+        cur_fn   = api_data.get("profile_first_name", "")
+        cur_ln   = api_data.get("profile_last_name", "")
+        name_line = f"Current name: *{cur_fn} {cur_ln}*\n\n" if (cur_fn or cur_ln) else ""
+        flow["step"] = "upd_name_which"
+        await save_session(session)
+        await _send_buttons(wa_id,
+            f"👤 *Update Name*\n\n{name_line}"
+            "Which part of your name would you like to update?",
+            [
+                {"id": "upd_n_first", "title": "First name"},
+                {"id": "upd_n_last",  "title": "Last name"},
+                {"id": "upd_n_both",  "title": "Both names"},
+            ],
+            phone_number_id)
+        return
+
+    # Name: which-field sub-menu → main menu
+    if step == "upd_name_which":
+        await _show_menu()
         return
 
     # Name sub-flow: input → who selector (or menu if single traveler)
