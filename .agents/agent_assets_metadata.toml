@@ -12,3 +12,9 @@ id = "OFAzqxjPQ_rCk2M-cMf84"
 uri = "file://API_INTEGRATION_SUMMARY.md"
 type = "text"
 title = "TravelAssist — Full API Integration Summary"
+
+[[outputs]]
+id = "H9TbVlmNQapZHrUl-x--R"
+uri = "file://docs/bot_error_messages.md"
+type = "text"
+title = "Bot Static Error Messages Reference"
