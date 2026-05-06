@@ -182,23 +182,17 @@ async def _send_edit_menu(to: str, phone_number_id: Optional[str]):
         "Select field",
         [
             {
-                "title": "Traveller Details",
+                "title": "Select a field to edit",
                 "rows": [
                     {"id": "edit_name",          "title": "👤 Passenger name"},
                     {"id": "edit_email",          "title": "📧 Email address"},
                     {"id": "edit_booking_ref",    "title": "🎫 Booking reference"},
                     {"id": "edit_flight_num",     "title": "✈️ Flight number"},
-                    {"id": "edit_airline",        "title": "✈️ Airline"},
-                ],
-            },
-            {
-                "title": "Flight Details",
-                "rows": [
                     {"id": "edit_date",           "title": "📅 Departure date"},
                     {"id": "edit_arrive_date",    "title": "📅 Arrival date"},
                     {"id": "edit_depart_time",    "title": "⏰ Departure time"},
-                    {"id": "edit_depart_airport", "title": "🛫 Departure airport"},
                     {"id": "edit_arrive_time",    "title": "⏰ Arrival time"},
+                    {"id": "edit_depart_airport", "title": "🛫 Departure airport"},
                     {"id": "edit_arrive_airport", "title": "🛬 Arrival airport"},
                 ],
             },
@@ -1050,6 +1044,27 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
+        # Same-day check: if editing dep_time and arr_time already set, validate order
+        arr_time = data.get("arrive_time", "")
+        dep_date_chk = data.get("date", "")
+        arr_date_chk = data.get("arrive_date", dep_date_chk)
+        if (
+            arr_time
+            and dep_date_chk
+            and dep_date_chk == arr_date_chk
+            and parsed_dep_time >= arr_time
+        ):
+            await _send_text(
+                sender_wa_id,
+                (
+                    f"⚠️ Departure time must be *before* arrival time\n\n"
+                    f"Your flight arrives at *{arr_time}* on the same day — "
+                    f"please enter a departure time earlier than that\n\n"
+                    "_Example: 13:40, 1:40 PM_"
+                ),
+                phone_number_id,
+            )
+            return
         data["depart_time"] = parsed_dep_time
         if data.pop("_edit_mode", False):
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
@@ -1142,13 +1157,28 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
+        if _is_past_date(iso_arr_date):
+            await _send_text(
+                sender_wa_id,
+                (
+                    "⚠️ Arrival date cannot be in the past\n\n"
+                    "Please enter today's date or a future arrival date\n\n"
+                    "_Example: 12 April 2026_"
+                ),
+                phone_number_id,
+            )
+            return
         dep_date = data.get("date", "")
         if dep_date and iso_arr_date < dep_date:
+            try:
+                dep_date_fmt = datetime.strptime(dep_date, "%Y-%m-%d").strftime("%d %B %Y")
+            except ValueError:
+                dep_date_fmt = dep_date
             await _send_text(
                 sender_wa_id,
                 (
                     f"⚠️ Arrival date cannot be before your departure date\n\n"
-                    f"Your flight departs on *{dep_date}* — "
+                    f"Your flight departs on *{dep_date_fmt}* — "
                     f"please enter an arrival date on or after that\n\n"
                     "_Example: 12 April 2026_"
                 ),
@@ -1187,9 +1217,10 @@ async def handle_buy_cover_flow(
             await _send_text(
                 sender_wa_id,
                 (
-                    f"⚠️ Arrival time must be *after* departure time\n\n"
+                    f"⚠️ Arrival time must be *after* departure time on the same day\n\n"
                     f"Your flight departs at *{dep_time}* — "
-                    f"please enter an arrival time later than that\n\n"
+                    f"please enter an arrival time later than that, "
+                    f"or if this is an overnight flight enter the correct arrival date first\n\n"
                     "_Example: 15:00, 3:00 PM_"
                 ),
                 phone_number_id,
