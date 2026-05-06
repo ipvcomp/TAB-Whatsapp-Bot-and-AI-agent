@@ -103,7 +103,10 @@ def _is_valid_name(value: str) -> bool:
 def is_in_buy_cover_flow(session: Optional[dict]) -> bool:
     if not session:
         return False
-    return session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("active", False)
+    flow = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {})
+    # Return True if explicitly active OR if a step is set (active flag may be
+    # missing when step was assigned directly without _set_step)
+    return bool(flow.get("active") or flow.get("step"))
 
 
 async def _get_flow_state(wa_id: str) -> tuple[dict, dict]:
@@ -179,7 +182,7 @@ async def _send_edit_menu(to: str, phone_number_id: Optional[str]):
         "Select field",
         [
             {
-                "title": "Traveller & Trip",
+                "title": "Traveller Details",
                 "rows": [
                     {"id": "edit_name",          "title": "👤 Passenger name"},
                     {"id": "edit_email",          "title": "📧 Email address"},
@@ -189,7 +192,7 @@ async def _send_edit_menu(to: str, phone_number_id: Optional[str]):
                 ],
             },
             {
-                "title": "Dates, Times & Airports",
+                "title": "Flight Details",
                 "rows": [
                     {"id": "edit_date",           "title": "📅 Departure date"},
                     {"id": "edit_arrive_date",    "title": "📅 Arrival date"},
@@ -1061,21 +1064,30 @@ async def handle_buy_cover_flow(
 
     # ── Departure airport ─────────────────────────────────────────────────────
     elif step == "buy_cover_depart_airport_pick":
-        if reply_id and reply_id.startswith("dep_"):
+        if reply_id == "dep_search_again":
+            await _send_text(
+                sender_wa_id,
+                "*✈️ What airport are you flying from?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, Mur, NBO_",
+                phone_number_id,
+            )
+            return
+        elif reply_id and reply_id.startswith("dep_"):
             parts = reply_id.replace("dep_", "", 1).split("|", 1)
             code = parts[0]
             name = parts[1] if len(parts) > 1 else code
             data["depart_airport"] = f"{code} — {name}"
         elif text and len(text.strip()) >= 3:
-            airports = await ipurvey_service.search_airports(text.strip(), country_code="NG")
+            search_term = text.strip()
+            airports = await ipurvey_service.search_airports(search_term, country_code="NG")
             if not airports:
-                await _send_text(
+                await _send_buttons(
                     sender_wa_id,
                     (
-                        "⚠️ No Nigerian airports found for that search\n\n"
-                        "Please enter at least 3 characters of the airport name or IATA code\n\n"
-                        "_Example: LOS, Mur, NBO_"
+                        f"❌ *No airports found matching \"{search_term}\"*\n\n"
+                        "We couldn't find any airport matching your entry.\n"
+                        "Please check the spelling or try searching again."
                     ),
+                    [{"id": "dep_search_again", "title": "🔍 Search again"}],
                     phone_number_id,
                 )
                 return
@@ -1087,9 +1099,10 @@ async def handle_buy_cover_flow(
                 }
                 for a in airports
             ]
+            rows.append({"id": "dep_search_again", "title": "🔍 Search again"})
             await _send_list(
                 sender_wa_id,
-                "*✈️ Select your departure airport*",
+                "*🔍 We found some airports*\n\nNone of these is the airport you're looking for? You can search again.",
                 "Select airport",
                 [{"title": "🛫 Departure Airports", "rows": rows}],
                 phone_number_id,
@@ -1196,21 +1209,30 @@ async def handle_buy_cover_flow(
 
     # ── Arrival airport ───────────────────────────────────────────────────────
     elif step == "buy_cover_arrive_airport_pick":
-        if reply_id and reply_id.startswith("arr_"):
+        if reply_id == "arr_search_again":
+            await _send_text(
+                sender_wa_id,
+                "*✈️ What airport are you arriving at?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: ABV, LOS, KAN_",
+                phone_number_id,
+            )
+            return
+        elif reply_id and reply_id.startswith("arr_"):
             parts = reply_id.replace("arr_", "", 1).split("|", 1)
             code = parts[0]
             name = parts[1] if len(parts) > 1 else code
             data["arrive_airport"] = f"{code} — {name}"
         elif text and len(text.strip()) >= 3:
-            airports = await ipurvey_service.search_airports(text.strip(), country_code="NG")
+            search_term = text.strip()
+            airports = await ipurvey_service.search_airports(search_term, country_code="NG")
             if not airports:
-                await _send_text(
+                await _send_buttons(
                     sender_wa_id,
                     (
-                        "⚠️ No Nigerian airports found for that search\n\n"
-                        "Please enter at least 3 characters of the airport name or IATA code\n\n"
-                        "_Example: ABV, LOS, KAN_"
+                        f"❌ *No airports found matching \"{search_term}\"*\n\n"
+                        "We couldn't find any airport matching your entry.\n"
+                        "Please check the spelling or try searching again."
                     ),
+                    [{"id": "arr_search_again", "title": "🔍 Search again"}],
                     phone_number_id,
                 )
                 return
@@ -1222,9 +1244,10 @@ async def handle_buy_cover_flow(
                 }
                 for a in airports
             ]
+            rows.append({"id": "arr_search_again", "title": "🔍 Search again"})
             await _send_list(
                 sender_wa_id,
-                "*✈️ Select your arrival airport*",
+                "*🔍 We found some airports*\n\nNone of these is the airport you're looking for? You can search again.",
                 "Select airport",
                 [{"title": "🛬 Arrival Airports", "rows": rows}],
                 phone_number_id,
@@ -1563,6 +1586,7 @@ async def handle_buy_cover_flow(
                 )
             return
         flow["step"] = "buy_cover_next_steps"
+        flow["active"] = True
         await save_session(session)
         cover_name = data.get("cover", "Selected cover")
         cover_price = data.get("cover_price", 0)
@@ -1677,6 +1701,7 @@ async def handle_buy_cover_flow(
                 "Ready to continue?"
             )
         flow["step"] = "buy_cover_next_steps"
+        flow["active"] = True
         await save_session(session)
         await _send_buttons(
             sender_wa_id,
@@ -1704,6 +1729,7 @@ async def handle_buy_cover_flow(
             )
         else:
             flow["step"] = "buy_cover_next_steps"
+            flow["active"] = True
             await save_session(session)
             await _send_buttons(
                 sender_wa_id,

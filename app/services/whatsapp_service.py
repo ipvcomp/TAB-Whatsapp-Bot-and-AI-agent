@@ -104,6 +104,7 @@ async def send_whatsapp_payload(
 
                 error_msg = response_data.get("error", {}).get("message", "Unknown error")
                 error_code = response_data.get("error", {}).get("code", "N/A")
+                error_details = response_data.get("error", {})
 
                 if response.status_code in (429, 502, 503, 504) and attempt < MEDIA_RETRY_MAX_ATTEMPTS:
                     wait = MEDIA_RETRY_BACKOFF[min(attempt - 1, len(MEDIA_RETRY_BACKOFF) - 1)]
@@ -111,7 +112,14 @@ async def send_whatsapp_payload(
                     await asyncio.sleep(wait)
                     continue
 
-                logger.error(f"Failed to send message to {to}: HTTP {response.status_code} | Error #{error_code}: {error_msg}")
+                import json as _json
+                safe_payload = {k: v for k, v in whatsapp_payload.items() if k != "to"}
+                logger.error(
+                    f"Failed to send message to {to}: HTTP {response.status_code} | "
+                    f"Error #{error_code}: {error_msg} | "
+                    f"Details: {error_details} | "
+                    f"Payload: {_json.dumps(safe_payload, ensure_ascii=False)[:800]}"
+                )
                 return None
 
         except (httpx.TimeoutException, httpx.ConnectError) as e:
