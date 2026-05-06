@@ -127,6 +127,73 @@ async def _reset(session: dict, wa_id: str):
     await save_session(session)
 
 
+def _build_trip_summary_text(data: dict) -> str:
+    dep = data.get("depart_airport", "").split("—")[0].strip()
+    arr = data.get("arrive_airport", "").split("—")[0].strip()
+    travelers = data.get("travelers", [])
+    traveler_line = (
+        "  ".join(f"{i + 1} — {n}" for i, n in enumerate(travelers))
+        if travelers
+        else f"1 — {data.get('name', '')}"
+    )
+    return (
+        "*✈️ YOUR TRIP*\n\n"
+        f"Airline\t\t\t*{data.get('airline', '')}*\n"
+        f"Route\t\t\t*{dep} → {arr}*\n"
+        f"Flight\t\t\t*{data.get('flight_num', '')}*\n"
+        f"Date\t\t\t*{data.get('date', '')}*\n"
+        f"Departs\t\t\t*{data.get('depart_time', '')}*\n"
+        f"Arrives\t\t\t*{data.get('arrive_time', '')}*\n"
+        f"Travellers\t*{traveler_line}*"
+    )
+
+
+async def _show_trip_summary(
+    sender_wa_id: str,
+    data: dict,
+    flow: dict,
+    session: dict,
+    phone_number_id: Optional[str],
+):
+    flow["step"] = "buy_cover_summary"
+    await save_session(session)
+    await _send_buttons(
+        sender_wa_id,
+        "📋 *Trip Summary*\n\n" + _build_trip_summary_text(data),
+        [
+            {"id": "summary_confirm", "title": "✅ Confirm"},
+            {"id": "summary_edit", "title": "✏️ Edit details"},
+        ],
+        phone_number_id,
+    )
+
+
+async def _send_edit_menu(to: str, phone_number_id: Optional[str]):
+    await _send_list(
+        to,
+        "✏️ *What would you like to edit?*\n\nSelect the field to update:",
+        "Select field",
+        [
+            {
+                "title": "Trip Details",
+                "rows": [
+                    {"id": "edit_name",          "title": "👤 Passenger name"},
+                    {"id": "edit_email",          "title": "📧 Email address"},
+                    {"id": "edit_booking_ref",    "title": "🎫 Booking reference"},
+                    {"id": "edit_flight_num",     "title": "✈️ Flight number"},
+                    {"id": "edit_date",           "title": "📅 Departure date"},
+                    {"id": "edit_depart_time",    "title": "⏰ Departure time"},
+                    {"id": "edit_depart_airport", "title": "🛫 Departure airport"},
+                    {"id": "edit_arrive_time",    "title": "⏰ Arrival time"},
+                    {"id": "edit_arrive_airport", "title": "🛬 Arrival airport"},
+                    {"id": "edit_airline",        "title": "✈️ Airline"},
+                ],
+            }
+        ],
+        phone_number_id,
+    )
+
+
 _UTILITY = (
     "*Utility options:*\n0 ↩️ Back  |  9 🆘 Help  |  00 🏠 Main menu\n99 ❌ Cancel/Exit"
 )
@@ -659,32 +726,52 @@ async def handle_buy_cover_flow(
                 hint = "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Yusuf Abdullahi_"
             await _send_text(sender_wa_id, hint, phone_number_id)
             return
-        policy_id = session.get("api_data", {}).get("policy_id")
+        policy_id   = session.get("api_data", {}).get("policy_id")
+        existing_pid = session.get("api_data", {}).get("passenger_id")
         if policy_id:
             fn, ln = _split_name(text)
             try:
-                result = await ipurvey_service.add_passenger(
-                    policy_id, fn, ln, is_primary=True
-                )
-                logger.info(
-                    f"[BUY_COVER] add_passenger (primary) → {fn} {ln} result={result}"
-                )
-                if result is None:
-                    logger.error(
-                        f"[BUY_COVER] add_passenger (primary) returned None for '{fn} {ln}'"
+                if existing_pid:
+                    ok = await ipurvey_service.update_passenger(
+                        policy_id, existing_pid, fn, ln, is_primary=True
                     )
-                    await _send_text(
-                        sender_wa_id,
-                        (
-                            "⚠️ We couldn't save your name — please enter your *full name* "
-                            "(first name and surname) as it appears on your ticket.\n\n"
-                            "_Example: Yusuf Abdullahi_"
-                        ),
-                        phone_number_id,
+                    logger.info(f"[BUY_COVER] update_passenger (primary) → {fn} {ln} ok={ok}")
+                    if not ok:
+                        await _send_text(
+                            sender_wa_id,
+                            (
+                                "⚠️ We couldn't update your name — please try again.\n\n"
+                                "_Example: Yusuf Abdullahi_"
+                            ),
+                            phone_number_id,
+                        )
+                        return
+                else:
+                    result = await ipurvey_service.add_passenger(
+                        policy_id, fn, ln, is_primary=True
                     )
-                    return
+                    logger.info(
+                        f"[BUY_COVER] add_passenger (primary) → {fn} {ln} result={result}"
+                    )
+                    if result is None:
+                        logger.error(
+                            f"[BUY_COVER] add_passenger (primary) returned None for '{fn} {ln}'"
+                        )
+                        await _send_text(
+                            sender_wa_id,
+                            (
+                                "⚠️ We couldn't save your name — please enter your *full name* "
+                                "(first name and surname) as it appears on your ticket.\n\n"
+                                "_Example: Yusuf Abdullahi_"
+                            ),
+                            phone_number_id,
+                        )
+                        return
+                    if result and result.get("passengerId"):
+                        session.setdefault("api_data", {})["passenger_id"] = result["passengerId"]
+                        logger.info(f"[BUY_COVER] saved passenger_id='{result['passengerId']}'")
             except Exception as exc:
-                logger.error(f"[BUY_COVER] add_passenger (primary) failed: {exc}")
+                logger.error(f"[BUY_COVER] add/update_passenger (primary) failed: {exc}")
                 await _send_text(
                     sender_wa_id,
                     (
@@ -696,6 +783,9 @@ async def handle_buy_cover_flow(
                 )
                 return
         data["name"] = text
+        if data.pop("_edit_mode", False):
+            await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
+            return
         if data.get("who") == "me_and_others":
             travelers = data.get("travelers", [])
             travelers.append(text)
@@ -826,6 +916,9 @@ async def handle_buy_cover_flow(
                 await ipurvey_service.set_policy_email(policy_id, email_clean)
             except Exception:
                 pass
+        if data.pop("_edit_mode", False):
+            await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
+            return
         flow["step"] = "buy_cover_trip_type"
         await save_session(session)
         await _send_buttons(
@@ -860,6 +953,9 @@ async def handle_buy_cover_flow(
             )
             return
         data["booking_ref"] = text.upper()
+        if data.pop("_edit_mode", False):
+            await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
+            return
         flow["step"] = "buy_cover_flight_num"
         await save_session(session)
         await _send_text(
@@ -882,6 +978,9 @@ async def handle_buy_cover_flow(
             )
             return
         data["flight_num"] = text.strip().upper().replace(" ", "")
+        if data.pop("_edit_mode", False):
+            await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
+            return
         flow["step"] = "buy_cover_date"
         await save_session(session)
         await _send_text(
@@ -914,6 +1013,9 @@ async def handle_buy_cover_flow(
             )
             return
         data["date"] = iso_date
+        if data.pop("_edit_mode", False):
+            await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
+            return
         flow["step"] = "buy_cover_depart_time"
         await save_session(session)
         await _send_text(
@@ -936,6 +1038,9 @@ async def handle_buy_cover_flow(
             )
             return
         data["depart_time"] = parsed_dep_time
+        if data.pop("_edit_mode", False):
+            await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
+            return
         flow["step"] = "buy_cover_depart_airport_pick"
         await save_session(session)
         await _send_text(
@@ -987,6 +1092,9 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
+        if data.pop("_edit_mode", False):
+            await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
+            return
         flow["step"] = "buy_cover_arrive_time"
         await save_session(session)
         await _send_text(
@@ -1008,7 +1116,23 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
+        dep_time = data.get("depart_time", "")
+        if dep_time and parsed_arr_time <= dep_time:
+            await _send_text(
+                sender_wa_id,
+                (
+                    f"⚠️ Arrival time must be *after* departure time\n\n"
+                    f"Your flight departs at *{dep_time}* — "
+                    f"please enter an arrival time later than that\n\n"
+                    "_Example: 15:00, 3:00 PM_"
+                ),
+                phone_number_id,
+            )
+            return
         data["arrive_time"] = parsed_arr_time
+        if data.pop("_edit_mode", False):
+            await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
+            return
         flow["step"] = "buy_cover_arrive_airport_pick"
         await save_session(session)
         await _send_text(
@@ -1060,6 +1184,9 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
+        if data.pop("_edit_mode", False):
+            await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
+            return
         flow["step"] = "buy_cover_airline"
         await save_session(session)
         await _send_text(
@@ -1078,41 +1205,76 @@ async def handle_buy_cover_flow(
             )
             return
         data["airline"] = text
-        dep = data.get("depart_airport", "").split("—")[0].strip()
-        arr = data.get("arrive_airport", "").split("—")[0].strip()
-        travelers = data.get("travelers", [])
-        traveler_line = (
-            "  ".join(f"{i + 1} — {n}" for i, n in enumerate(travelers))
-            if travelers
-            else f"1 — {data.get('name', '')}"
-        )
-        summary = (
-            "*✈️ YOUR TRIP*\n\n"
-            f"Airline\t\t\t*{data.get('airline', '')}*\n"
-            f"Route\t\t\t*{dep} → {arr}*\n"
-            f"Flight\t\t\t*{data.get('flight_num', '')}*\n"
-            f"Date\t\t\t*{data.get('date', '')}*\n"
-            f"Departs\t\t\t*{data.get('depart_time', '')}*\n"
-            f"Arrives\t\t\t*{data.get('arrive_time', '')}*\n"
-            f"Travellers\t*{traveler_line}*"
-        )
-        flow["step"] = "buy_cover_summary"
+        await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
+
+    # ── Edit field select ──────────────────────────────────────────────────────
+    elif step == "buy_cover_edit_select":
+        _EDIT_MAP = {
+            "edit_name":          "buy_cover_name",
+            "edit_email":         "buy_cover_email",
+            "edit_booking_ref":   "buy_cover_booking_ref",
+            "edit_flight_num":    "buy_cover_flight_num",
+            "edit_date":          "buy_cover_date",
+            "edit_depart_time":   "buy_cover_depart_time",
+            "edit_depart_airport":"buy_cover_depart_airport_pick",
+            "edit_arrive_time":   "buy_cover_arrive_time",
+            "edit_arrive_airport":"buy_cover_arrive_airport_pick",
+            "edit_airline":       "buy_cover_airline",
+        }
+        target = _EDIT_MAP.get(reply_id or "")
+        if not target:
+            flow["step"] = "buy_cover_edit_select"
+            await save_session(session)
+            await _send_edit_menu(sender_wa_id, phone_number_id)
+            return
+        data["_edit_mode"] = True
+        flow["step"] = target
         await save_session(session)
-        await _send_buttons(
+        _EDIT_PROMPT = {
+            "buy_cover_name":
+                "*👤 Please enter your updated name*\n"
+                "Enter first name and surname as it appears on your ticket\n\n"
+                "_Example: Yusuf Abdullahi_",
+            "buy_cover_email":
+                "*📧 Please enter your updated email address*\n\n"
+                "_Example: yusuf@email.com_",
+            "buy_cover_booking_ref":
+                "*🎫 Please enter your updated booking reference*\n\n"
+                "_Examples: AB1XY2, 2990FA62_",
+            "buy_cover_flight_num":
+                "*✈️ Please enter your updated flight number*\n\n"
+                "_Example: P47123, Q1402_",
+            "buy_cover_date":
+                "*📅 Please enter your updated departure date*\n\n"
+                "_Example: 12 April 2026, 12/04/2026_",
+            "buy_cover_depart_time":
+                "*⏰ Please enter your updated departure time*\n\n"
+                "_Example: 13:40, 1:40 PM_",
+            "buy_cover_depart_airport_pick":
+                "*🛫 Type at least 3 characters to search for your departure airport*\n\n"
+                "_Example: LOS, Mur, ABV_",
+            "buy_cover_arrive_time":
+                "*⏰ Please enter your updated arrival time*\n\n"
+                "_Example: 15:00, 3:00 PM_",
+            "buy_cover_arrive_airport_pick":
+                "*🛬 Type at least 3 characters to search for your arrival airport*\n\n"
+                "_Example: ABV, LOS, KAN_",
+            "buy_cover_airline":
+                "*✈️ Please enter your updated airline name*\n\n"
+                "_Example: Ibom Air, Air Peace_",
+        }
+        await _send_text(
             sender_wa_id,
-            "📋 *Trip Summary*\n\n" + summary,
-            [
-                {"id": "summary_confirm", "title": "✅ Confirm"},
-                {"id": "summary_edit", "title": "✏️ Edit details"},
-            ],
+            _EDIT_PROMPT.get(target, "Please enter the updated value:"),
             phone_number_id,
         )
 
     # ── Trip summary ──────────────────────────────────────────────────────────
     elif step == "buy_cover_summary":
         if reply_id == "summary_edit":
-            await _reset(session, sender_wa_id)
-            await start_buy_cover_flow(sender_wa_id, phone_number_id)
+            flow["step"] = "buy_cover_edit_select"
+            await save_session(session)
+            await _send_edit_menu(sender_wa_id, phone_number_id)
             return
 
         await _send_text(
@@ -1518,11 +1680,14 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         "buy_cover_arrive_time": "buy_cover_depart_airport_pick",
         "buy_cover_arrive_airport_pick": "buy_cover_arrive_time",
         "buy_cover_airline": "buy_cover_arrive_airport_pick",
+        "buy_cover_edit_select": "buy_cover_summary",
         "buy_cover_summary": "buy_cover_airline",
         "buy_cover_select_cover": "buy_cover_summary",
         "buy_cover_next_steps": "buy_cover_select_cover",
         "buy_cover_cancel_confirm": "buy_cover_next_steps",
     }
+    # clear any lingering edit_mode flag when navigating back
+    data.pop("_edit_mode", None)
 
     if step == "buy_cover_email":
         prev: Optional[str] = (
@@ -1668,28 +1833,13 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             phone_number_id,
         )
 
+    elif prev == "buy_cover_edit_select":
+        await _send_edit_menu(wa_id, phone_number_id)
+
     elif prev == "buy_cover_summary":
-        dep = data.get("depart_airport", "").split("—")[0].strip()
-        arr = data.get("arrive_airport", "").split("—")[0].strip()
-        travelers = data.get("travelers", [])
-        traveler_line = (
-            "  ".join(f"{i + 1} — {n}" for i, n in enumerate(travelers))
-            if travelers
-            else f"1 — {data.get('name', '')}"
-        )
-        summary = (
-            "*✈️ YOUR TRIP*\n\n"
-            f"Airline\t\t\t*{data.get('airline', '')}*\n"
-            f"Route\t\t\t*{dep} → {arr}*\n"
-            f"Flight\t\t\t*{data.get('flight_num', '')}*\n"
-            f"Date\t\t\t*{data.get('date', '')}*\n"
-            f"Departs\t\t\t*{data.get('depart_time', '')}*\n"
-            f"Arrives\t\t\t*{data.get('arrive_time', '')}*\n"
-            f"Travellers\t*{traveler_line}*"
-        )
         await _send_buttons(
             wa_id,
-            "📋 *Trip Summary*\n\n" + summary,
+            "📋 *Trip Summary*\n\n" + _build_trip_summary_text(data),
             [
                 {"id": "summary_confirm", "title": "✅ Confirm"},
                 {"id": "summary_edit", "title": "✏️ Edit details"},
