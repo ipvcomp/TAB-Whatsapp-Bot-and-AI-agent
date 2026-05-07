@@ -119,6 +119,63 @@ async def _send_bank_results(wa_id: str, banks: list, phone_number_id: Optional[
     )
 
 
+def _get_trip_details(session: dict, data: dict, ref: str) -> dict:
+    """Pull policy/trip info for the payment status screens."""
+    bc_data  = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
+    api_data = session.get("api_data", {})
+    return {
+        "pol_ref":   api_data.get("policy_code") or api_data.get("policy_id") or ref or "—",
+        "flight":    bc_data.get("flight_num")   or data.get("pay_flight",   "—"),
+        "date":      bc_data.get("date")          or data.get("pay_dep_date", "—"),
+        "traveller": bc_data.get("name")          or data.get("pay_traveller","—"),
+    }
+
+
+async def _show_payment_pending_screen(
+    wa_id: str, session: dict, data: dict, ref: str, phone_number_id: Optional[str]
+):
+    """'Payment Processing is Pending' screen (per design mockup)."""
+    d = _get_trip_details(session, data, ref)
+    await _send_buttons(
+        wa_id,
+        (
+            "🕐 *Payment Processing is Pending*\n\n"
+            "Your payment is being processed.\n"
+            "We'll notify you once it's completed. 🔔\n\n"
+            f"📋 *Policy No:*    {d['pol_ref']}\n"
+            f"✈️ *Flight:*         {d['flight']}\n"
+            f"📅 *Date:*           {d['date']}\n"
+            f"🧑 *Traveller:*    {d['traveller']}\n\n"
+            "ℹ️ Once the payment is completed, we will notify you "
+            "and you can continue with your cover purchase."
+        ),
+        [{"id": "pay_m_refresh", "title": "🔄 Refresh status"}],
+        phone_number_id,
+    )
+
+
+async def _show_payment_failed_screen(
+    wa_id: str, session: dict, data: dict, ref: str, phone_number_id: Optional[str]
+):
+    """'Payment Not Successful' screen (per design mockup)."""
+    d = _get_trip_details(session, data, ref)
+    await _send_buttons(
+        wa_id,
+        (
+            "❌ *Payment Not Successful*\n\n"
+            "We couldn't complete your payment 😟\n\n"
+            f"📋 *Policy No:*    {d['pol_ref']}\n"
+            f"✈️ *Flight:*         {d['flight']}\n"
+            f"📅 *Date:*           {d['date']}\n"
+            f"🧑 *Traveller:*    {d['traveller']}\n\n"
+            "⚠️ Your policy cannot be activated without completing the payment.\n"
+            "*No payment, no cover will be in place.*"
+        ),
+        [{"id": "pay_m_done", "title": "🔄 Try again"}],
+        phone_number_id,
+    )
+
+
 _PAYMENT_TYPE_MAP: dict[str, dict] = {
     "BANK_TRANSFER":          {"id": "pay_m_bank",   "title": "🏦 Bank Transfer"},
     "CARD":                   {"id": "pay_m_card",   "title": "💳 Card Payment"},
@@ -665,17 +722,7 @@ async def handle_payment_flow(
 
             if initiate_error:
                 await save_session(session)
-                await send_text_message(
-                    to=sender_wa_id,
-                    body=(
-                        "⚠️ *Payment initiation failed*\n\n"
-                        "We could not start the bank transfer process. "
-                        "Please try again or contact support."
-                    ),
-                    phone_number_id=phone_number_id,
-                    source="payment_flow",
-                )
-                await _show_payment_summary(sender_wa_id, session, flow, phone_number_id)
+                await _show_payment_failed_screen(sender_wa_id, session, data, data.get("pay_m_bank_ref", "—"), phone_number_id)
                 return
 
             ref_display = api_ref or "Check SMS/email for reference"
@@ -738,6 +785,7 @@ async def handle_payment_flow(
             _p_bank_details = "Please contact support for account details."
         if reply_id in ("pay_m_done", "pay_m_refresh"):
             payment_confirmed = False
+            payment_pending   = False
             policy_ref = None
             api_data_  = session.get("api_data", {})
             policy_id  = api_data_.get("policy_id")
@@ -767,7 +815,10 @@ async def handle_payment_flow(
                             )
                             logger.info(f"[payment] status={status_val} → payment confirmed")
                         elif status_val == "PENDING":
-                            logger.info("[payment] status=PENDING → awaiting bank confirmation")
+                            payment_pending = True
+                            logger.info("[payment] status=PENDING → showing pending screen")
+                        else:
+                            logger.info(f"[payment] status={status_val!r} → showing failed screen")
                 except Exception as exc:
                     logger.error(f"[payment] get_payment_status failed: {exc}")
             if payment_confirmed:
@@ -785,18 +836,10 @@ async def handle_payment_flow(
                 invalidate_policy_cache(session)
                 await save_session(session)
                 await _send_success(sender_wa_id, session, flow, amount, ref, policy_ref, cname, phone_number_id)
+            elif payment_pending:
+                await _show_payment_pending_screen(sender_wa_id, session, data, ref, phone_number_id)
             else:
-                await _send_buttons(sender_wa_id,
-                    f"🏦 *Bank Transfer*\n\n"
-                    f"⏳ *Payment not yet confirmed*\n\nPlease transfer *₦{amount:,}* to:\n\n"
-                    f"{_p_bank_details}\n\n"
-                    f"🔑 Reference: {ref}\n\nAfter payment, tap below:",
-                    [
-                        {"id": "pay_m_done",    "title": "✅ I have paid"},
-                        {"id": "pay_m_refresh", "title": "🔄 Refresh status"},
-                    ],
-                    phone_number_id,
-                )
+                await _show_payment_failed_screen(sender_wa_id, session, data, ref, phone_number_id)
         else:
             await _send_buttons(sender_wa_id,
                 f"🏦 *Bank Transfer*\n\n"
