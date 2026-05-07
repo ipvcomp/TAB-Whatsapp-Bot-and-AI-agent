@@ -443,6 +443,27 @@ async def update_passenger(
         return False
 
 
+async def get_policy_passengers(policy_id: str) -> list:
+    """GET /api/tab-plc/policies/{policy_id}/passengers — returns list of passenger dicts."""
+    logger.info(f"[ipurvey] get_policy_passengers policy_id='{policy_id}'")
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(f"{_base()}/api/tab-plc/policies/{policy_id}/passengers")
+            if r.status_code == 200:
+                body = r.json()
+                data = _extract(body)
+                if isinstance(data, list):
+                    logger.info(f"[ipurvey] get_policy_passengers → {len(data)} passengers")
+                    return data
+                logger.warning(f"[ipurvey] get_policy_passengers unexpected shape: {type(data)}")
+                return []
+            logger.warning(f"[ipurvey] get_policy_passengers {r.status_code}: {r.text[:200]}")
+            return []
+    except Exception as e:
+        logger.error(f"[ipurvey] get_policy_passengers failed: {e}")
+        return []
+
+
 async def set_policy_email(policy_id: str, email: str) -> bool:
     logger.info(f"[ipurvey] set_policy_email policy_id='{policy_id}'")
     try:
