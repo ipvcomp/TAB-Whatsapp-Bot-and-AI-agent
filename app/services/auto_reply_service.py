@@ -96,7 +96,13 @@ def _match_simple_reply(text: str) -> Optional[str]:
 
 
 def _format_policy_card(policy: dict) -> str:
-    ref     = policy.get("ref") or policy.get("id") or "—"
+    # policy_id = internal UUID from API ("id" field)
+    # policy_code = human-readable reference ("ref" / policyCode field)
+    policy_id   = policy.get("id") or ""
+    policy_code = policy.get("ref") or ""
+    # Show policy_id (UUID) as primary; fall back to policy_code if id absent
+    display_id  = policy_id if policy_id and policy_id != policy_code else policy_code or "—"
+
     flight  = policy.get("flight") or ""
     airline = policy.get("airline") or ""
     date    = policy.get("date") or ""
@@ -119,7 +125,11 @@ def _format_policy_card(policy: dict) -> str:
     else:
         badge = f"📋 {status.title()}"
 
-    lines = ["*YOUR ACTIVE POLICY*", f"Policy ID   {ref}"]
+    lines = ["*YOUR ACTIVE POLICY*", f"Policy ID   {display_id}"]
+
+    # Show policy code separately only when it differs from id
+    if policy_code and policy_code != policy_id and policy_code != "—":
+        lines.append(f"Policy No.  {policy_code}")
 
     if flight:
         fl_line = f"{flight} · {airline}".strip(" ·") if airline else flight
@@ -167,9 +177,10 @@ async def send_welcome_message(
         await asyncio.sleep(1.5)
 
     # 2. Check for existing policy (welcome-back vs. generic welcome)
+    # Only real policies (not drafts / NEW) trigger the welcome-back card
     _RETURNER_STATUSES = {
         "ACTIVE", "SUBMITTED", "PAID", "CONFIRMED", "APPROVED",
-        "PROCESSING", "PENDING_PAYMENT", "NEW", "ISSUED",
+        "PROCESSING", "PENDING_PAYMENT", "ISSUED",
     }
     active_policy = None
     lookup_id = wa_id or to
@@ -177,13 +188,18 @@ async def send_welcome_message(
         try:
             msisdn = get_msisdn(lookup_id)
             policies = await fetch_policies_by_msisdn(msisdn)
+            logger.info(
+                f"[welcome] {len(policies)} policies for {lookup_id}: "
+                + str([
+                    {"id": p.get("id"), "ref": p.get("ref"), "status": p.get("status")}
+                    for p in policies[:5]
+                ])
+            )
             for p in policies:
                 if (p.get("status") or "").upper() in _RETURNER_STATUSES:
                     active_policy = p
                     break
-            # Fallback: any policy at all counts as a returning user
-            if not active_policy and policies:
-                active_policy = policies[0]
+            # No fallback — don't show welcome-back for draft/new/unknown policies
         except Exception as exc:
             logger.warning(f"[welcome] policy lookup failed for {lookup_id}: {exc}")
 
