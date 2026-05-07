@@ -14,7 +14,9 @@ from app.services.whatsapp_service import send_text_message, send_whatsapp_paylo
 from app.services.llm_log_service import save_llm_log
 from app.services.buy_cover_flow_service import (
     is_in_buy_cover_flow, start_buy_cover_flow, handle_buy_cover_flow,
+    pause_buy_cover_flow,
 )
+import app.services.ipurvey_service as ipurvey_service
 from app.services.kyc_flow_service import (
     is_in_kyc_flow, handle_kyc_flow, start_kyc_flow,
 )
@@ -293,10 +295,14 @@ async def _process_change(entry_id: str, change):
                     main_menu_triggers = {"00", "main menu", "#menu", "#main", "#home"}
                     if text_norm_mm in main_menu_triggers or text_lower_mm in main_menu_triggers:
                         if user_session:
+                            # Pause buy/kyc/payment (save state for resume later)
+                            await pause_buy_cover_flow(sender_wa_id)
+                            # Reload session after pause to avoid overwriting paused_context
+                            user_session = await get_session(sender_wa_id) or user_session
+                            # Clear other flows entirely (not resumable)
                             td = user_session.setdefault("temp_data", {})
-                            for fk in ("buy_cover_flow", "kyc_flow", "payment_flow",
-                                       "bp_link_flow", "help_flow", "check_policy_flow",
-                                       "update_details_flow"):
+                            for fk in ("bp_link_flow", "help_flow",
+                                       "check_policy_flow", "update_details_flow"):
                                 if td.get(fk, {}).get("active"):
                                     td[fk] = {}
                             await save_session(user_session)
@@ -318,9 +324,11 @@ async def _process_change(entry_id: str, change):
                     # 9 or #help → start help flow (works from anywhere)
                     if _nav_text == "9" or _nav_norm == "#help":
                         if user_session:
+                            # Pause buy/kyc/payment flows so user can resume after help
+                            await pause_buy_cover_flow(sender_wa_id)
+                            user_session = await get_session(sender_wa_id) or user_session
                             td = user_session.setdefault("temp_data", {})
-                            for fk in ("buy_cover_flow", "kyc_flow", "payment_flow",
-                                       "bp_link_flow", "check_policy_flow", "update_details_flow"):
+                            for fk in ("bp_link_flow", "check_policy_flow", "update_details_flow"):
                                 if td.get(fk, {}).get("active"):
                                     td[fk] = {}
                             await save_session(user_session)
@@ -673,34 +681,28 @@ async def _handle_welcome_button(
 
     from app.services.session_service import get_session, save_session
     session = await get_session(sender_wa_id)
+
+    # Determine if the action is a buy-cover action
+    _is_buy_action = reply_id in ("buy_cover", "welcome_purchase_policy", "restart_buy")
+
     if session:
-        bc_state = session.get("temp_data", {}).get("buy_cover_flow", {})
-        if bc_state.get("active"):
-            session.setdefault("temp_data", {})["buy_cover_flow"] = {}
+        if _is_buy_action:
+            # For buy actions: DON'T clear buy/kyc/payment.
+            # start_buy_cover_flow will detect the paused context and offer resume/fresh.
+            # Only clear non-purchase flows.
+            td = session.setdefault("temp_data", {})
+            for fk in ("bp_link_flow", "help_flow", "check_policy_flow", "update_details_flow"):
+                if td.get(fk, {}).get("active"):
+                    td[fk] = {}
             await save_session(session)
-        kyc_state = session.get("temp_data", {}).get("kyc_flow", {})
-        if kyc_state.get("active"):
-            session.setdefault("temp_data", {})["kyc_flow"] = {}
-            await save_session(session)
-        pay_state = session.get("temp_data", {}).get("payment_flow", {})
-        if pay_state.get("active"):
-            session.setdefault("temp_data", {})["payment_flow"] = {}
-            await save_session(session)
-        bpl_state = session.get("temp_data", {}).get("bp_link_flow", {})
-        if bpl_state.get("active"):
-            session.setdefault("temp_data", {})["bp_link_flow"] = {}
-            await save_session(session)
-        hlp_state = session.get("temp_data", {}).get("help_flow", {})
-        if hlp_state.get("active"):
-            session.setdefault("temp_data", {})["help_flow"] = {}
-            await save_session(session)
-        cp_state = session.get("temp_data", {}).get("check_policy_flow", {})
-        if cp_state.get("active"):
-            session.setdefault("temp_data", {})["check_policy_flow"] = {}
-            await save_session(session)
-        ud_state = session.get("temp_data", {}).get("update_details_flow", {})
-        if ud_state.get("active"):
-            session.setdefault("temp_data", {})["update_details_flow"] = {}
+        else:
+            # For non-buy actions: pause buy/kyc/payment (user may want to resume later)
+            await pause_buy_cover_flow(sender_wa_id)
+            session = await get_session(sender_wa_id) or session
+            td = session.setdefault("temp_data", {})
+            for fk in ("bp_link_flow", "help_flow", "check_policy_flow", "update_details_flow"):
+                if td.get(fk, {}).get("active"):
+                    td[fk] = {}
             await save_session(session)
 
     if reply_id == "buy_cover" or reply_id == "restart_buy":
@@ -807,9 +809,24 @@ async def _handle_cx_confirm(reply_id: str, wa_id: str, phone_number_id: str, se
 
     elif reply_id == "cx_yes_buy":
         if session:
+            # Cancel the draft policy in the backend (99 = cancel)
+            policy_id_cx = session.get("api_data", {}).get("policy_id")
+            if not policy_id_cx:
+                # Also check paused context
+                _pc = session.get("paused_context")
+                if _pc:
+                    policy_id_cx = _pc.get("policy_id")
+            if policy_id_cx:
+                try:
+                    await ipurvey_service.cancel_draft_policy(policy_id_cx)
+                    logger.info(f"[webhook] cx_yes_buy: cancelled draft {policy_id_cx} for {wa_id}")
+                except Exception as exc:
+                    logger.error(f"[webhook] cx_yes_buy cancel_draft failed: {exc}")
             td = session.setdefault("temp_data", {})
             for fk in ("buy_cover_flow", "kyc_flow", "payment_flow"):
                 td[fk] = {}
+            session.pop("paused_context", None)
+            session["api_data"] = {}
             await save_session(session)
         payload = {
             "messaging_product": "whatsapp",
