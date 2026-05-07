@@ -431,8 +431,10 @@ async def handle_check_policy_flow(
             await _show_manage_alerts(session, sender_wa_id, pol, phone_number_id)
         elif reply_id == "pol_back_detail":
             await _show_detail(session, sender_wa_id, pol, phone_number_id)
-        elif reply_id in ("pol_cancel", "pol_home"):
+        elif reply_id == "pol_home":
             await _go_home(session, sender_wa_id, phone_number_id)
+        elif reply_id == "pol_cancel":
+            await show_cancel_policy_check_confirm(sender_wa_id, phone_number_id)
         else:
             await _show_document(session, sender_wa_id, pol, phone_number_id)
 
@@ -445,8 +447,10 @@ async def handle_check_policy_flow(
             await _show_alerts_off_confirm(session, sender_wa_id, pol, phone_number_id)
         elif reply_id == "pol_back_detail":
             await _show_detail(session, sender_wa_id, pol, phone_number_id)
-        elif reply_id in ("pol_cancel", "pol_home"):
+        elif reply_id == "pol_home":
             await _go_home(session, sender_wa_id, phone_number_id)
+        elif reply_id == "pol_cancel":
+            await show_cancel_policy_check_confirm(sender_wa_id, phone_number_id)
         else:
             await _show_manage_alerts(session, sender_wa_id, pol, phone_number_id)
 
@@ -455,8 +459,10 @@ async def handle_check_policy_flow(
         pol = _get_selected_pol()
         if reply_id == "pol_back_detail":
             await _show_detail(session, sender_wa_id, pol, phone_number_id)
-        elif reply_id in ("pol_cancel", "pol_home"):
+        elif reply_id == "pol_home":
             await _go_home(session, sender_wa_id, phone_number_id)
+        elif reply_id == "pol_cancel":
+            await show_cancel_policy_check_confirm(sender_wa_id, phone_number_id)
         else:
             await _show_detail(session, sender_wa_id, pol, phone_number_id)
 
@@ -467,8 +473,10 @@ async def handle_check_policy_flow(
             await _show_alerts_off_done(session, sender_wa_id, pol, phone_number_id)
         elif reply_id in ("pol_alerts_keep", "pol_back_detail"):
             await _show_manage_alerts(session, sender_wa_id, pol, phone_number_id)
-        elif reply_id in ("pol_cancel", "pol_home"):
+        elif reply_id == "pol_home":
             await _go_home(session, sender_wa_id, phone_number_id)
+        elif reply_id == "pol_cancel":
+            await show_cancel_policy_check_confirm(sender_wa_id, phone_number_id)
         else:
             await _show_alerts_off_confirm(session, sender_wa_id, pol, phone_number_id)
 
@@ -479,8 +487,10 @@ async def handle_check_policy_flow(
             await _show_manage_alerts(session, sender_wa_id, pol, phone_number_id)
         elif reply_id == "pol_back_detail":
             await _show_detail(session, sender_wa_id, pol, phone_number_id)
-        elif reply_id in ("pol_cancel", "pol_home"):
+        elif reply_id == "pol_home":
             await _go_home(session, sender_wa_id, phone_number_id)
+        elif reply_id == "pol_cancel":
+            await show_cancel_policy_check_confirm(sender_wa_id, phone_number_id)
         else:
             await _show_detail(session, sender_wa_id, pol, phone_number_id)
 
@@ -491,8 +501,10 @@ async def handle_check_policy_flow(
             await _show_linked(session, sender_wa_id, pol, phone_number_id)
         elif reply_id == "pol_back_detail":
             await _show_detail(session, sender_wa_id, pol, phone_number_id)
-        elif reply_id in ("pol_cancel", "pol_home"):
+        elif reply_id == "pol_home":
             await _go_home(session, sender_wa_id, phone_number_id)
+        elif reply_id == "pol_cancel":
+            await show_cancel_policy_check_confirm(sender_wa_id, phone_number_id)
         else:
             await _show_link_confirm(session, sender_wa_id, pol, phone_number_id)
 
@@ -521,8 +533,10 @@ async def handle_check_policy_flow(
             await start_bp_link_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
         elif reply_id in ("pol_back_detail", "pol_back"):
             await _show_detail(session, sender_wa_id, pol, phone_number_id)
-        elif reply_id in ("pol_cancel", "pol_home"):
+        elif reply_id == "pol_home":
             await _go_home(session, sender_wa_id, phone_number_id)
+        elif reply_id == "pol_cancel":
+            await show_cancel_policy_check_confirm(sender_wa_id, phone_number_id)
         else:
             await _show_eligibility(session, sender_wa_id, pol, phone_number_id)
 
@@ -531,8 +545,10 @@ async def handle_check_policy_flow(
         pol = _get_selected_pol()
         if reply_id == "pol_back_detail":
             await _show_detail(session, sender_wa_id, pol, phone_number_id)
-        elif reply_id in ("pol_cancel", "pol_home"):
+        elif reply_id == "pol_home":
             await _go_home(session, sender_wa_id, phone_number_id)
+        elif reply_id == "pol_cancel":
+            await show_cancel_policy_check_confirm(sender_wa_id, phone_number_id)
         else:
             await _show_detail(session, sender_wa_id, pol, phone_number_id)
 
@@ -547,6 +563,19 @@ async def _go_home(session: dict, wa_id: str, phone_number_id: Optional[str]):
     await _reset(session)
     from app.services.auto_reply_service import send_main_menu
     await send_main_menu(to=wa_id, phone_number_id=phone_number_id)
+
+
+async def show_cancel_policy_check_confirm(wa_id: str, phone_number_id: Optional[str]):
+    """Show Cancel Policy Check confirmation screen."""
+    await _send_buttons(
+        wa_id,
+        "❌ *Cancel Policy Check*\n\nAre you sure you want to cancel?\nIs there anything else we can help you with?",
+        [
+            {"id": "cx_yes_pol", "title": "❌ Yes, cancel"},
+            {"id": "cx_no_pol",  "title": "↩️ No, go back"},
+        ],
+        phone_number_id,
+    )
 
 
 _PAGE_SIZE = 8

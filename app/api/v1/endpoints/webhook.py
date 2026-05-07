@@ -10,7 +10,7 @@ from app.services import contact_service, message_service
 from app.services.auto_reply_service import handle_auto_reply
 from app.services.session_service import get_session, save_session, build_default_session
 from app.services.llm_service import call_generic
-from app.services.whatsapp_service import send_text_message
+from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 from app.services.llm_log_service import save_llm_log
 from app.services.buy_cover_flow_service import (
     is_in_buy_cover_flow, start_buy_cover_flow, handle_buy_cover_flow,
@@ -40,6 +40,17 @@ WELCOME_BUTTON_IDS = {
     "buy_cover", "check_policy", "check_eligibility", "update_details",
     "boarding_pass", "help", "restart_buy", "go_main",
 }
+
+_CX_CONFIRM_IDS = frozenset({
+    "cx_yes_exit",  "cx_no_exit",
+    "cx_yes_buy",   "cx_no_buy",
+    "cx_yes_pol",   "cx_no_pol",
+    "cx_yes_upd",   "cx_no_upd",
+    "cx_yes_bp",    "cx_no_bp",
+    "cx_yes_help",  "cx_no_help",
+    "cx_yes_elig",  "cx_no_elig",
+    "cx_new_cover", "cx_main_menu",
+})
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -227,23 +238,26 @@ async def _process_change(entry_id: str, change):
 
                     text_lower = message.text.body.lower().strip()
                     cancel_words = ("cancel", "/cancel", "exit", "/exit", "stop", "/stop", "#cancel", "#exit")
-                    if (
-                        text_lower in cancel_words
-                        and not is_in_buy_cover_flow(user_session)
-                        and not is_in_kyc_flow(user_session)
-                        and not is_in_payment_flow(user_session)
-                        and not is_in_bp_link_flow(user_session)
-                        and not is_in_help_flow(user_session)
-                        and not is_in_check_policy_flow(user_session)
-                        and not is_in_update_details_flow(user_session)
-                    ):
-                        await send_welcome_message(
-                            to=sender_wa_id,
-                            phone_number_id=msg_phone_number_id,
-                            in_reply_to=message.id,
-                            wa_id=sender_wa_id,
-                        )
-                        log_event("CANCEL_NO_FLOW", {"to": sender_wa_id})
+                    if text_lower in cancel_words:
+                        from app.services.buy_cover_flow_service import show_cancel_purchase_confirm
+                        from app.services.check_policy_flow_service import show_cancel_policy_check_confirm
+                        from app.services.update_details_flow_service import show_cancel_update_confirm
+                        from app.services.bp_link_flow_service import show_cancel_bp_confirm
+                        from app.services.help_flow_service import show_exit_help_confirm
+                        if (is_in_buy_cover_flow(user_session) or is_in_kyc_flow(user_session)
+                                or is_in_payment_flow(user_session)):
+                            await show_cancel_purchase_confirm(sender_wa_id, msg_phone_number_id)
+                        elif is_in_bp_link_flow(user_session):
+                            await show_cancel_bp_confirm(sender_wa_id, msg_phone_number_id, user_session)
+                        elif is_in_check_policy_flow(user_session):
+                            await show_cancel_policy_check_confirm(sender_wa_id, msg_phone_number_id)
+                        elif is_in_update_details_flow(user_session):
+                            await show_cancel_update_confirm(sender_wa_id, msg_phone_number_id)
+                        elif is_in_help_flow(user_session):
+                            await show_exit_help_confirm(sender_wa_id, msg_phone_number_id)
+                        else:
+                            await _show_exit_confirm(sender_wa_id, msg_phone_number_id)
+                            log_event("CANCEL_NO_FLOW", {"to": sender_wa_id})
                         continue
 
                     text_norm = " ".join(text_lower.split())
@@ -377,6 +391,22 @@ async def _process_change(entry_id: str, change):
                             log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "none→menu"})
                         continue
                 # ─────────────────────────────────────────────────────────────
+
+                # === Global cancel-confirmation response handler ===
+                reply_id_for_cx = None
+                if message.type == "interactive" and message.interactive:
+                    inter = message.interactive
+                    if isinstance(inter, dict):
+                        br = inter.get("button_reply") or inter.get("list_reply")
+                        reply_id_for_cx = br.get("id") if br else None
+                    else:
+                        br = getattr(inter, "button_reply", None) or getattr(inter, "list_reply", None)
+                        if br:
+                            reply_id_for_cx = br.get("id") if isinstance(br, dict) else getattr(br, "id", None)
+                if reply_id_for_cx and reply_id_for_cx in _CX_CONFIRM_IDS:
+                    await _handle_cx_confirm(reply_id_for_cx, sender_wa_id, msg_phone_number_id, user_session)
+                    continue
+                # ═══════════════════════════════════════════════════════════════
 
                 if is_in_update_details_flow(user_session):
                     log_event("FLOW", {"from": sender_wa_id, "trigger": "UPDATE_DETAILS"})
@@ -731,3 +761,150 @@ async def _handle_welcome_button(
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
         )
+
+
+async def _show_exit_confirm(wa_id: str, phone_number_id: str):
+    """Show Exit confirmation screen for users not in any active flow."""
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": wa_id,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {
+                "text": (
+                    "❌ *Exit*\n\n"
+                    "Are you sure you want to leave?\n"
+                    "Is there anything else we can help you with?"
+                )
+            },
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": "cx_yes_exit", "title": "❌ Yes, exit"}},
+                    {"type": "reply", "reply": {"id": "cx_no_exit",  "title": "↩️ No, stay here"}},
+                ]
+            },
+        },
+    }
+    await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="webhook")
+
+
+async def _handle_cx_confirm(reply_id: str, wa_id: str, phone_number_id: str, session):
+    """Handle all cancel-confirmation button responses globally."""
+    from app.services.auto_reply_service import send_welcome_message, send_main_menu
+
+    if reply_id == "cx_yes_exit":
+        await send_welcome_message(to=wa_id, phone_number_id=phone_number_id, wa_id=wa_id)
+
+    elif reply_id == "cx_no_exit":
+        await send_text_message(
+            to=wa_id,
+            body="Okay, no problem! 😊 Is there anything I can help you with?",
+            phone_number_id=phone_number_id,
+            source="webhook",
+        )
+
+    elif reply_id == "cx_yes_buy":
+        if session:
+            td = session.setdefault("temp_data", {})
+            for fk in ("buy_cover_flow", "kyc_flow", "payment_flow"):
+                td[fk] = {}
+            await save_session(session)
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": wa_id,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {
+                    "text": (
+                        "✅ *Purchase cancelled*\n\n"
+                        "No worries — you can come back anytime to protect your trip."
+                    )
+                },
+                "action": {
+                    "buttons": [
+                        {"type": "reply", "reply": {"id": "cx_new_cover", "title": "✈️ Start a new cover"}},
+                        {"type": "reply", "reply": {"id": "cx_main_menu", "title": "🏠 Main menu"}},
+                    ]
+                },
+            },
+        }
+        await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="webhook")
+
+    elif reply_id == "cx_no_buy":
+        await send_text_message(
+            to=wa_id,
+            body="Okay, your purchase is still in progress. 👍",
+            phone_number_id=phone_number_id,
+            source="webhook",
+        )
+
+    elif reply_id == "cx_yes_pol":
+        if session:
+            session.setdefault("temp_data", {})["check_policy_flow"] = {}
+            await save_session(session)
+        await send_main_menu(to=wa_id, phone_number_id=phone_number_id, wa_id=wa_id)
+
+    elif reply_id == "cx_no_pol":
+        await send_text_message(
+            to=wa_id,
+            body="Okay, continuing your policy check. 👍",
+            phone_number_id=phone_number_id,
+            source="webhook",
+        )
+
+    elif reply_id == "cx_yes_upd":
+        if session:
+            session.setdefault("temp_data", {})["update_details_flow"] = {}
+            await save_session(session)
+        await send_main_menu(to=wa_id, phone_number_id=phone_number_id, wa_id=wa_id)
+
+    elif reply_id == "cx_no_upd":
+        await send_text_message(
+            to=wa_id,
+            body="Okay, continuing your update. 👍",
+            phone_number_id=phone_number_id,
+            source="webhook",
+        )
+
+    elif reply_id in ("cx_yes_bp", "cx_yes_elig"):
+        if session:
+            session.setdefault("temp_data", {})["bp_link_flow"] = {}
+            await save_session(session)
+        await send_main_menu(to=wa_id, phone_number_id=phone_number_id, wa_id=wa_id)
+
+    elif reply_id in ("cx_no_bp", "cx_no_elig"):
+        await send_text_message(
+            to=wa_id,
+            body="Okay, continuing. 👍",
+            phone_number_id=phone_number_id,
+            source="webhook",
+        )
+
+    elif reply_id == "cx_yes_help":
+        if session:
+            session.setdefault("temp_data", {})["help_flow"] = {}
+            await save_session(session)
+        await send_welcome_message(to=wa_id, phone_number_id=phone_number_id, wa_id=wa_id)
+
+    elif reply_id == "cx_no_help":
+        await send_text_message(
+            to=wa_id,
+            body="Okay, continuing with help. 👍",
+            phone_number_id=phone_number_id,
+            source="webhook",
+        )
+
+    elif reply_id == "cx_new_cover":
+        if session:
+            td = session.setdefault("temp_data", {})
+            for fk in ("buy_cover_flow", "kyc_flow", "payment_flow"):
+                td[fk] = {}
+            await save_session(session)
+        await start_buy_cover_flow(wa_id=wa_id, phone_number_id=phone_number_id)
+
+    elif reply_id == "cx_main_menu":
+        await send_main_menu(to=wa_id, phone_number_id=phone_number_id, wa_id=wa_id)

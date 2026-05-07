@@ -665,6 +665,19 @@ async def _send_bank_results(wa_id: str, banks: list, phone_number_id: Optional[
         phone_number_id)
 
 
+async def show_cancel_update_confirm(wa_id: str, phone_number_id: Optional[str]):
+    """Show Cancel Update confirmation screen."""
+    await _send_buttons(
+        wa_id,
+        "❌ *Cancel Update*\n\nAre you sure you want to cancel?\nAny changes you've made will not be saved.",
+        [
+            {"id": "cx_yes_upd", "title": "❌ Yes, discard"},
+            {"id": "cx_no_upd",  "title": "↩️ No, continue"},
+        ],
+        phone_number_id,
+    )
+
+
 async def _send_success(
     session: dict,
     wa_id: str,

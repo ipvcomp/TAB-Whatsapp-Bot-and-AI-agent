@@ -69,6 +69,19 @@ async def _send_buttons(
     )
 
 
+async def show_exit_help_confirm(wa_id: str, phone_number_id: Optional[str]):
+    """Show Exit Help confirmation screen."""
+    await _send_buttons(
+        wa_id,
+        "❌ *Exit Help*\n\nAre you sure you want to exit help?",
+        [
+            {"id": "cx_yes_help", "title": "❌ Yes, exit help"},
+            {"id": "cx_no_help",  "title": "↩️ No, continue"},
+        ],
+        phone_number_id,
+    )
+
+
 async def start_help_flow(
     wa_id: str,
     phone_number_id: Optional[str],

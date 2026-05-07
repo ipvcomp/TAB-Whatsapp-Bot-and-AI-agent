@@ -1724,17 +1724,7 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
         elif reply_id == "next_cancel":
-            flow["step"] = "buy_cover_cancel_confirm"
-            await save_session(session)
-            await _send_buttons(
-                sender_wa_id,
-                "❌ *Cancel Purchase*\n\nAre you sure you want to cancel? Your trip details will not be saved.",
-                [
-                    {"id": "cancel_yes", "title": "❌ Yes, cancel"},
-                    {"id": "cancel_no", "title": "↩️ No, go back"},
-                ],
-                phone_number_id,
-            )
+            await show_cancel_purchase_confirm(sender_wa_id, phone_number_id)
         else:
             await _send_buttons(
                 sender_wa_id,
@@ -2038,3 +2028,16 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
 
     else:
         await start_buy_cover_flow(wa_id=wa_id, phone_number_id=phone_number_id)
+
+
+async def show_cancel_purchase_confirm(wa_id: str, phone_number_id: Optional[str]):
+    """Show Cancel Purchase confirmation screen (Buy / KYC / Payment flows)."""
+    await _send_buttons(
+        wa_id,
+        "❌ *Cancel Purchase*\n\nAre you sure you want to cancel?\nYour trip details will not be saved.",
+        [
+            {"id": "cx_yes_buy", "title": "❌ Yes, cancel"},
+            {"id": "cx_no_buy",  "title": "↩️ No, go back"},
+        ],
+        phone_number_id,
+    )

@@ -107,6 +107,34 @@ async def _send_buttons(
     await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="bp_link_flow")
 
 
+async def show_cancel_bp_confirm(wa_id: str, phone_number_id: Optional[str], session: Optional[dict] = None):
+    """Show cancel boarding pass confirmation screen.
+    Shows 'Cancel Eligibility Check' if user is at the eligibility step."""
+    step = ""
+    if session:
+        step = session.get("temp_data", {}).get(BP_LINK_FLOW_KEY, {}).get("step", "")
+    if "eligib" in step:
+        await _send_buttons(
+            wa_id,
+            "❌ *Cancel Eligibility Check*\n\nAre you sure you want to cancel?\nIs there anything else we can help you with?",
+            [
+                {"id": "cx_yes_elig", "title": "❌ Yes, cancel"},
+                {"id": "cx_no_elig",  "title": "↩️ No, go back"},
+            ],
+            phone_number_id,
+        )
+    else:
+        await _send_buttons(
+            wa_id,
+            "❌ *Cancel Proof Upload*\n\nAre you sure you want to cancel?\nYour proof will not be uploaded or verified.",
+            [
+                {"id": "cx_yes_bp", "title": "❌ Yes, cancel"},
+                {"id": "cx_no_bp",  "title": "↩️ No, continue"},
+            ],
+            phone_number_id,
+        )
+
+
 async def _go_home(wa_id: str, session: dict, phone_number_id: Optional[str]):
     session["temp_data"][BP_LINK_FLOW_KEY]   = {}
     session["temp_data"][PAYMENT_FLOW_KEY]   = {}
@@ -621,8 +649,10 @@ async def handle_bp_link_flow(
                     await _show_policy_list(sender_wa_id, session, flow, action, phone_number_id)
             except (ValueError, IndexError):
                 await _show_policy_list(sender_wa_id, session, flow, action, phone_number_id)
-        elif reply_id in ("bp_home", "bp_cancel"):
+        elif reply_id == "bp_home":
             await _go_home(sender_wa_id, session, phone_number_id)
+        elif reply_id == "bp_cancel":
+            await show_cancel_bp_confirm(sender_wa_id, phone_number_id, session)
         elif reply_id == "bp_back_to_list":
             await _show_policy_list(sender_wa_id, session, flow, action, phone_number_id)
         else:
@@ -704,8 +734,10 @@ async def handle_bp_link_flow(
     elif step == "bp_upload_done":
         if reply_id == "bp_eligibility":
             await _show_eligibility(sender_wa_id, session, flow, phone_number_id)
-        elif reply_id in ("bp_home", "bp_cancel"):
+        elif reply_id == "bp_home":
             await _go_home(sender_wa_id, session, phone_number_id)
+        elif reply_id == "bp_cancel":
+            await show_cancel_bp_confirm(sender_wa_id, phone_number_id, session)
         else:
             await _show_upload_confirmed(sender_wa_id, session, flow, phone_number_id)
 
@@ -729,8 +761,10 @@ async def handle_bp_link_flow(
                     "⚠️ Could not check status — policy details not found. Please contact support.",
                     phone_number_id,
                 )
-        elif reply_id in ("bp_home", "bp_cancel"):
+        elif reply_id == "bp_home":
             await _go_home(sender_wa_id, session, phone_number_id)
+        elif reply_id == "bp_cancel":
+            await show_cancel_bp_confirm(sender_wa_id, phone_number_id, session)
         else:
             await _show_bp_status(sender_wa_id, session, flow, "PENDING", phone_number_id)
 
@@ -740,8 +774,10 @@ async def handle_bp_link_flow(
             await _show_linked(sender_wa_id, session, flow, phone_number_id)
         elif reply_id == "bp_back":
             await _show_policy_list(sender_wa_id, session, flow, "link", phone_number_id)
-        elif reply_id in ("bp_cancel", "bp_home"):
+        elif reply_id == "bp_home":
             await _go_home(sender_wa_id, session, phone_number_id)
+        elif reply_id == "bp_cancel":
+            await show_cancel_bp_confirm(sender_wa_id, phone_number_id, session)
         else:
             await _show_link_confirm(sender_wa_id, session, flow, phone_number_id)
 
@@ -751,8 +787,10 @@ async def handle_bp_link_flow(
             await _show_eligibility(sender_wa_id, session, flow, phone_number_id)
         elif reply_id == "bp_view_policy":
             await _show_policy_card(sender_wa_id, session, flow, phone_number_id)
-        elif reply_id in ("bp_home", "bp_cancel"):
+        elif reply_id == "bp_home":
             await _go_home(sender_wa_id, session, phone_number_id)
+        elif reply_id == "bp_cancel":
+            await show_cancel_bp_confirm(sender_wa_id, phone_number_id, session)
         else:
             await _show_linked(sender_wa_id, session, flow, phone_number_id)
 
@@ -793,8 +831,10 @@ async def handle_bp_link_flow(
                 await _show_linked(sender_wa_id, session, flow, phone_number_id)
             else:
                 await _show_upload_confirmed(sender_wa_id, session, flow, phone_number_id)
-        elif reply_id in ("bp_home", "bp_cancel"):
+        elif reply_id == "bp_home":
             await _go_home(sender_wa_id, session, phone_number_id)
+        elif reply_id == "bp_cancel":
+            await show_cancel_bp_confirm(sender_wa_id, phone_number_id, session)
         else:
             await _show_eligibility(sender_wa_id, session, flow, phone_number_id)
 
@@ -802,8 +842,10 @@ async def handle_bp_link_flow(
     elif step == "bp_payout_done":
         if reply_id == "bp_view_policy":
             await _show_policy_card(sender_wa_id, session, flow, phone_number_id)
-        elif reply_id in ("bp_home", "bp_cancel"):
+        elif reply_id == "bp_home":
             await _go_home(sender_wa_id, session, phone_number_id)
+        elif reply_id == "bp_cancel":
+            await show_cancel_bp_confirm(sender_wa_id, phone_number_id, session)
         else:
             await _go_home(sender_wa_id, session, phone_number_id)
 
