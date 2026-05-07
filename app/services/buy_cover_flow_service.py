@@ -1432,6 +1432,22 @@ async def handle_buy_cover_flow(
             await _send_edit_menu(sender_wa_id, phone_number_id)
             return
 
+        if reply_id == "edit_booking_ref":
+            data["_edit_mode"] = True
+            flow["step"] = "buy_cover_booking_ref"
+            await save_session(session)
+            await _send_text(
+                sender_wa_id,
+                "*🎫 Please enter your updated booking reference*\n\n"
+                "_Examples: AB1XY2, 2990FA62_",
+                phone_number_id,
+            )
+            return
+
+        if reply_id != "summary_confirm":
+            await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
+            return
+
         await _send_text(
             sender_wa_id,
             "⏳ *Fetching available covers for your trip...*\n_Please wait a moment_",
@@ -1480,20 +1496,36 @@ async def handle_buy_cover_flow(
                 if not itinerary_ok:
                     flow["step"] = "buy_cover_summary"
                     await save_session(session)
-                    err_line = f"\n\n_{iti_err}_" if iti_err else ""
-                    await _send_buttons(
-                        sender_wa_id,
-                        (
-                            "⚠️ *We couldn't submit your trip details*"
-                            f"{err_line}\n\n"
-                            "Please check your flight details and try again, or edit them if something is incorrect."
-                        ),
-                        [
-                            {"id": "summary_confirm", "title": "🔄 Try again"},
-                            {"id": "summary_edit", "title": "✏️ Edit details"},
-                        ],
-                        phone_number_id,
-                    )
+                    if iti_err and "already exists with booking reference" in iti_err:
+                        booking_ref = data.get("booking_ref", "")
+                        await _send_buttons(
+                            sender_wa_id,
+                            (
+                                f"⚠️ *Booking Reference Already in Use*\n\n"
+                                f"The booking reference *{booking_ref}* is already linked to an active policy.\n\n"
+                                "Please enter a different booking reference."
+                            ),
+                            [
+                                {"id": "edit_booking_ref", "title": "✏️ Change Booking Ref"},
+                                {"id": "summary_edit",     "title": "📝 Edit other details"},
+                            ],
+                            phone_number_id,
+                        )
+                    else:
+                        err_line = f"\n\n_{iti_err}_" if iti_err else ""
+                        await _send_buttons(
+                            sender_wa_id,
+                            (
+                                "⚠️ *We couldn't submit your trip details*"
+                                f"{err_line}\n\n"
+                                "Please check your flight details and try again, or edit them if something is incorrect."
+                            ),
+                            [
+                                {"id": "summary_confirm", "title": "🔄 Try again"},
+                                {"id": "summary_edit", "title": "✏️ Edit details"},
+                            ],
+                            phone_number_id,
+                        )
                     return
                 quotes = await ipurvey_service.fetch_quotes(policy_id)
             except Exception as exc:
