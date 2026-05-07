@@ -69,6 +69,37 @@ def _extract(resp: dict):
     return resp.get("data") if resp.get("data") is not None else resp
 
 
+# ── BANK SEARCH ───────────────────────────────────────────────────────────────
+
+async def search_banks(query: str, country_code: str = "NG") -> list[dict]:
+    """Search banks via the Flutterwave API.
+    Returns a list of dicts with keys: id, code, name.
+    Returns [] on error or no results.
+    """
+    logger.info(f"[ipurvey] search_banks query='{query}' country='{country_code}'")
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(
+                f"{_base()}/api/payments/flutterwave/banks/{country_code}",
+                params={"search": query},
+            )
+            if r.status_code == 200:
+                body = r.json()
+                items = body.get("data") or []
+                results = [
+                    {"id": b.get("id"), "code": str(b.get("code", "")), "name": b.get("name", "")}
+                    for b in items
+                    if b.get("name")
+                ]
+                logger.info(f"[ipurvey] search_banks → {len(results)} result(s) for '{query}'")
+                return results
+            logger.warning(f"[ipurvey] search_banks {r.status_code}: {r.text[:200]}")
+            return []
+    except Exception as e:
+        logger.error(f"[ipurvey] search_banks failed: {e}")
+        return []
+
+
 # ── AIRPORT SEARCH ────────────────────────────────────────────────────────────
 
 async def search_airports(query: str, country_code: Optional[str] = None) -> list[dict]:

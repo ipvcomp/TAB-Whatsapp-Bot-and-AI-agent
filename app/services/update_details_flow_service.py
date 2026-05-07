@@ -11,31 +11,6 @@ logger = logging.getLogger(__name__)
 
 UPDATE_DETAILS_FLOW_KEY = "update_details_flow"
 
-NIGERIAN_BANKS = sorted([
-    "Access Bank", "Carbon", "Citibank Nigeria",
-    "Coronation Bank", "Ecobank Nigeria", "Fidelity Bank",
-    "First Bank", "First City Monument Bank", "Globus Bank",
-    "GT Bank", "Heritage Bank", "Jaiz Bank",
-    "Keystone Bank", "Kuda Bank", "Lotus Bank",
-    "Moniepoint", "Opay", "Palmpay", "Parallex Bank",
-    "Polaris Bank", "Providus Bank", "Stanbic IBTC Bank",
-    "Standard Chartered", "Sterling Bank", "SunTrust Bank",
-    "Taj Bank", "Titan Trust Bank", "Union Bank",
-    "United Bank for Africa", "Unity Bank",
-    "VFD Microfinance Bank", "Wema Bank", "Zenith Bank",
-])
-
-BANKS_PER_PAGE = 8
-
-
-def _filter_banks(query: str) -> list:
-    q = query.strip().lower()
-    matched = [b for b in NIGERIAN_BANKS if q in b.lower()]
-    return matched if matched else NIGERIAN_BANKS[:]
-
-
-def _bank_pages(banks: list) -> list:
-    return [banks[i:i + BANKS_PER_PAGE] for i in range(0, len(banks), BANKS_PER_PAGE)]
 
 
 def is_in_update_details_flow(session: Optional[dict]) -> bool:
@@ -500,74 +475,71 @@ async def handle_update_details_flow(
     # ── Bank: search ───────────────────────────────────────────────────────────
     elif step == "upd_bank_search":
         query = text.strip()
-        if len(query) < 2:
+        if len(query) < 3:
             await _send_text(sender_wa_id,
-                "⚠️ Enter *at least 2 characters*.\n_Example: Zen, GT_",
+                "⚠️ Enter *at least 3 characters* of your bank name:\n_Example: Zen, GT, Wem_",
                 phone_number_id)
             return
-        banks = _filter_banks(query)
-        pages = _bank_pages(banks)
+        banks = await ipurvey_service.search_banks(query)
+        if not banks:
+            await _send_buttons(sender_wa_id,
+                f"❌ *No banks found matching \"{query}\"*\n\n"
+                "We couldn't find any bank matching your entry.\n"
+                "Please check the spelling or try searching again.",
+                [{"id": "upd_bsearch", "title": "🔍 Search again"}],
+                phone_number_id)
+            return
         await _save_data(session, "upd_blist", banks)
-        await _save_data(session, "upd_bpage", 0)
         await _set_step(session, "upd_bank_select")
-        await _send_bank_page(session, sender_wa_id, pages, 0, banks, phone_number_id)
+        await _send_bank_results(sender_wa_id, banks, phone_number_id)
 
-    # ── Bank: select from paginated list ──────────────────────────────────────
+    # ── Bank: select from results list ────────────────────────────────────────
     elif step == "upd_bank_select":
-        banks    = data.get("upd_blist", NIGERIAN_BANKS[:])
-        pages    = _bank_pages(banks)
-        cur_page = int(data.get("upd_bpage", 0))
+        banks = data.get("upd_blist", [])
 
-        if reply_id == "upd_bnext":
-            nxt = cur_page + 1
-            if nxt < len(pages):
-                await _save_data(session, "upd_bpage", nxt)
-                await _send_bank_page(session, sender_wa_id, pages, nxt, banks, phone_number_id)
-
-        elif reply_id == "upd_bprev":
-            prv = cur_page - 1
-            if prv >= 0:
-                await _save_data(session, "upd_bpage", prv)
-                await _send_bank_page(session, sender_wa_id, pages, prv, banks, phone_number_id)
-
-        elif reply_id == "upd_bsearch":
+        if reply_id == "upd_bsearch":
             await _set_step(session, "upd_bank_search")
             await _send_text(sender_wa_id,
-                "🔍 Enter at least 2 characters of your\n"
+                "🔍 Enter at least 3 characters of your\n"
                 "bank name to search:\n\n_Example: Zen, GT, Wem_",
                 phone_number_id)
 
         elif reply_id and reply_id.startswith("upd_bk_"):
-            idx = int(reply_id.split("_")[2])
-            if 0 <= idx < len(banks):
-                bank_name = banks[idx]
-                bank_code = ipurvey_service.get_bank_code(bank_name)
-                acct      = data.get("upd_acct", "0000000000")
-                await _save_data(session, "bank_name", bank_name)
-                await _save_data(session, "bank_acct", acct)
-                api_data     = session.get("api_data", {})
-                user_id      = api_data.get("user_id") or ""
-                account_name = session.get("data", {}).get("name") or ""
-                if user_id:
-                    try:
-                        payout_result = await ipurvey_service.create_payout_method_bank(
-                            user_id=user_id,
-                            account_number=acct,
-                            account_name=account_name,
-                            bank_code=bank_code,
-                            bank_name=bank_name,
-                        )
-                        if payout_result and isinstance(payout_result, dict):
-                            pm_id = payout_result.get("id") or payout_result.get("payoutMethodId")
-                            if pm_id:
-                                session.setdefault("api_data", {})["payout_method_id"] = pm_id
-                    except Exception as exc:
-                        logger.error(f"[upd_details] create_payout_method_bank failed: {exc}")
-                await _send_success(session, sender_wa_id,
-                    "✅ Payout details updated successfully!",
-                    f"Bank: *{bank_name}*\nAccount: ****{acct[-4:]}",
-                    phone_number_id)
-            else:
+            try:
+                idx = int(reply_id.split("_")[2])
+                if 0 <= idx < len(banks):
+                    bank      = banks[idx]
+                    bank_name = bank["name"]
+                    bank_code = bank["code"]
+                    acct      = data.get("upd_acct", "0000000000")
+                    await _save_data(session, "bank_name", bank_name)
+                    await _save_data(session, "bank_acct", acct)
+                    api_data     = session.get("api_data", {})
+                    user_id      = api_data.get("user_id") or ""
+                    account_name = session.get("data", {}).get("name") or ""
+                    if user_id:
+                        try:
+                            payout_result = await ipurvey_service.create_payout_method_bank(
+                                user_id=user_id,
+                                account_number=acct,
+                                account_name=account_name,
+                                bank_code=bank_code,
+                                bank_name=bank_name,
+                            )
+                            if payout_result and isinstance(payout_result, dict):
+                                pm_id = payout_result.get("id") or payout_result.get("payoutMethodId")
+                                if pm_id:
+                                    session.setdefault("api_data", {})["payout_method_id"] = pm_id
+                        except Exception as exc:
+                            logger.error(f"[upd_details] create_payout_method_bank failed: {exc}")
+                    await _send_success(session, sender_wa_id,
+                        "✅ Payout details updated successfully!",
+                        f"Bank: *{bank_name}*\nAccount: ****{acct[-4:]}",
+                        phone_number_id)
+                else:
+                    await _send_text(sender_wa_id,
+                        "⚠️ Please select a bank from the list.", phone_number_id)
+            except (ValueError, IndexError):
                 await _send_text(sender_wa_id,
                     "⚠️ Please select a bank from the list.", phone_number_id)
         else:
@@ -676,41 +648,21 @@ async def _start_name_flow(session: dict, wa_id: str, data: dict, phone_number_i
             phone_number_id)
 
 
-async def _send_bank_page(
-    session: dict,
-    wa_id: str,
-    pages: list,
-    page_idx: int,
-    all_banks: list,
-    phone_number_id: Optional[str],
-):
-    total_pages = len(pages)
-    total_banks = len(all_banks)
-    page_banks  = pages[page_idx]
-    start_num   = page_idx * BANKS_PER_PAGE + 1
-    end_num     = start_num + len(page_banks) - 1
-
+async def _send_bank_results(wa_id: str, banks: list, phone_number_id: Optional[str]):
+    """Display dynamic bank search results (airport-style, no pagination)."""
     rows = []
-    for bank in page_banks:
-        idx   = all_banks.index(bank)
-        title = f"🏦 {bank}"
+    for idx, bank in enumerate(banks[:9]):
+        title = f"🏦 {bank['name']}"
         if len(title) > 24:
             title = title[:23] + "…"
         rows.append({"id": f"upd_bk_{idx}", "title": title})
-
-    if page_idx < total_pages - 1:
-        rows.append({"id": "upd_bnext", "title": f"→ Next (Page {page_idx+2}/{total_pages})"[:24]})
-    if page_idx > 0:
-        rows.append({"id": "upd_bprev", "title": f"← Back (Page {page_idx}/{total_pages})"[:24]})
     rows.append({"id": "upd_bsearch", "title": "🔍 Search again"})
 
     await _send_list(wa_id,
-        f"Select Bank — Page {page_idx+1} of {total_pages}\n"
-        f"Showing {start_num}–{end_num} of {total_banks} banks",
+        "🔍 *We found some banks*\n\nNot seeing your bank? You can search again.",
         "Select bank",
         [{"title": "Banks", "rows": rows}],
-        phone_number_id,
-        header=f"🏦 Page {page_idx+1}/{total_pages}")
+        phone_number_id)
 
 
 async def _send_success(

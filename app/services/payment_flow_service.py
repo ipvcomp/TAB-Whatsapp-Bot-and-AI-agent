@@ -22,46 +22,16 @@ COVER_NAMES = {
     "local_premium": "Local Travel Premium",
 }
 
-NIGERIAN_BANKS = sorted([
-    "Access Bank", "Carbon", "Citibank Nigeria",
-    "Coronation Bank", "Ecobank Nigeria", "Fidelity Bank",
-    "First Bank", "First City Monument Bank", "Globus Bank",
-    "GT Bank", "Heritage Bank", "Jaiz Bank",
-    "Keystone Bank", "Kuda Bank", "Lotus Bank",
-    "Moniepoint", "Opay", "Palmpay", "Parallex Bank",
-    "Polaris Bank", "Providus Bank", "Stanbic IBTC Bank",
-    "Standard Chartered", "Sterling Bank", "SunTrust Bank",
-    "Taj Bank", "Titan Trust Bank", "Union Bank",
-    "United Bank for Africa", "Unity Bank",
-    "VFD Microfinance Bank", "Wema Bank", "Zenith Bank",
-])
-
 WALLET_OPTIONS = [
     {"id": "wallet_9psb",      "title": "9PSB"},
     {"id": "wallet_smartcash", "title": "SmartCash"},
     {"id": "wallet_opay",      "title": "OPay"},
 ]
 
-BANKS_PER_PAGE = 8
-
-
 def is_in_payment_flow(session: Optional[dict]) -> bool:
     if not session:
         return False
     return session.get("temp_data", {}).get(PAYMENT_FLOW_KEY, {}).get("active", False)
-
-
-def _filter_banks(query: str) -> list:
-    q = query.strip().lower()
-    if not q:
-        return NIGERIAN_BANKS
-    matched   = [b for b in NIGERIAN_BANKS if q in b.lower()]
-    unmatched = [b for b in NIGERIAN_BANKS if q not in b.lower()]
-    return matched + unmatched if matched else NIGERIAN_BANKS
-
-
-def _bank_pages(banks: list) -> list:
-    return [banks[i:i + BANKS_PER_PAGE] for i in range(0, len(banks), BANKS_PER_PAGE)]
 
 
 
@@ -130,33 +100,21 @@ async def _send_list(
     await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="payment_flow")
 
 
-async def _send_bank_page(wa_id: str, pages: list, page_idx: int, all_banks: list, phone_number_id: Optional[str]):
-    total_pages = len(pages)
-    total_banks = len(all_banks)
-    page_banks  = pages[page_idx]
-    start_num   = page_idx * BANKS_PER_PAGE + 1
-    end_num     = start_num + len(page_banks) - 1
-
+async def _send_bank_results(wa_id: str, banks: list, phone_number_id: Optional[str]):
+    """Display dynamic bank search results (airport-style, no pagination)."""
     rows = []
-    for bank in page_banks:
-        idx   = all_banks.index(bank)
-        title = f"🏦 {bank}"
+    for idx, bank in enumerate(banks[:9]):
+        title = f"🏦 {bank['name']}"
         if len(title) > 24:
             title = title[:23] + "…"
         rows.append({"id": f"bank_{idx}", "title": title})
-
-    if page_idx < total_pages - 1:
-        rows.append({"id": "bank_next", "title": f"→ Next (Page {page_idx+2}/{total_pages})"})
-    if page_idx > 0:
-        rows.append({"id": "bank_prev", "title": f"← Back (Page {page_idx}/{total_pages})"})
-    rows.append({"id": "bank_search_again", "title": "↩️ Search again"})
+    rows.append({"id": "bank_search_again", "title": "🔍 Search again"})
 
     await _send_list(
         wa_id,
-        f"Select Bank (Page {page_idx+1}/{total_pages})\n"
-        f"Showing {start_num}-{end_num} of {total_banks} banks.",
+        "🔍 *We found some banks*\n\nNot seeing your bank? You can search again.",
         "Select bank",
-        [{"title": "Select Main", "rows": rows}],
+        [{"title": "Banks", "rows": rows}],
         phone_number_id,
     )
 
@@ -528,51 +486,45 @@ async def handle_payment_flow(
 
     # ── Bank — search ─────────────────────────────────────────────────────────
     elif step == "pay_bank_search":
-        query = text
-        if len(query) >= 2:
-            banks = _filter_banks(query)
-            pages = _bank_pages(banks)
-            data["pay_bank_list"] = banks
-            data["pay_bank_page"] = 0
-            flow["step"] = "pay_bank_select"
-            await save_session(session)
-            await _send_bank_page(sender_wa_id, pages, 0, banks, phone_number_id)
-        else:
+        query = text.strip()
+        if len(query) < 3:
             await _send_text(sender_wa_id,
-                "⚠️ Enter *at least 2 characters*.\n_Example: Zen, GT_",
+                "⚠️ Enter *at least 3 characters* of your bank name:\n_Example: Zen, GT, Wem_",
                 phone_number_id)
+            return
+        banks = await ipurvey_service.search_banks(query)
+        if not banks:
+            await _send_buttons(sender_wa_id,
+                f"❌ *No banks found matching \"{query}\"*\n\n"
+                "We couldn't find any bank matching your entry.\n"
+                "Please check the spelling or try searching again.",
+                [{"id": "bank_search_again", "title": "🔍 Search again"}],
+                phone_number_id)
+            return
+        data["pay_bank_list"] = banks
+        flow["step"] = "pay_bank_select"
+        await save_session(session)
+        await _send_bank_results(sender_wa_id, banks, phone_number_id)
 
     # ── Bank — select ─────────────────────────────────────────────────────────
     elif step == "pay_bank_select":
-        banks    = data.get("pay_bank_list", NIGERIAN_BANKS)
-        pages    = _bank_pages(banks)
-        cur_page = data.get("pay_bank_page", 0)
+        banks = data.get("pay_bank_list", [])
 
-        if reply_id == "bank_next":
-            nxt = cur_page + 1
-            if nxt < len(pages):
-                data["pay_bank_page"] = nxt
-                await save_session(session)
-                await _send_bank_page(sender_wa_id, pages, nxt, banks, phone_number_id)
-        elif reply_id == "bank_prev":
-            prv = cur_page - 1
-            if prv >= 0:
-                data["pay_bank_page"] = prv
-                await save_session(session)
-                await _send_bank_page(sender_wa_id, pages, prv, banks, phone_number_id)
-        elif reply_id == "bank_search_again":
+        if reply_id == "bank_search_again":
             flow["step"] = "pay_bank_search"
             await save_session(session)
             await _send_text(sender_wa_id,
-                "Enter at least 3 characters of your bank name:\n_Example: Zen, GT_",
+                "Please enter at least the first 3 characters of your bank name:\n\n"
+                "_Example: Zen, GT, Wem_",
                 phone_number_id)
         elif reply_id and reply_id.startswith("bank_"):
             try:
                 idx = int(reply_id.split("_")[1])
                 if 0 <= idx < len(banks):
-                    bank_name = banks[idx]
+                    bank      = banks[idx]
+                    bank_name = bank["name"]
+                    bank_code = bank["code"]
                     data["pay_bank_name"] = bank_name
-                    bank_code = ipurvey_service.get_bank_code(bank_name)
                     data["pay_bank_code"] = bank_code
                     api_data   = session.get("api_data", {})
                     user_id    = api_data.get("user_id") or ""
@@ -597,6 +549,8 @@ async def handle_payment_flow(
                             logger.error(f"[payment] create_payout_method_bank failed: {exc}")
                     await save_session(session)
                     await _show_payment_summary(sender_wa_id, session, flow, phone_number_id)
+                else:
+                    await _send_text(sender_wa_id, "⚠️ Please select a bank from the list.", phone_number_id)
             except (ValueError, IndexError):
                 await _send_text(sender_wa_id, "⚠️ Please select a bank from the list.", phone_number_id)
         else:
