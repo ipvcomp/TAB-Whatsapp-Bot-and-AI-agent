@@ -10,6 +10,7 @@ from app.services.whatsapp_service import (
 )
 from app.core.test_overrides import get_msisdn
 from app.services.ipurvey_api import fetch_policies_by_msisdn
+from app.services.session_service import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -95,27 +96,48 @@ def _match_simple_reply(text: str) -> Optional[str]:
 
 
 def _format_policy_card(policy: dict) -> str:
-    ref    = policy.get("ref") or policy.get("id") or "—"
-    flight = policy.get("flight") or "—"
+    ref     = policy.get("ref") or policy.get("id") or "—"
+    flight  = policy.get("flight") or ""
     airline = policy.get("airline") or ""
-    date   = policy.get("date") or "—"
-    status = (policy.get("status") or "Active").upper()
-    flight_line = f"{flight} · {airline}" if airline else flight
-    if status == "ACTIVE":
+    date    = policy.get("date") or ""
+    origin  = policy.get("origin") or ""
+    dest    = policy.get("dest") or ""
+    status  = (policy.get("status") or "Active").upper()
+
+    if status in ("ACTIVE", "APPROVED", "ISSUED"):
         badge = "✅ Active"
-    elif status in ("PENDING", "PROCESSING"):
+    elif status in ("SUBMITTED", "CONFIRMED", "PAID"):
+        badge = "✅ Submitted"
+    elif status in ("PENDING", "PROCESSING", "PENDING_PAYMENT"):
         badge = "⏳ Pending"
     elif status == "CANCELLED":
         badge = "❌ Cancelled"
+    elif status in ("EXPIRED", "LAPSED"):
+        badge = "⏰ Expired"
+    elif status == "NEW":
+        badge = "🆕 New"
     else:
         badge = f"📋 {status.title()}"
-    return (
-        "*YOUR ACTIVE POLICY*\n"
-        f"Policy No.   {ref}\n"
-        f"Flight         {flight_line}\n"
-        f"Date           {date}\n"
-        f"{badge}"
-    )
+
+    lines = ["*YOUR ACTIVE POLICY*", f"Policy ID   {ref}"]
+
+    if flight:
+        fl_line = f"{flight} · {airline}".strip(" ·") if airline else flight
+        lines.append(f"Flight        {fl_line}")
+    else:
+        lines.append("Flight        —")
+
+    if date:
+        lines.append(f"Date          {date}")
+    else:
+        lines.append("Date          —")
+
+    if origin or dest:
+        route = f"{origin} → {dest}".strip(" →") if (origin and dest) else (origin or dest)
+        lines.append(f"Route         {route}")
+
+    lines.append(badge)
+    return "\n".join(lines)
 
 
 async def send_welcome_message(
@@ -145,8 +167,10 @@ async def send_welcome_message(
         await asyncio.sleep(1.5)
 
     # 2. Check for existing policy (welcome-back vs. generic welcome)
-    # Show welcome-back for any meaningful policy status, not just ACTIVE
-    _RETURNER_STATUSES = {"ACTIVE", "SUBMITTED", "PAID", "CONFIRMED", "APPROVED", "PROCESSING", "PENDING_PAYMENT"}
+    _RETURNER_STATUSES = {
+        "ACTIVE", "SUBMITTED", "PAID", "CONFIRMED", "APPROVED",
+        "PROCESSING", "PENDING_PAYMENT", "NEW", "ISSUED",
+    }
     active_policy = None
     lookup_id = wa_id or to
     if lookup_id:
@@ -162,6 +186,61 @@ async def send_welcome_message(
                 active_policy = policies[0]
         except Exception as exc:
             logger.warning(f"[welcome] policy lookup failed for {lookup_id}: {exc}")
+
+    # 2b. Enrich policy card with session data when API fields are missing
+    if active_policy:
+        try:
+            session = await get_session(lookup_id)
+            if session:
+                # Try api_data first (most reliable — set when policy was created)
+                api_data = session.get("api_data") or {}
+                bc_data  = (
+                    session.get("temp_data", {}).get("buy_cover_flow", {}).get("data") or {}
+                )
+                pc_data  = (session.get("paused_context") or {})
+
+                def _first(*values):
+                    for v in values:
+                        if v and str(v).strip() and str(v).strip() != "—":
+                            return str(v).strip()
+                    return ""
+
+                # Fill flight if missing
+                if not active_policy.get("flight"):
+                    active_policy["flight"] = _first(
+                        api_data.get("flight_no"),
+                        bc_data.get("flight_no"),
+                        pc_data.get("buy_cover_data", {}).get("flight_no") if isinstance(pc_data.get("buy_cover_data"), dict) else None,
+                    )
+
+                # Fill date if missing
+                if not active_policy.get("date"):
+                    active_policy["date"] = _first(
+                        api_data.get("dep_date"),
+                        bc_data.get("dep_date"),
+                        pc_data.get("buy_cover_data", {}).get("dep_date") if isinstance(pc_data.get("buy_cover_data"), dict) else None,
+                    )
+
+                # Fill origin/dest if missing
+                if not active_policy.get("origin"):
+                    active_policy["origin"] = _first(
+                        api_data.get("dep_airport_code"),
+                        bc_data.get("dep_airport_code"),
+                    )
+                if not active_policy.get("dest"):
+                    active_policy["dest"] = _first(
+                        api_data.get("arr_airport_code"),
+                        bc_data.get("arr_airport_code"),
+                    )
+
+                # Fill airline if missing
+                if not active_policy.get("airline"):
+                    active_policy["airline"] = _first(
+                        api_data.get("airline"),
+                        bc_data.get("airline"),
+                    )
+        except Exception as exc:
+            logger.warning(f"[welcome] session enrichment failed for {lookup_id}: {exc}")
 
     if active_policy:
         welcome_body = (
