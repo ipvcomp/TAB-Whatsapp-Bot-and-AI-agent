@@ -237,7 +237,7 @@ async def _process_change(entry_id: str, change):
                         continue
 
                     text_lower = message.text.body.lower().strip()
-                    cancel_words = ("cancel", "/cancel", "exit", "/exit", "stop", "/stop", "#cancel", "#exit")
+                    cancel_words = ("cancel", "/cancel", "exit", "/exit", "stop", "/stop", "#cancel", "#exit", "99")
                     if text_lower in cancel_words:
                         from app.services.buy_cover_flow_service import show_cancel_purchase_confirm
                         from app.services.check_policy_flow_service import show_cancel_policy_check_confirm
