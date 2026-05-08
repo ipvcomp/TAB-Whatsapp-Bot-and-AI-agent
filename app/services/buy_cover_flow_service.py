@@ -71,8 +71,8 @@ def _is_past_date(iso_date: str) -> bool:
 
 
 def _is_valid_flight_number(fn: str) -> bool:
-    """1–2 letters + optional space + 1–6 digits (e.g. P47123, W3 101, QI402)."""
-    return bool(re.match(r"^[A-Za-z]{1,2}\s?\d{1,6}$", fn.strip()))
+    """1–3 letters + optional space + 1–6 digits (e.g. P47123, QI402, AXE7120)."""
+    return bool(re.match(r"^[A-Za-z]{1,3}\s?\d{1,6}$", fn.strip()))
 
 
 def _is_valid_email(email: str) -> bool:
@@ -85,12 +85,35 @@ def _split_name(full: str) -> tuple[str, str]:
     return (parts[0], parts[1] if len(parts) > 1 else "")
 
 
+def _contains_emoji(s: str) -> bool:
+    """Return True if the string contains any emoji or symbol characters."""
+    import unicodedata
+    for ch in s:
+        cp = ord(ch)
+        # Common emoji Unicode ranges
+        if (
+            0x1F300 <= cp <= 0x1FAFF  # Misc symbols, emoticons, transport, etc.
+            or 0x2600 <= cp <= 0x27BF  # Misc symbols & dingbats
+            or 0x1F1E0 <= cp <= 0x1F1FF  # Regional indicator symbols (flags)
+            or 0xFE00 <= cp <= 0xFE0F   # Variation selectors (emoji modifier)
+            or 0x200D == cp              # Zero-width joiner (emoji sequences)
+        ):
+            return True
+        # Unicode "Symbol" categories catch remaining pictographs
+        cat = unicodedata.category(ch)
+        if cat in ("So", "Cs"):  # So = Other Symbol, Cs = Surrogate
+            return True
+    return False
+
+
 def _is_valid_name(value: str) -> bool:
     """Return True only if value looks like a real full name (first + surname required)."""
     v = value.strip()
     if not v or len(v) < 2:
         return False
     if "@" in v:  # email address
+        return False
+    if _contains_emoji(v):  # reject emoji in names
         return False
     if any(c.isdigit() for c in v) and not any(c.isalpha() for c in v):
         return False  # pure numbers
@@ -866,6 +889,24 @@ async def handle_buy_cover_flow(
                     return
 
                 else:
+                    # If no meaningful step was saved, resolve from API state
+                    if not bc_step_y or bc_step_y == "buy_cover_who":
+                        resume_d2 = session.get("api_data", {}).get("resume_draft") or {}
+                        state2    = resume_d2.get("creation_state", "DRAFT")
+                        if state2 in ("AWAITING_KYC", "DETAILS_COLLECTED"):
+                            bc_step_y = "buy_cover_select_cover"
+                        elif state2 == "AWAITING_ITINERARY":
+                            bc_step_y = "buy_cover_trip_type"
+                        elif bc_data_y.get("email"):
+                            bc_step_y = "buy_cover_trip_type"
+                        elif bc_data_y.get("name"):
+                            bc_step_y = "buy_cover_email"
+                        else:
+                            bc_step_y = "buy_cover_who"
+                        logger.info(
+                            f"[buy_cover] paused_context had no step; resolved to "
+                            f"'{bc_step_y}' from API state '{state2}'"
+                        )
                     # Restore exact buy_cover step
                     session.pop("paused_context", None)
                     flow.update({"step": bc_step_y, "data": bc_data_y, "active": True})
@@ -1634,8 +1675,9 @@ async def handle_buy_cover_flow(
                 (
                     f"⚠️ Arrival time must be *after* departure time on the same day\n\n"
                     f"Your flight departs at *{dep_time}* — "
-                    f"please enter an arrival time later than that, "
-                    f"or if this is an overnight flight enter the correct arrival date first\n\n"
+                    f"please enter an arrival time later than that.\n\n"
+                    f"If this is an overnight flight, type *0* to go back and "
+                    f"change the arrival date first.\n\n"
                     "_Example: 15:00, 3:00 PM_"
                 ),
                 phone_number_id,

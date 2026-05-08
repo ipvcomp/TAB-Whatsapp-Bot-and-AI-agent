@@ -97,19 +97,17 @@ def _match_simple_reply(text: str) -> Optional[str]:
 
 
 def _format_policy_card(policy: dict) -> str:
-    # policy_id = internal UUID from API ("id" field)
-    # policy_code = human-readable reference ("ref" / policyCode field)
-    policy_id   = policy.get("id") or ""
-    policy_code = policy.get("ref") or ""
-    # Show policy_id (UUID) as primary; fall back to policy_code if id absent
-    display_id  = policy_id if policy_id and policy_id != policy_code else policy_code or "—"
+    """Format a rich draft policy card for the welcome-back message."""
+    raw_id     = policy.get("id") or "—"
+    display_id = (raw_id[:20] + "...") if len(raw_id) > 20 else raw_id
 
-    flight  = policy.get("flight") or ""
-    airline = policy.get("airline") or ""
-    date    = policy.get("date") or ""
-    origin  = policy.get("origin") or ""
-    dest    = policy.get("dest") or ""
-    status  = (policy.get("status") or "Active").upper()
+    booking_ref = policy.get("booking_ref") or ""
+    trip_type   = policy.get("trip_type") or ""
+    origin      = policy.get("origin") or ""
+    dest        = policy.get("dest") or ""
+    departure   = policy.get("departure") or ""
+    passengers  = policy.get("passengers") or []
+    status      = (policy.get("status") or "DRAFT").upper()
 
     if status in ("ACTIVE", "APPROVED", "ISSUED"):
         badge = "✅ Active"
@@ -124,33 +122,27 @@ def _format_policy_card(policy: dict) -> str:
     elif status == "NEW":
         badge = "🆕 New"
     elif status == "DRAFT":
-        badge = "🔄 In Progress"
-    elif status in ("NONE", ""):
-        badge = "📋 No active draft"
+        badge = "🔄 Draft"
     else:
         badge = f"📋 {status.title()}"
 
-    lines = ["*YOUR ACTIVE POLICY*", f"Policy ID   {display_id}"]
-
-    # Show policy code separately only when it differs from id
-    if policy_code and policy_code != policy_id and policy_code != "—":
-        lines.append(f"Policy No.  {policy_code}")
-
-    if flight:
-        fl_line = f"{flight} · {airline}".strip(" ·") if airline else flight
-        lines.append(f"Flight        {fl_line}")
-    else:
-        lines.append("Flight        —")
-
-    if date:
-        lines.append(f"Date          {date}")
-    else:
-        lines.append("Date          —")
-
-    if origin or dest:
-        route = f"{origin} → {dest}".strip(" →") if (origin and dest) else (origin or dest)
-        lines.append(f"Route         {route}")
-
+    lines = ["*YOUR SAVED POLICY (DRAFT)*", ""]
+    lines.append(f"Policy ID        {display_id}")
+    if booking_ref:
+        lines.append(f"Booking Ref      {booking_ref}")
+    if trip_type:
+        lines.append(f"Trip Type        {trip_type}")
+    if origin:
+        lines.append(f"From             {origin}")
+    if dest:
+        lines.append(f"To               {dest}")
+    if departure:
+        lines.append(f"Departure        {departure}")
+    if passengers:
+        lines.append(f"Passengers       👤 {passengers[0]}")
+        for pname in passengers[1:]:
+            lines.append(f"                 👤 {pname}")
+    lines.append("")
     lines.append(badge)
     return "\n".join(lines)
 
@@ -181,11 +173,11 @@ async def send_welcome_message(
         )
         await asyncio.sleep(1.5)
 
-    # 2. Determine existing vs fresh user, and get draft policy ID
-    # Run both API calls in parallel for speed
-    lookup_id = wa_id or to
+    # 2. Determine if user has an active draft — only then show welcome-back card
+    lookup_id       = wa_id or to
     is_existing_user = False
     draft_policy_id  = ""
+    draft_info: dict | None = None
     if lookup_id:
         try:
             msisdn = get_msisdn(lookup_id)
@@ -197,73 +189,68 @@ async def send_welcome_message(
             policies   = results[0] if not isinstance(results[0], Exception) else []
             draft_info = results[1] if not isinstance(results[1], Exception) else None
 
-            # ANY policy on record = returning/existing user → show welcome-back card
-            is_existing_user = bool(policies)
-
-            # Extract policyId from draft resume response
+            # Only show welcome-back card when there is an active draft policy
             if draft_info and isinstance(draft_info, dict):
-                draft_policy_id = draft_info.get("policy_id") or ""
+                draft_policy_id  = draft_info.get("policy_id") or ""
+                is_existing_user = bool(draft_policy_id)
 
             logger.info(
-                f"[welcome] existing={is_existing_user} draft_id={draft_policy_id!r} "
-                f"policies={len(policies)}"
+                f"[welcome] has_draft={is_existing_user} draft_id={draft_policy_id!r} "
+                f"policies={len(policies) if isinstance(policies, list) else 0}"
             )
         except Exception as exc:
             logger.warning(f"[welcome] lookup failed for {lookup_id}: {exc}")
 
-    # 2b. Build card data — policy ID from draft, flight/date from session
-    if is_existing_user:
+    # 2b. Build card data from draft API response
+    if is_existing_user and draft_info:
+        itinerary  = draft_info.get("itinerary") or {}
+        legs       = itinerary.get("legs", [])
+        leg        = legs[0] if legs else {}
+        pax_list   = draft_info.get("passengers") or []
+        pax_names  = [
+            f"{p.get('firstName', '')} {p.get('surname', '')}".strip()
+            for p in pax_list
+            if p.get("firstName") or p.get("surname")
+        ]
+        trip_raw   = draft_info.get("trip_type", "")
+        dep_date   = leg.get("departureDate", "")
+        dep_time   = leg.get("departureTime", "")
+        # Format departure as "15 May 2026 · 08:30" when both available
+        if dep_date and dep_time:
+            try:
+                from datetime import datetime as _dt
+                dep_display = _dt.strptime(dep_date, "%Y-%m-%d").strftime("%d %b %Y") + f" · {dep_time}"
+            except ValueError:
+                dep_display = f"{dep_date} · {dep_time}"
+        elif dep_date:
+            try:
+                from datetime import datetime as _dt
+                dep_display = _dt.strptime(dep_date, "%Y-%m-%d").strftime("%d %b %Y")
+            except ValueError:
+                dep_display = dep_date
+        else:
+            dep_display = ""
+
+        trip_label = (
+            "One Way" if "ONE" in trip_raw.upper()
+            else "Return" if trip_raw
+            else ""
+        )
         card_data: dict = {
-            "id":      draft_policy_id or "—",
-            "ref":     "",
-            "flight":  "",
-            "airline": "",
-            "date":    "",
-            "origin":  "",
-            "dest":    "",
-            "status":  "DRAFT" if draft_policy_id else "NONE",
+            "id":          draft_policy_id,
+            "booking_ref": itinerary.get("bookingReference", ""),
+            "trip_type":   trip_label,
+            "origin":      leg.get("departureAirport", ""),
+            "dest":        leg.get("arrivalAirport", ""),
+            "departure":   dep_display,
+            "passengers":  pax_names,
+            "status":      "DRAFT",
         }
-        try:
-            session = await get_session(lookup_id)
-            if session:
-                api_data = session.get("api_data") or {}
-                bc_data  = (
-                    session.get("temp_data", {}).get("buy_cover_flow", {}).get("data") or {}
-                )
-                pc_bc    = (session.get("paused_context") or {}).get("buy_cover_data") or {}
-                if not isinstance(pc_bc, dict):
-                    pc_bc = {}
-
-                def _first(*values):
-                    for v in values:
-                        sv = str(v).strip() if v else ""
-                        if sv and sv != "—":
-                            return sv
-                    return ""
-
-                card_data["flight"]  = _first(
-                    api_data.get("flight_no"), bc_data.get("flight_no"), pc_bc.get("flight_no")
-                )
-                card_data["date"]    = _first(
-                    api_data.get("dep_date"), bc_data.get("dep_date"), pc_bc.get("dep_date")
-                )
-                card_data["origin"]  = _first(
-                    api_data.get("dep_airport_code"), bc_data.get("dep_airport_code"),
-                    pc_bc.get("dep_airport_code")
-                )
-                card_data["dest"]    = _first(
-                    api_data.get("arr_airport_code"), bc_data.get("arr_airport_code"),
-                    pc_bc.get("arr_airport_code")
-                )
-                card_data["airline"] = _first(
-                    api_data.get("airline"), bc_data.get("airline"), pc_bc.get("airline")
-                )
-        except Exception as exc:
-            logger.warning(f"[welcome] session enrichment failed for {lookup_id}: {exc}")
 
         welcome_body = (
             "👋 *Welcome back!*\n"
-            "*Welcome back to TravelAssist*\n\n"
+            "*Welcome back to TravelAssist*\n"
+            "We've resumed your saved policy draft.\n\n"
             + _format_policy_card(card_data)
         )
     else:
