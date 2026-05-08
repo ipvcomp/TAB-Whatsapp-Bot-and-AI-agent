@@ -98,9 +98,6 @@ def _match_simple_reply(text: str) -> Optional[str]:
 
 def _format_policy_card(policy: dict) -> str:
     """Format a rich draft policy card for the welcome-back message."""
-    raw_id     = policy.get("id") or "—"
-    display_id = (raw_id[:20] + "...") if len(raw_id) > 20 else raw_id
-
     booking_ref = policy.get("booking_ref") or ""
     trip_type   = policy.get("trip_type") or ""
     origin      = policy.get("origin") or ""
@@ -109,7 +106,9 @@ def _format_policy_card(policy: dict) -> str:
     passengers  = policy.get("passengers") or []
     status      = (policy.get("status") or "DRAFT").upper()
 
-    if status in ("ACTIVE", "APPROVED", "ISSUED"):
+    if status == "DRAFT":
+        badge = "🔄 Draft"
+    elif status in ("ACTIVE", "APPROVED", "ISSUED"):
         badge = "✅ Active"
     elif status in ("SUBMITTED", "CONFIRMED", "PAID"):
         badge = "✅ Submitted"
@@ -119,29 +118,24 @@ def _format_policy_card(policy: dict) -> str:
         badge = "❌ Cancelled"
     elif status in ("EXPIRED", "LAPSED"):
         badge = "⏰ Expired"
-    elif status == "NEW":
-        badge = "🆕 New"
-    elif status == "DRAFT":
-        badge = "🔄 Draft"
     else:
         badge = f"📋 {status.title()}"
 
     lines = ["*YOUR SAVED POLICY (DRAFT)*", ""]
-    lines.append(f"Policy ID        {display_id}")
     if booking_ref:
-        lines.append(f"Booking Ref      {booking_ref}")
+        lines.append(f"Booking Reference   {booking_ref}")
     if trip_type:
-        lines.append(f"Trip Type        {trip_type}")
+        lines.append(f"Trip Type           {trip_type}")
     if origin:
-        lines.append(f"From             {origin}")
+        lines.append(f"From                {origin}")
     if dest:
-        lines.append(f"To               {dest}")
+        lines.append(f"To                  {dest}")
     if departure:
-        lines.append(f"Departure        {departure}")
+        lines.append(f"Departure           {departure}")
     if passengers:
-        lines.append(f"Passengers       👤 {passengers[0]}")
+        lines.append(f"Passengers          👤 {passengers[0]}")
         for pname in passengers[1:]:
-            lines.append(f"                 👤 {pname}")
+            lines.append(f"                    👤 {pname}")
     lines.append("")
     lines.append(badge)
     return "\n".join(lines)
@@ -236,12 +230,20 @@ async def send_welcome_message(
             else "Return" if trip_raw
             else ""
         )
+
+        # Airport: "CODE (Name)" if name available, else just "CODE"
+        dep_code = leg.get("departureAirport", "")
+        dep_name = leg.get("departureAirportName", "")
+        arr_code = leg.get("arrivalAirport", "")
+        arr_name = leg.get("arrivalAirportName", "")
+        origin_display = f"{dep_code} ({dep_name})" if dep_name else dep_code
+        dest_display   = f"{arr_code} ({arr_name})" if arr_name else arr_code
+
         card_data: dict = {
-            "id":          draft_policy_id,
             "booking_ref": itinerary.get("bookingReference", ""),
             "trip_type":   trip_label,
-            "origin":      leg.get("departureAirport", ""),
-            "dest":        leg.get("arrivalAirport", ""),
+            "origin":      origin_display,
+            "dest":        dest_display,
             "departure":   dep_display,
             "passengers":  pax_names,
             "status":      "DRAFT",
