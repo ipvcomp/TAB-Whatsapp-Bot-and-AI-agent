@@ -670,21 +670,48 @@ async def get_policy_document_url(policy_code: str) -> Optional[str]:
         return None
 
 
-async def check_eligibility(
-    policy_id: str,
-    delay_minutes: int = 90,
-) -> Optional[dict]:
-    logger.info(f"[ipurvey] check_eligibility policy_id='{policy_id}' delay_minutes={delay_minutes}")
+async def check_eligibility(policy_id: str) -> Optional[dict]:
+    """GET /api/v1/evaluations/policy/{policy_id}
+    Returns evaluation result with evaluationStatus, triggerType, payoutAmount,
+    payoutCurrency, delayMinutes, justification, policyCode, certificationToken.
+    """
+    logger.info(f"[ipurvey] check_eligibility policy_id='{policy_id}'")
     try:
+        token = get_settings().IPURVEY_JWT_TOKEN or ""
+        headers: dict = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
             r = await c.get(
-                f"{_base()}/api/tab-plc/policies/{policy_id}/checkEligibility",
-                params={"triggerType": "DELAY", "delayMinutes": delay_minutes},
+                f"{_base()}/api/v1/evaluations/policy/{policy_id}",
+                headers=headers,
             )
             if r.status_code == 200:
-                logger.info(f"[ipurvey] check_eligibility → found (200)")
-                return _extract(r.json())
-            logger.info(f"[ipurvey] check_eligibility → {r.status_code}")
+                body = r.json()
+                # Response may be flat or wrapped in a "data" key
+                data: dict = body if isinstance(body, dict) else {}
+                if "evaluationStatus" not in data and isinstance(data.get("data"), dict):
+                    data = data["data"]
+                eval_status = data.get("evaluationStatus", "")
+                logger.info(
+                    f"[ipurvey] check_eligibility → evaluationStatus={eval_status!r} "
+                    f"trigger={data.get('triggerType')!r} payout={data.get('payoutAmount')}"
+                )
+                return {
+                    "evaluationStatus":   eval_status,
+                    "triggerType":        data.get("triggerType", ""),
+                    "policyCode":         data.get("policyCode", ""),
+                    "flightId":           data.get("flightId", ""),
+                    "delayMinutes":       data.get("delayMinutes"),
+                    "actualArrivalTime":  data.get("actualArrivalTime", ""),
+                    "payoutAmount":       data.get("payoutAmount"),
+                    "payoutCurrency":     data.get("payoutCurrency", "NGN"),
+                    "justification":      data.get("justification", ""),
+                    "certificationToken": data.get("certificationToken"),
+                }
+            logger.warning(
+                f"[ipurvey] check_eligibility → {r.status_code}: {r.text[:200]}"
+            )
             return None
     except Exception as e:
         logger.error(f"[ipurvey] check_eligibility failed: {e}")

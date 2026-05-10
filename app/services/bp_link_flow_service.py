@@ -338,15 +338,17 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
     flow["step"] = "bp_eligibility_result"
     data = flow.get("data", {})
     await save_session(session)
-    ref     = data.get("bp_sel_ref",      "")
-    airline = data.get("bp_sel_airline",  "")
-    flight  = data.get("bp_sel_flight",   "")
+    ref     = data.get("bp_sel_ref",       "")
+    airline = data.get("bp_sel_airline",   "")
+    flight  = data.get("bp_sel_flight",    "")
     pol_id  = data.get("bp_sel_policy_id", "")
 
-    await _send_text(wa_id,
+    await _send_text(
+        wa_id,
         "🔍 *Checking your eligibility...*\n"
-        "_Verifying policy, flight delay and cover details_\n\n• • •",
-        phone_number_id)
+        "_Verifying policy, flight status and cover details_\n\n• • •",
+        phone_number_id,
+    )
 
     eligibility = None
     if pol_id:
@@ -356,27 +358,54 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
             logger.error(f"[bp_link] check_eligibility failed: {exc}")
 
     if eligibility and isinstance(eligibility, dict):
-        eligible       = eligibility.get("eligible", False)
-        delay_str      = eligibility.get("delayDuration") or eligibility.get("delay") or "3hrs 20mins"
-        min_delay      = eligibility.get("minimumDelay") or eligibility.get("minDelay") or "3 hours"
-        current_delay  = eligibility.get("currentDelay") or eligibility.get("actualDelay") or "—"
-        payout_amt     = eligibility.get("payoutAmount") or eligibility.get("amount") or 2500
+        eval_status   = eligibility.get("evaluationStatus", "")
+        eligible      = (eval_status == "ELIGIBLE")
+        trigger_type  = eligibility.get("triggerType", "")
+        payout_amt    = eligibility.get("payoutAmount")
+        currency      = eligibility.get("payoutCurrency", "NGN")
+        delay_mins    = eligibility.get("delayMinutes")
+        justification = eligibility.get("justification", "")
+        pol_code      = eligibility.get("policyCode", "") or ref
+
+        currency_sym = "₦" if currency == "NGN" else f"{currency} "
         try:
-            payout_fmt = f"₦{float(payout_amt):,.0f}"
+            payout_fmt = (
+                f"{currency_sym}{float(payout_amt):,.0f}"
+                if payout_amt is not None else "—"
+            )
         except (ValueError, TypeError):
-            payout_fmt = f"₦{payout_amt}"
+            payout_fmt = f"{currency_sym}{payout_amt}"
+
+        trigger_label = trigger_type.replace("_", " ").title() if trigger_type else "—"
+        delay_str = (
+            f"{delay_mins} min{'s' if delay_mins != 1 else ''}"
+            if delay_mins is not None else ""
+        )
+
+        # Persist for payout-confirmation screen
+        data["eligibility_result"] = {
+            "payout_fmt":    payout_fmt,
+            "pol_code":      pol_code,
+            "trigger":       trigger_label,
+            "justification": justification,
+        }
+        await save_session(session)
 
         if not eligible:
+            body_lines = [
+                "⏳ *Not yet eligible*",
+                "Your policy has been evaluated but does not qualify for payout yet.\n",
+                f"✈️  Flight         {flight}" + (f" — {airline}" if airline else ""),
+                f"🔔  Trigger        {trigger_label}",
+            ]
+            if delay_str:
+                body_lines.append(f"⏱️  Delay          {delay_str}")
+            body_lines.append(f"📋  Policy         {pol_code}")
+            if justification:
+                body_lines.append(f"\n_{justification}_")
             await _send_buttons(
                 wa_id,
-                "⏳ *Not yet eligible*\n"
-                "Your delay hasn't reached the minimum threshold yet\n\n"
-                f"✈️  Flight\t\t\t{flight} — {airline}\n"
-                f"⏱️  Current delay\t{current_delay}\n"
-                f"⏱️  Minimum required\t{min_delay}\n"
-                f"📋  Policy\t\t\t{ref}\n\n"
-                f"We're monitoring your flight. If the delay reaches "
-                f"{min_delay}, we'll notify you automatically.",
+                "\n".join(body_lines),
                 [
                     {"id": "bp_keep_alerts",  "title": "🔔 Keep alerts on"},
                     {"id": "bp_upload_first", "title": "📤 Upload pass"},
@@ -385,8 +414,7 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
                 header="⏳ Not yet eligible",
             )
             await _send_buttons(
-                wa_id,
-                "More options:",
+                wa_id, "More options:",
                 [
                     {"id": "bp_get_help", "title": "🧑 Get help"},
                     {"id": "bp_home",     "title": "🏠 Main menu"},
@@ -394,32 +422,54 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
                 phone_number_id,
             )
             return
-        delay_display  = delay_str
-        payout_display = payout_fmt
+
+        # ELIGIBLE
+        body_lines = [
+            "✅ *You are eligible for a payout!*",
+            f"_Your policy qualifies for a "
+            f"{trigger_label.lower() if trigger_label != '—' else 'payout'}_\n",
+            f"✈️  Flight         {flight}" + (f" — {airline}" if airline else ""),
+            f"🔔  Trigger        {trigger_label}",
+        ]
+        if delay_str:
+            body_lines.append(f"⏱️  Delay          {delay_str}")
+        body_lines.extend([
+            f"📋  Policy         {pol_code}",
+            f"💰  Payout amount  *{payout_fmt}*",
+        ])
+        if justification:
+            body_lines.append(f"\n_{justification}_")
+        eligible_flag = True
+
     else:
-        delay_display  = "3hrs 20mins"
-        payout_display = "₦2,500"
-        min_delay      = "3 hours"
+        # API unavailable — show generic fallback
+        body_lines = [
+            "ℹ️ *Eligibility Check*\n",
+            f"✈️  Flight   {flight}" + (f" — {airline}" if airline else ""),
+            f"📋  Policy   {ref}\n",
+            "We're unable to check eligibility right now. Please try again shortly.",
+        ]
+        eligible_flag = False
 
     await _send_buttons(
         wa_id,
-        "✅ *You are eligible for a payout!*\n"
-        "_Your flight delay meets the cover threshold_\n\n"
-        f"✈️  Flight\t\t\t{flight} — {airline}\n"
-        f"⏱️  Delay\t\t\t{delay_display}\n"
-        f"📋  Policy\t\t\t{ref}\n"
-        f"💰  Payout amount\t*{payout_display}*\n\n"
-        "Your payout will be sent to your registered bank account automatically.",
-        [
-            {"id": "bp_confirm_payout", "title": "✅ Confirm payout"},
-            {"id": "bp_upload_first",   "title": "📤 Upload pass"},
-        ],
+        "\n".join(body_lines),
+        (
+            [
+                {"id": "bp_confirm_payout", "title": "✅ Confirm payout"},
+                {"id": "bp_upload_first",   "title": "📤 Upload pass"},
+            ]
+            if eligible_flag else
+            [
+                {"id": "bp_upload_first",  "title": "📤 Upload pass"},
+                {"id": "bp_eligibility",   "title": "🔍 Check again"},
+            ]
+        ),
         phone_number_id,
-        header="✅ Eligible for payout",
+        header="✅ Eligible for payout" if eligible_flag else "ℹ️ Eligibility Result",
     )
     await _send_buttons(
-        wa_id,
-        "More options:",
+        wa_id, "More options:",
         [
             {"id": "bp_get_help", "title": "🧑 Get help"},
             {"id": "bp_home",     "title": "🏠 Main menu"},
@@ -430,11 +480,26 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
 
 async def _show_payout_initiated(wa_id: str, session: dict, flow: dict, phone_number_id: Optional[str]):
     flow["step"] = "bp_payout_done"
+    data    = flow.get("data", {})
+    elig    = data.get("eligibility_result", {})
+    payout_fmt  = elig.get("payout_fmt", "") or "—"
+    pol_code    = elig.get("pol_code", "") or data.get("bp_sel_ref", "")
+    trigger     = elig.get("trigger", "")
     await save_session(session)
+
+    payout_line = f"{payout_fmt} is on its way to your account" if payout_fmt != "—" else "Your payout is being processed"
+    body = (
+        f"💰 *Payout Initiated!*\n\n"
+        f"{payout_line}\n"
+        f"⏱️ _Expected: within 24 hours_"
+    )
+    if pol_code:
+        body += f"\n\n📋 Policy: *{pol_code}*"
+    if trigger and trigger != "—":
+        body += f"\n🔔 Trigger: *{trigger}*"
+
     await _send_buttons(wa_id,
-        "💰 *Payout Initiated!*\n\n"
-        "₦2,500 is on its way to your account\n"
-        "⏱️ _Expected: within 24 hours_",
+        body,
         [
             {"id": "bp_view_policy", "title": "📋 View my policy"},
             {"id": "bp_home",        "title": "🏠 Main menu"},

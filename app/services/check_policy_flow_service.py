@@ -909,20 +909,100 @@ async def _show_linked(session: dict, wa_id: str, pol: dict, phone_number_id: Op
 async def _show_eligibility(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
     await _set_step(session, "pol_eligibility")
     p = _normalize_policy(pol)
-    
-    await _send_text(wa_id, "🔍 *Checking eligibility...*", phone_number_id)
-    
-    # In a real app, call eligibility API
-    # Here we show a generic result or call a service if available
-    
-    await _send_buttons(wa_id,
-        f"ℹ️ *Eligibility Status*\nPolicy: {p['ref']}\n\n"
-        "Your flight is currently on time. No payout eligibility detected yet.",
-        [
-            {"id": "pol_upload_first", "title": "📤 Re-upload pass"},
-            {"id": "pol_back_detail",  "title": "↩️ Back to Details"},
-        ],
-        phone_number_id)
+
+    await send_text_message(
+        to=wa_id,
+        body="🔍 *Checking eligibility...*\n_Verifying policy and flight status_",
+        phone_number_id=phone_number_id,
+        source="check_policy_flow",
+    )
+
+    pol_id = p.get("id", "")
+    eligibility = None
+    if pol_id:
+        try:
+            eligibility = await ipurvey_service.check_eligibility(pol_id)
+        except Exception as exc:
+            logger.warning(f"[check_policy] check_eligibility failed: {exc}")
+
+    if eligibility and isinstance(eligibility, dict):
+        eval_status   = eligibility.get("evaluationStatus", "")
+        eligible      = (eval_status == "ELIGIBLE")
+        trigger_type  = eligibility.get("triggerType", "")
+        payout_amt    = eligibility.get("payoutAmount")
+        currency      = eligibility.get("payoutCurrency", "NGN")
+        delay_mins    = eligibility.get("delayMinutes")
+        justification = eligibility.get("justification", "")
+        pol_code      = eligibility.get("policyCode", "") or p.get("ref", "")
+
+        currency_sym = "₦" if currency == "NGN" else f"{currency} "
+        try:
+            payout_fmt = (
+                f"{currency_sym}{float(payout_amt):,.0f}"
+                if payout_amt is not None else "—"
+            )
+        except (ValueError, TypeError):
+            payout_fmt = f"{currency_sym}{payout_amt}"
+
+        trigger_label = trigger_type.replace("_", " ").title() if trigger_type else "—"
+        delay_str = (
+            f"{delay_mins} min{'s' if delay_mins != 1 else ''}"
+            if delay_mins is not None else ""
+        )
+
+        if eligible:
+            body_lines = [
+                "✅ *You are eligible for a payout!*\n",
+                f"📋  Policy        {pol_code}",
+                f"🔔  Trigger       {trigger_label}",
+            ]
+            if delay_str:
+                body_lines.append(f"⏱️  Delay         {delay_str}")
+            body_lines.append(f"💰  Payout        *{payout_fmt}*")
+            if justification:
+                body_lines.append(f"\n_{justification}_")
+            await _send_buttons(
+                wa_id,
+                "\n".join(body_lines),
+                [
+                    {"id": "pol_confirm_payout", "title": "✅ Confirm payout"},
+                    {"id": "pol_back_detail",    "title": "↩️ Back"},
+                ],
+                phone_number_id,
+                header="✅ Eligible for payout",
+            )
+        else:
+            body_lines = [
+                "⏳ *Not yet eligible*\n",
+                f"📋  Policy        {pol_code}",
+                f"🔔  Trigger       {trigger_label}",
+            ]
+            if delay_str:
+                body_lines.append(f"⏱️  Delay         {delay_str}")
+            if justification:
+                body_lines.append(f"\n_{justification}_")
+            await _send_buttons(
+                wa_id,
+                "\n".join(body_lines),
+                [
+                    {"id": "pol_upload_first", "title": "📤 Re-upload pass"},
+                    {"id": "pol_back_detail",  "title": "↩️ Back"},
+                ],
+                phone_number_id,
+                header="⏳ Not yet eligible",
+            )
+    else:
+        await _send_buttons(
+            wa_id,
+            f"ℹ️ *Eligibility Status*\nPolicy: {p['ref']}\n\n"
+            "We're unable to check eligibility right now. Please try again shortly.",
+            [
+                {"id": "pol_upload_first", "title": "📤 Re-upload pass"},
+                {"id": "pol_back_detail",  "title": "↩️ Back to Details"},
+            ],
+            phone_number_id,
+            header="ℹ️ Eligibility Check",
+        )
 
 
 async def _show_payout_initiated(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
