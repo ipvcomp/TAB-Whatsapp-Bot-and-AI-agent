@@ -249,21 +249,27 @@ async def _redisplay_step(
 
     elif step == "buy_cover_traveler_count":
         await _send_text(wa_id,
-            "👨‍👩‍👧 *How many additional travelers are joining you?*\n_(Not counting yourself)_\n\n"
-            "_Type a number — 1, 2, 3 or 4_", phone_number_id)
+            "👥 *How many travellers are covered?*\n"
+            "Please reply with a number\n\n"
+            "_Example: 2_\n\n"
+            "⚠️ Maximum number of travellers you can add is *10*.", phone_number_id)
 
     elif step == "buy_cover_name":
         await _send_text(wa_id,
-            "*👤 Please enter your full name*\n"
-            "Enter your first name and surname, as it appears on your ticket\n\n"
+            "👤 🔥 *Enter main passenger name*\n"
+            "Enter first name and surname as it appears on the ticket.\n\n"
+            "ℹ️ This person is the main passenger.\n"
+            "📞 This should be the person buying cover and would be linked to this WhatsApp number.\n"
+            "💳 Used for payment & payout processing.\n"
+            "🔔 Receive policy updates and notifications.\n\n"
             "_Example: Yusuf Usman_", phone_number_id)
 
     elif step == "buy_cover_other_name":
         collected = len(data.get("travelers", []))
         total = data.get("others_count", 1) + 1
         await _send_text(wa_id,
-            f"*👤 Traveler {collected + 1} of {total} — please enter their name*\n"
-            "Enter first name and surname as it appears on the ticket\n\n"
+            f"👤 *Traveller {collected + 1} of {total}*\n"
+            "Enter first name and surname as it appears on their ticket.\n\n"
             "_Example: Amina Bello_", phone_number_id)
 
     elif step == "buy_cover_email":
@@ -1103,8 +1109,12 @@ async def handle_buy_cover_flow(
             await _send_text(
                 sender_wa_id,
                 (
-                    "*👤 Please enter your name*\n"
-                    "Enter your first name and surname, as it appears on your ticket\n\n"
+                    "👤 🔥 *Enter main passenger name*\n"
+                    "Enter first name and surname as it appears on the ticket.\n\n"
+                    "ℹ️ This person is the main passenger.\n"
+                    "📞 This should be the person buying cover and would be linked to this WhatsApp number.\n"
+                    "💳 Used for payment & payout processing.\n"
+                    "🔔 Receive policy updates and notifications.\n\n"
                     "_Example: Yusuf Usman_"
                 ),
                 phone_number_id,
@@ -1115,29 +1125,85 @@ async def handle_buy_cover_flow(
             await save_session(session)
             await _send_text(
                 sender_wa_id,
-                "👨‍👩‍👧 *How many additional travelers are joining you?*\n_(Not counting yourself)_\n\n"
-                "_Type a number — 1, 2, 3 or 4_",
+                "👥 *How many travellers are covered?*\n"
+                "Please reply with a number\n\n"
+                "_Example: 2_\n\n"
+                "⚠️ Maximum number of travellers you can add is *10*.",
                 phone_number_id,
             )
 
     # ── Traveler count ────────────────────────────────────────────────────────
     elif step == "buy_cover_traveler_count":
-        count_map = {"others_1": 1, "others_2": 2, "others_3": 3, "others_4": 4}
-        others_count = count_map.get(reply_id) if reply_id else None
-        if others_count is None and text:
+        raw = (text or "").strip()
+        count_int: Optional[int] = None
+        if raw:
             try:
-                n = int(text.strip())
-                if 1 <= n <= 4:
-                    others_count = n
+                count_int = int(raw)
             except ValueError:
                 pass
-        if others_count is None:
+
+        if count_int is None:
             await _send_text(
                 sender_wa_id,
-                "⚠️ Please type a number between 1 and 4:\n_Example: 2_",
+                "⚠️ Please reply with a number.\n_Example: 2_",
                 phone_number_id,
             )
             return
+
+        if count_int > 10:
+            await _send_text(
+                sender_wa_id,
+                "⚠️ *travelerCount cannot exceed 10*\n\nPlease enter a number from 1 to 10.",
+                phone_number_id,
+            )
+            return
+
+        if count_int < 0:
+            await _send_text(
+                sender_wa_id,
+                "⚠️ Please enter a number from 1 to 10.\n_Type 0 to remove additional travellers._",
+                phone_number_id,
+            )
+            return
+
+        # 0 → switch to "just me" mode (remove additional travellers)
+        if count_int == 0:
+            data["who"] = "just_me"
+            data.pop("others_count", None)
+            data["travelers"] = []
+            flow["step"] = "buy_cover_name"
+            await save_session(session)
+            policy_id = session.get("api_data", {}).get("policy_id")
+            if policy_id:
+                try:
+                    pax_ids = await ipurvey_service.set_traveler_count(policy_id, 1)
+                    if pax_ids:
+                        api_data = session.setdefault("api_data", {})
+                        api_data["passenger_ids"] = [
+                            (p if isinstance(p, str) else (p.get("passengerId") or p.get("id") or ""))
+                            for p in pax_ids if p
+                        ]
+                        logger.info(f"[BUY_COVER] pre-allocated passenger_ids: {api_data['passenger_ids']}")
+                        await save_session(session)
+                except Exception as exc:
+                    logger.error(f"[BUY_COVER] set_traveler_count(1) failed: {exc}")
+            await _send_text(
+                sender_wa_id,
+                (
+                    "👤 🔥 *Enter main passenger name*\n"
+                    "Enter first name and surname as it appears on the ticket.\n\n"
+                    "ℹ️ This person is the main passenger.\n"
+                    "📞 This should be the person buying cover and would be linked to this WhatsApp number.\n"
+                    "💳 Used for payment & payout processing.\n"
+                    "🔔 Receive policy updates and notifications.\n\n"
+                    "_Example: Yusuf Usman_"
+                ),
+                phone_number_id,
+            )
+            return
+
+        # count_int 1–10: total travellers including primary
+        others_count = count_int - 1
         data["others_count"] = others_count
         data["travelers"] = []
         flow["step"] = "buy_cover_name"
@@ -1145,34 +1211,26 @@ async def handle_buy_cover_flow(
         policy_id = session.get("api_data", {}).get("policy_id")
         if policy_id:
             try:
-                pax_ids = await ipurvey_service.set_traveler_count(
-                    policy_id, others_count + 1
-                )
+                pax_ids = await ipurvey_service.set_traveler_count(policy_id, count_int)
                 if pax_ids:
                     api_data = session.setdefault("api_data", {})
-                    # pax_ids is already a list of UUID strings
                     api_data["passenger_ids"] = [
-                        (
-                            p
-                            if isinstance(p, str)
-                            else (p.get("passengerId") or p.get("id") or "")
-                        )
-                        for p in pax_ids
-                        if p
+                        (p if isinstance(p, str) else (p.get("passengerId") or p.get("id") or ""))
+                        for p in pax_ids if p
                     ]
-                    logger.info(
-                        f"[BUY_COVER] pre-allocated passenger_ids: {api_data['passenger_ids']}"
-                    )
+                    logger.info(f"[BUY_COVER] pre-allocated passenger_ids: {api_data['passenger_ids']}")
                     await save_session(session)
             except Exception as exc:
-                logger.error(
-                    f"[BUY_COVER] set_traveler_count({others_count + 1}) failed: {exc}"
-                )
+                logger.error(f"[BUY_COVER] set_traveler_count({count_int}) failed: {exc}")
         await _send_text(
             sender_wa_id,
             (
-                "*👤 Lead traveler — please enter your name*\n"
-                "Enter your first name and surname, as it appears on your ticket\n\n"
+                "👤 🔥 *Enter main passenger name*\n"
+                "Enter first name and surname as it appears on the ticket.\n\n"
+                "ℹ️ This person is the main passenger.\n"
+                "📞 This should be the person buying cover and would be linked to this WhatsApp number.\n"
+                "💳 Used for payment & payout processing.\n"
+                "🔔 Receive policy updates and notifications.\n\n"
                 "_Example: Yusuf Usman_"
             ),
             phone_number_id,
@@ -1253,19 +1311,34 @@ async def handle_buy_cover_flow(
             travelers = data.get("travelers", [])
             travelers.append(text)
             data["travelers"] = travelers
-            data["others_collected"] = 0
-            flow["step"] = "buy_cover_other_name"
-            await save_session(session)
-            others_count = data.get("others_count", 1)
-            await _send_text(
-                sender_wa_id,
-                (
-                    f"*👤 Traveler 2 of {others_count + 1} — please enter their name*\n"
-                    "Enter first name and surname, as it appears on their ticket\n\n"
-                    "_Example: Amina Bello_"
-                ),
-                phone_number_id,
-            )
+            others_count = data.get("others_count", 0)
+            if others_count == 0:
+                # Only the primary traveller — go straight to email
+                flow["step"] = "buy_cover_email"
+                await save_session(session)
+                await _send_text(
+                    sender_wa_id,
+                    (
+                        "*📧 Please enter your email address*\n"
+                        "So we can send your policy documents\n\n"
+                        "_Example: yusuf@email.com_"
+                    ),
+                    phone_number_id,
+                )
+            else:
+                data["others_collected"] = 0
+                flow["step"] = "buy_cover_other_name"
+                await save_session(session)
+                total = others_count + 1
+                await _send_text(
+                    sender_wa_id,
+                    (
+                        f"👤 *Traveller 2 of {total}*\n"
+                        "Enter first name and surname as it appears on their ticket.\n\n"
+                        "_Example: Amina Bello_"
+                    ),
+                    phone_number_id,
+                )
         else:
             flow["step"] = "buy_cover_email"
             await save_session(session)
@@ -1338,8 +1411,8 @@ async def handle_buy_cover_flow(
             await _send_text(
                 sender_wa_id,
                 (
-                    f"*👤 Traveler {next_num} of {total} — please enter their name*\n"
-                    "Enter first name and surname, as it appears on their ticket\n\n"
+                    f"👤 *Traveller {next_num} of {total}*\n"
+                    "Enter first name and surname as it appears on their ticket.\n\n"
                     "_Example: Amina Bello_"
                 ),
                 phone_number_id,
@@ -1347,11 +1420,21 @@ async def handle_buy_cover_flow(
         else:
             flow["step"] = "buy_cover_email"
             await save_session(session)
-            names_list = "\n".join(f"  {i + 1}. {n}" for i, n in enumerate(travelers))
+            summary_lines = []
+            for i, n in enumerate(travelers):
+                if i == 0:
+                    summary_lines.append(f"{i + 1}. {n}  👤👑 _(Main passenger)_")
+                else:
+                    summary_lines.append(f"{i + 1}. {n}  👤")
+            names_list = "\n".join(summary_lines)
+            await _send_text(
+                sender_wa_id,
+                f"✅ *All traveller names added*\n\n{names_list}",
+                phone_number_id,
+            )
             await _send_text(
                 sender_wa_id,
                 (
-                    f"✅ *Got all {others_count + 1} travelers:*\n{names_list}\n\n"
                     "*📧 Please enter your email address*\n"
                     "So we can send your policy documents\n\n"
                     "_Example: yusuf@email.com_"
@@ -2320,16 +2403,22 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
     elif prev == "buy_cover_traveler_count":
         await _send_text(
             wa_id,
-            "👨‍👩‍👧 *How many additional travelers are joining you?*\n"
-            "_(Not counting yourself)_\n\n_Type a number — 1, 2, 3 or 4_",
+            "👥 *How many travellers are covered?*\n"
+            "Please reply with a number\n\n"
+            "_Example: 2_\n\n"
+            "⚠️ Maximum number of travellers you can add is *10*.",
             phone_number_id,
         )
 
     elif prev == "buy_cover_name":
         await _send_text(
             wa_id,
-            "*👤 Please enter your name*\n"
-            "Enter your first name and surname, as it appears on your ticket\n\n"
+            "👤 🔥 *Enter main passenger name*\n"
+            "Enter first name and surname as it appears on the ticket.\n\n"
+            "ℹ️ This person is the main passenger.\n"
+            "📞 This should be the person buying cover and would be linked to this WhatsApp number.\n"
+            "💳 Used for payment & payout processing.\n"
+            "🔔 Receive policy updates and notifications.\n\n"
             "_Example: Yusuf Usman_",
             phone_number_id,
         )
@@ -2341,8 +2430,8 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         total = others_count + 1
         await _send_text(
             wa_id,
-            f"*👤 Traveler {next_num} of {total} — please enter their name*\n"
-            "Enter first name and surname, as it appears on their ticket\n\n"
+            f"👤 *Traveller {next_num} of {total}*\n"
+            "Enter first name and surname as it appears on their ticket.\n\n"
             "_Example: Amina Bello_",
             phone_number_id,
         )
