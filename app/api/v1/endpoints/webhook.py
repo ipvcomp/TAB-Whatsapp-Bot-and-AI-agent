@@ -291,7 +291,18 @@ async def _process_change(entry_id: str, change):
                         continue
 
                     # ── Row 1: Wake-up / main menu — LLM intent detection ──────
-                    if not matched_welcome and _no_active_flow:
+                    # Pre-check: only call LLM when text contains an intent
+                    # keyword. Avoids double-LLM for random/short messages.
+                    _INTENT_TRIGGER_WORDS = {
+                        "buy", "purchase", "cover", "policy", "insurance", "travel",
+                        "boarding", "pass", "submit", "upload",
+                        "support", "help", "assist", "question", "enquiry",
+                        "kharidna", "chahiye", "bima", "ticket",
+                    }
+                    _has_intent_kw = any(
+                        kw in message.text.body.lower() for kw in _INTENT_TRIGGER_WORDS
+                    )
+                    if not matched_welcome and _no_active_flow and _has_intent_kw:
                         _wakeup_llm = await call_extract(
                             user_id=sender_wa_id,
                             field_name="menu_intent",
@@ -434,9 +445,19 @@ async def _process_change(entry_id: str, change):
                         continue
 
                 # ── Row 34: Utility menu — LLM shortcut intent detection ──────
+                # Pre-check: only call LLM when message looks like a navigation
+                # command. This avoids firing on legitimate flow inputs (names,
+                # emails, dates, flight numbers, etc.) and causing huge delays.
+                _NAV_TRIGGER_WORDS = {
+                    "back", "previous", "undo", "go back", "piche", "pichhe", "wapas",
+                    "help", "assist", "madad",
+                    "menu", "home", "restart", "start over",
+                    "cancel", "exit", "quit", "band karo",
+                }
                 if message.type == "text" and message.text:
                     _util_text = message.text.body.strip()
-                    if _util_text and len(_util_text) <= 80:
+                    _has_nav_kw = any(kw in _util_text.lower() for kw in _NAV_TRIGGER_WORDS)
+                    if _util_text and len(_util_text) <= 80 and _has_nav_kw:
                         _util_llm = await call_extract(
                             user_id=sender_wa_id,
                             field_name="navigation_intent",
