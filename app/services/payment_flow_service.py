@@ -726,29 +726,25 @@ async def handle_payment_flow(
                 return
 
             ref_display = api_ref or "Check SMS/email for reference"
-            data["pay_m_bank_ref"] = ref_display
+            data["pay_m_bank_ref"]      = ref_display
+            data["pay_method_display"]  = "Bank Transfer"
             flow["step"] = "pay_m_bank_pending"
             await save_session(session)
-            _api_data = session.get("api_data", {})
-            _bank_name    = _api_data.get("bank_name", "")
-            _acct_name    = _api_data.get("bank_account_name", "")
-            _acct_number  = _api_data.get("bank_account_number", "")
-            if _bank_name or _acct_name or _acct_number:
-                _bank_details = (
-                    f"Bank             {_bank_name or 'N/A'}\n"
-                    f"Account Name     {_acct_name or 'N/A'}\n"
-                    f"Account No.      {_acct_number or 'N/A'}"
-                )
-            else:
-                _bank_details = "Your payment is being processed. You will receive transfer details via SMS or email shortly."
-            await _send_buttons(sender_wa_id,
-                f"🏦 *Bank Transfer Initiated*\n\n"
-                f"Amount: *₦{amount:,}*\n\n"
-                f"{_bank_details}\n\n"
-                f"🔑 Reference: {ref_display}\n\nOnce payment is complete, tap below:",
+            await _send_buttons(
+                sender_wa_id,
+                "✅ *Payment method selected*\n"
+                "You chose: 1. Bank Transfer\n\n"
+                "ℹ️ *What happens next?*\n\n"
+                "📱 You will receive a WhatsApp message shortly with a payment link to complete your payment securely.\n"
+                "*Please check your WhatsApp inbox.*\n\n"
+                "⚠️ Do not make any payment outside the WhatsApp link you receive.\n\n"
+                "🛡️ *Important*\n\n"
+                "📋 Your policy will only be activated after *successful payment confirmation.*\n\n"
+                "❌ *Without a completed payment, no cover will be in place.*\n\n"
+                "After payment, reply with:",
                 [
                     {"id": "pay_m_done",    "title": "✅ I have paid"},
-                    {"id": "pay_m_refresh", "title": "🔄 Refresh status"},
+                    {"id": "pay_m_refresh", "title": "🔄 Refresh payment status"},
                 ],
                 phone_number_id,
             )
@@ -841,14 +837,22 @@ async def handle_payment_flow(
             else:
                 await _show_payment_failed_screen(sender_wa_id, session, data, ref, phone_number_id)
         else:
-            await _send_buttons(sender_wa_id,
-                f"🏦 *Bank Transfer*\n\n"
-                f"Please transfer *₦{amount:,}* to:\n\n"
-                f"{_p_bank_details}\n\n"
-                f"🔑 Reference: {ref}\n\nAfter payment, tap below:",
+            _method_display = data.get("pay_method_display", "Bank Transfer")
+            await _send_buttons(
+                sender_wa_id,
+                f"✅ *Payment method selected*\n"
+                f"You chose: 1. {_method_display}\n\n"
+                "ℹ️ *What happens next?*\n\n"
+                "📱 You will receive a WhatsApp message shortly with a payment link to complete your payment securely.\n"
+                "*Please check your WhatsApp inbox.*\n\n"
+                "⚠️ Do not make any payment outside the WhatsApp link you receive.\n\n"
+                "🛡️ *Important*\n\n"
+                "📋 Your policy will only be activated after *successful payment confirmation.*\n\n"
+                "❌ *Without a completed payment, no cover will be in place.*\n\n"
+                "After payment, reply with:",
                 [
                     {"id": "pay_m_done",    "title": "✅ I have paid"},
-                    {"id": "pay_m_refresh", "title": "🔄 Refresh status"},
+                    {"id": "pay_m_refresh", "title": "🔄 Refresh payment status"},
                 ],
                 phone_number_id,
             )

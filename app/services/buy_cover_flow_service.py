@@ -12,22 +12,22 @@ from app.services.whatsapp_service import send_text_message, send_whatsapp_paylo
 logger = logging.getLogger(__name__)
 
 BUY_COVER_FLOW_KEY = "buy_cover_flow"
-KYC_FLOW_KEY       = "kyc_flow"
-PAYMENT_FLOW_KEY   = "payment_flow"
+KYC_FLOW_KEY = "kyc_flow"
+PAYMENT_FLOW_KEY = "payment_flow"
 
 
 def _parse_date_to_iso(date_str: str) -> Optional[str]:
     """Parse user date input → ISO YYYY-MM-DD.  Returns None if unrecognised."""
     clean = date_str.strip()
     for fmt in [
-        "%d %B %Y",   # 12 April 2026
-        "%d %b %Y",   # 12 Apr 2026
-        "%d/%m/%Y",   # 12/04/2026
-        "%d-%m-%Y",   # 12-04-2026
-        "%d/%m/%y",   # 12/04/26
-        "%d-%m-%y",   # 12-04-26
+        "%d %B %Y",  # 12 April 2026
+        "%d %b %Y",  # 12 Apr 2026
+        "%d/%m/%Y",  # 12/04/2026
+        "%d-%m-%Y",  # 12-04-2026
+        "%d/%m/%y",  # 12/04/26
+        "%d-%m-%y",  # 12-04-26
         "%B %d, %Y",  # April 12, 2026
-        "%Y-%m-%d",   # 2026-05-15 (ISO input)
+        "%Y-%m-%d",  # 2026-05-15 (ISO input)
     ]:
         try:
             return datetime.strptime(clean, fmt).strftime("%Y-%m-%d")
@@ -88,6 +88,7 @@ def _split_name(full: str) -> tuple[str, str]:
 def _contains_emoji(s: str) -> bool:
     """Return True if the string contains any emoji or symbol characters."""
     import unicodedata
+
     for ch in s:
         cp = ord(ch)
         # Common emoji Unicode ranges
@@ -95,8 +96,8 @@ def _contains_emoji(s: str) -> bool:
             0x1F300 <= cp <= 0x1FAFF  # Misc symbols, emoticons, transport, etc.
             or 0x2600 <= cp <= 0x27BF  # Misc symbols & dingbats
             or 0x1F1E0 <= cp <= 0x1F1FF  # Regional indicator symbols (flags)
-            or 0xFE00 <= cp <= 0xFE0F   # Variation selectors (emoji modifier)
-            or 0x200D == cp              # Zero-width joiner (emoji sequences)
+            or 0xFE00 <= cp <= 0xFE0F  # Variation selectors (emoji modifier)
+            or 0x200D == cp  # Zero-width joiner (emoji sequences)
         ):
             return True
         # Unicode "Symbol" categories catch remaining pictographs
@@ -182,32 +183,34 @@ def _build_trip_summary_text(data: dict) -> str:
 
 def _build_paused_context(session: dict) -> dict:
     """Snapshot the currently active buy/kyc/payment flow for resume later."""
-    td  = session.get("temp_data", {})
+    td = session.get("temp_data", {})
     api = session.get("api_data", {})
     active_flow = (
-        PAYMENT_FLOW_KEY   if td.get(PAYMENT_FLOW_KEY,   {}).get("active") else
-        KYC_FLOW_KEY       if td.get(KYC_FLOW_KEY,       {}).get("active") else
-        BUY_COVER_FLOW_KEY
+        PAYMENT_FLOW_KEY
+        if td.get(PAYMENT_FLOW_KEY, {}).get("active")
+        else KYC_FLOW_KEY
+        if td.get(KYC_FLOW_KEY, {}).get("active")
+        else BUY_COVER_FLOW_KEY
     )
-    bc  = td.get(BUY_COVER_FLOW_KEY, {})
+    bc = td.get(BUY_COVER_FLOW_KEY, {})
     kyc = td.get(KYC_FLOW_KEY, {})
     pay = td.get(PAYMENT_FLOW_KEY, {})
     return {
-        "active_flow":      active_flow,
-        "buy_cover_step":   bc.get("step"),
-        "buy_cover_data":   dict(bc.get("data") or {}),
-        "kyc_step":         kyc.get("step"),
-        "kyc_data":         dict(kyc.get("data") or {}),
-        "payment_step":     pay.get("step"),
-        "payment_data":     dict(pay.get("data") or {}),
-        "policy_id":        api.get("policy_id"),
-        "policy_code":      api.get("policy_code"),
-        "passenger_id":     api.get("passenger_id"),
-        "passenger_ids":    list(api.get("passenger_ids") or []),
-        "quotes":           list(api.get("quotes") or []),
-        "user_id":          api.get("user_id"),
+        "active_flow": active_flow,
+        "buy_cover_step": bc.get("step"),
+        "buy_cover_data": dict(bc.get("data") or {}),
+        "kyc_step": kyc.get("step"),
+        "kyc_data": dict(kyc.get("data") or {}),
+        "payment_step": pay.get("step"),
+        "payment_data": dict(pay.get("data") or {}),
+        "policy_id": api.get("policy_id"),
+        "policy_code": api.get("policy_code"),
+        "passenger_id": api.get("passenger_id"),
+        "passenger_ids": list(api.get("passenger_ids") or []),
+        "quotes": list(api.get("quotes") or []),
+        "user_id": api.get("user_id"),
         "payout_method_id": api.get("payout_method_id"),
-        "paused_at":        datetime.utcnow().isoformat(),
+        "paused_at": datetime.utcnow().isoformat(),
     }
 
 
@@ -242,97 +245,147 @@ async def _redisplay_step(
     name = data.get("name", "")
 
     if step == "buy_cover_who":
-        await _send_buttons(wa_id, "Is this cover for:", [
-            {"id": "cover_just_me", "title": "1. 🧑 Just me"},
-            {"id": "cover_others",  "title": "2. 👥 Me & Others"},
-        ], phone_number_id)
+        await _send_buttons(
+            wa_id,
+            "Is this cover for:",
+            [
+                {"id": "cover_just_me", "title": "1. 🧑 Just me"},
+                {"id": "cover_others", "title": "2. 👥 Me & Others"},
+            ],
+            phone_number_id,
+        )
 
     elif step == "buy_cover_traveler_count":
-        await _send_text(wa_id,
+        await _send_text(
+            wa_id,
             "👥 *How many travellers are covered?*\n"
             "Please reply with a number\n\n"
             "_Example: 2_\n\n"
-            "⚠️ Maximum number of travellers you can add is *10*.", phone_number_id)
+            "⚠️ Maximum number of travellers you can add is *10*.",
+            phone_number_id,
+        )
 
     elif step == "buy_cover_name":
-        await _send_text(wa_id,
-            "👤 🔥 *Enter main passenger name*\n"
+        await _send_text(
+            wa_id,
+            "👤 👑 *Enter main passenger name*\n"
             "Enter first name and surname as it appears on the ticket.\n\n"
             "ℹ️ This person is the main passenger.\n"
             "📞 This should be the person buying cover and would be linked to this WhatsApp number.\n"
             "💳 Used for payment & payout processing.\n"
             "🔔 Receive policy updates and notifications.\n\n"
-            "_Example: Yusuf Usman_", phone_number_id)
+            "_Example: Yusuf Usman_",
+            phone_number_id,
+        )
 
     elif step == "buy_cover_other_name":
         collected = len(data.get("travelers", []))
         total = data.get("others_count", 1) + 1
-        await _send_text(wa_id,
+        await _send_text(
+            wa_id,
             f"👤 *Traveller {collected + 1} of {total}*\n"
             "Enter first name and surname as it appears on their ticket.\n\n"
-            "_Example: Amina Bello_", phone_number_id)
+            "_Example: Amina Bello_",
+            phone_number_id,
+        )
 
     elif step == "buy_cover_email":
         n = f"*{name}*\n\n" if name else ""
-        await _send_text(wa_id,
+        await _send_text(
+            wa_id,
             f"{n}*📧 Please enter your email address*\n"
             "So we can send your policy documents\n\n"
-            "_Example: yusuf@email.com_", phone_number_id)
+            "_Example: yusuf@email.com_",
+            phone_number_id,
+        )
 
     elif step == "buy_cover_trip_type":
-        await _send_buttons(wa_id, "🗺️ What type of trip is this?", [
-            {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
-            {"id": "trip_return", "title": "2. 🔄 Return"},
-        ], phone_number_id)
+        await _send_buttons(
+            wa_id,
+            "🗺️ What type of trip is this?",
+            [
+                {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
+                {"id": "trip_return", "title": "2. 🔄 Return"},
+            ],
+            phone_number_id,
+        )
 
-    elif step in ("buy_cover_departure_airport", "buy_cover_depart_airport_pick",
-                  "buy_cover_confirm_departure"):
-        await _send_text(wa_id,
+    elif step in (
+        "buy_cover_departure_airport",
+        "buy_cover_depart_airport_pick",
+        "buy_cover_confirm_departure",
+    ):
+        await _send_text(
+            wa_id,
             "*🛫 What airport are you departing from?*\n\n"
             "Type at least 3 characters of the airport name or IATA code\n\n"
-            "_Example: LOS, ABV, KAN_", phone_number_id)
+            "_Example: LOS, ABV, KAN_",
+            phone_number_id,
+        )
 
     elif step in ("buy_cover_depart_date", "buy_cover_date"):
-        await _send_text(wa_id,
+        await _send_text(
+            wa_id,
             "*📅 Please enter your departure date*\n\n"
-            "_Example: 12 April 2026 or 12/04/2026_", phone_number_id)
+            "_Example: 12 April 2026 or 12/04/2026_",
+            phone_number_id,
+        )
 
     elif step == "buy_cover_depart_time":
-        await _send_text(wa_id,
-            "*⏰ Please enter your departure time*\n\n"
-            "_Example: 08:30 or 8:30 AM_", phone_number_id)
+        await _send_text(
+            wa_id,
+            "*⏰ Please enter your departure time*\n\n_Example: 08:30 or 8:30 AM_",
+            phone_number_id,
+        )
 
-    elif step in ("buy_cover_arrival_airport", "buy_cover_arrive_airport_pick",
-                  "buy_cover_confirm_arrival"):
-        await _send_text(wa_id,
+    elif step in (
+        "buy_cover_arrival_airport",
+        "buy_cover_arrive_airport_pick",
+        "buy_cover_confirm_arrival",
+    ):
+        await _send_text(
+            wa_id,
             "*🛬 What airport are you arriving at?*\n\n"
             "Type at least 3 characters of the airport name or IATA code\n\n"
-            "_Example: LHR, CDG, DXB_", phone_number_id)
+            "_Example: LHR, CDG, DXB_",
+            phone_number_id,
+        )
 
     elif step == "buy_cover_arrive_date":
-        await _send_text(wa_id,
+        await _send_text(
+            wa_id,
             "*📅 Please enter your arrival date*\n\n"
-            "_Example: 16 April 2026 or 16/04/2026_", phone_number_id)
+            "_Example: 16 April 2026 or 16/04/2026_",
+            phone_number_id,
+        )
 
     elif step == "buy_cover_arrive_time":
-        await _send_text(wa_id,
-            "*⏰ Please enter your arrival time*\n\n"
-            "_Example: 10:00 or 10:00 AM_", phone_number_id)
+        await _send_text(
+            wa_id,
+            "*⏰ Please enter your arrival time*\n\n_Example: 10:00 or 10:00 AM_",
+            phone_number_id,
+        )
 
     elif step == "buy_cover_booking_ref":
-        await _send_text(wa_id,
-            "*🎫 Please enter your booking reference*\n\n"
-            "_Example: ABC123_", phone_number_id)
+        await _send_text(
+            wa_id,
+            "*🎫 Please enter your booking reference*\n\n_Example: ABC123_",
+            phone_number_id,
+        )
 
     elif step in ("buy_cover_flight_num", "buy_cover_flight_no"):
-        await _send_text(wa_id,
-            "*✈️ Please enter your flight number*\n\n"
-            "_Example: W3101 or P47123_", phone_number_id)
+        await _send_text(
+            wa_id,
+            "*✈️ Please enter your flight number*\n\n_Example: W3101 or P47123_",
+            phone_number_id,
+        )
 
     elif step == "buy_cover_airline":
-        await _send_text(wa_id,
-            "*✈️ Who are you flying with?*\n\n"
-            "_Example: Ibom Air, Air Peace_", phone_number_id)
+        await _send_text(
+            wa_id,
+            "*✈️ Who are you flying with?*\n\n_Example: Ibom Air, Air Peace_",
+            phone_number_id,
+        )
 
     elif step == "buy_cover_select_cover":
         quotes = session.get("api_data", {}).get("quotes") or []
@@ -349,18 +402,33 @@ async def _redisplay_step(
         if quotes:
             rows = []
             for i, q in enumerate(quotes[:8]):
-                q_name   = str(q.get("name") or q.get("productName") or "Cover option")[:24]
-                q_price  = q.get("price") or q.get("premiumAmount") or 0
-                insurer  = q.get("insurer") or q.get("provider") or q.get("providerName") or ""
-                desc     = f"💰 ₦{float(q_price):,.0f}" + (f"  •  🏢 {insurer}" if insurer else "")
-                rows.append({"id": f"cov_{i}", "title": q_name, "description": desc[:72]})
-            await _send_list(wa_id,
+                q_name = str(q.get("name") or q.get("productName") or "Cover option")[
+                    :24
+                ]
+                q_price = q.get("price") or q.get("premiumAmount") or 0
+                insurer = (
+                    q.get("insurer") or q.get("provider") or q.get("providerName") or ""
+                )
+                desc = f"💰 ₦{float(q_price):,.0f}" + (
+                    f"  •  🏢 {insurer}" if insurer else ""
+                )
+                rows.append(
+                    {"id": f"cov_{i}", "title": q_name, "description": desc[:72]}
+                )
+            await _send_list(
+                wa_id,
                 "🎁 *Welcome back!* 👇 Please pick your cover plan:",
-                "Select cover", [{"title": "🛡️ Available Covers", "rows": rows}],
-                phone_number_id, header="🛡️ Select from available cover(s)")
+                "Select cover",
+                [{"title": "🛡️ Available Covers", "rows": rows}],
+                phone_number_id,
+                header="🛡️ Select from available cover(s)",
+            )
         else:
-            await _send_text(wa_id,
-                "⚠️ Unable to load covers right now. Type anything to retry.", phone_number_id)
+            await _send_text(
+                wa_id,
+                "⚠️ Unable to load covers right now. Type anything to retry.",
+                phone_number_id,
+            )
 
     elif step == "buy_cover_summary":
         flow = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {})
@@ -370,12 +438,15 @@ async def _redisplay_step(
         flow = session.setdefault("temp_data", {}).setdefault(BUY_COVER_FLOW_KEY, {})
         flow["step"] = "buy_cover_who"
         await save_session(session)
-        await _send_buttons(wa_id,
+        await _send_buttons(
+            wa_id,
             "✈️ *Let's continue your application!*\n\nIs this cover for:",
             [
                 {"id": "cover_just_me", "title": "1. 🧑 Just me"},
-                {"id": "cover_others",  "title": "2. 👥 Me & Others"},
-            ], phone_number_id)
+                {"id": "cover_others", "title": "2. 👥 Me & Others"},
+            ],
+            phone_number_id,
+        )
 
 
 async def _show_trip_summary(
@@ -407,14 +478,14 @@ async def _send_edit_menu(to: str, phone_number_id: Optional[str]):
             {
                 "title": "Select a field to edit",
                 "rows": [
-                    {"id": "edit_name",          "title": "👤 Passenger name"},
-                    {"id": "edit_email",          "title": "📧 Email address"},
-                    {"id": "edit_booking_ref",    "title": "🎫 Booking reference"},
-                    {"id": "edit_flight_num",     "title": "✈️ Flight number"},
-                    {"id": "edit_date",           "title": "📅 Departure date"},
-                    {"id": "edit_arrive_date",    "title": "📅 Arrival date"},
-                    {"id": "edit_depart_time",    "title": "⏰ Departure time"},
-                    {"id": "edit_arrive_time",    "title": "⏰ Arrival time"},
+                    {"id": "edit_name", "title": "👤 Passenger name"},
+                    {"id": "edit_email", "title": "📧 Email address"},
+                    {"id": "edit_booking_ref", "title": "🎫 Booking reference"},
+                    {"id": "edit_flight_num", "title": "✈️ Flight number"},
+                    {"id": "edit_date", "title": "📅 Departure date"},
+                    {"id": "edit_arrive_date", "title": "📅 Arrival date"},
+                    {"id": "edit_depart_time", "title": "⏰ Departure time"},
+                    {"id": "edit_arrive_time", "title": "⏰ Arrival time"},
                     {"id": "edit_depart_airport", "title": "🛫 Departure airport"},
                     {"id": "edit_arrive_airport", "title": "🛬 Arrival airport"},
                 ],
@@ -506,7 +577,7 @@ async def start_buy_cover_flow(
     in_reply_to: Optional[str] = None,
 ):
     session = await get_session(wa_id) or {}
-    msisdn  = get_msisdn(wa_id)
+    msisdn = get_msisdn(wa_id)
 
     # ── 1. Paused context: user came back after 00 / help shortcut ───────────
     paused = session.get("paused_context")
@@ -519,33 +590,38 @@ async def start_buy_cover_flow(
         if resumed_api and resumed_api.get("policy_id"):
             # API still has the draft → restore data & offer resume / fresh
             session["api_data"] = {
-                "policy_id":        paused.get("policy_id"),
-                "policy_code":      paused.get("policy_code"),
-                "passenger_id":     paused.get("passenger_id"),
-                "passenger_ids":    paused.get("passenger_ids") or [],
-                "quotes":           paused.get("quotes") or [],
-                "user_id":          paused.get("user_id"),
+                "policy_id": paused.get("policy_id"),
+                "policy_code": paused.get("policy_code"),
+                "passenger_id": paused.get("passenger_id"),
+                "passenger_ids": paused.get("passenger_ids") or [],
+                "quotes": paused.get("quotes") or [],
+                "user_id": paused.get("user_id"),
                 "payout_method_id": paused.get("payout_method_id"),
-                "user_exists":      True,
-                "resume_draft":     resumed_api,
+                "user_exists": True,
+                "resume_draft": resumed_api,
             }
-            bc_data     = paused.get("buy_cover_data") or {}
+            bc_data = paused.get("buy_cover_data") or {}
             active_flow = paused.get("active_flow", BUY_COVER_FLOW_KEY)
-            name   = bc_data.get("name", "")
-            cover  = bc_data.get("cover", "")
+            name = bc_data.get("name", "")
+            cover = bc_data.get("cover", "")
             flight = bc_data.get("flight_num", "")
-            date   = bc_data.get("date", "")
-            dep    = (bc_data.get("depart_airport") or "").split("—")[0].strip()
-            arr    = (bc_data.get("arrive_airport") or "").split("—")[0].strip()
+            date = bc_data.get("date", "")
+            dep = (bc_data.get("depart_airport") or "").split("—")[0].strip()
+            arr = (bc_data.get("arrive_airport") or "").split("—")[0].strip()
 
             h_lines = []
-            if name:   h_lines.append(f"👤 {name}")
-            if flight: h_lines.append(
-                f"✈️ {flight}" + (f"  •  {dep} → {arr}" if dep or arr else "")
-            )
-            elif dep or arr: h_lines.append(f"🛫 {dep} → {arr}")
-            if date:   h_lines.append(f"📅 {date}")
-            if cover:  h_lines.append(f"🛡️ {cover}")
+            if name:
+                h_lines.append(f"👤 {name}")
+            if flight:
+                h_lines.append(
+                    f"✈️ {flight}" + (f"  •  {dep} → {arr}" if dep or arr else "")
+                )
+            elif dep or arr:
+                h_lines.append(f"🛫 {dep} → {arr}")
+            if date:
+                h_lines.append(f"📅 {date}")
+            if cover:
+                h_lines.append(f"🛡️ {cover}")
 
             if active_flow == KYC_FLOW_KEY:
                 h_lines.append("\n🔐 Identity verification was in progress")
@@ -554,19 +630,19 @@ async def start_buy_cover_flow(
             else:
                 bc_step = paused.get("buy_cover_step", "")
                 step_label = {
-                    "buy_cover_name":             "📝 Entering traveller name",
-                    "buy_cover_email":            "📧 Entering email address",
-                    "buy_cover_trip_type":        "🗺️ Selecting trip type",
-                    "buy_cover_departure_airport":"🔍 Selecting departure airport",
-                    "buy_cover_depart_date":      "📅 Entering departure date",
-                    "buy_cover_depart_time":      "⏰ Entering departure time",
-                    "buy_cover_arrival_airport":  "🔍 Selecting arrival airport",
-                    "buy_cover_arrive_date":      "📅 Entering arrival date",
-                    "buy_cover_arrive_time":      "⏰ Entering arrival time",
-                    "buy_cover_booking_ref":      "🎫 Entering booking reference",
-                    "buy_cover_flight_num":       "✈️ Entering flight number",
-                    "buy_cover_select_cover":     "🛡️ Selecting cover plan",
-                    "buy_cover_summary":          "📋 Confirming trip summary",
+                    "buy_cover_name": "📝 Entering traveller name",
+                    "buy_cover_email": "📧 Entering email address",
+                    "buy_cover_trip_type": "🗺️ Selecting trip type",
+                    "buy_cover_departure_airport": "🔍 Selecting departure airport",
+                    "buy_cover_depart_date": "📅 Entering departure date",
+                    "buy_cover_depart_time": "⏰ Entering departure time",
+                    "buy_cover_arrival_airport": "🔍 Selecting arrival airport",
+                    "buy_cover_arrive_date": "📅 Entering arrival date",
+                    "buy_cover_arrive_time": "⏰ Entering arrival time",
+                    "buy_cover_booking_ref": "🎫 Entering booking reference",
+                    "buy_cover_flight_num": "✈️ Entering flight number",
+                    "buy_cover_select_cover": "🛡️ Selecting cover plan",
+                    "buy_cover_summary": "📋 Confirming trip summary",
                 }.get(bc_step, "")
                 if step_label:
                     h_lines.append(f"\n{step_label}")
@@ -575,20 +651,20 @@ async def start_buy_cover_flow(
             td = session.setdefault("temp_data", {})
             td[BUY_COVER_FLOW_KEY] = {
                 "active": True,
-                "step":   "buy_cover_resume_choice",
-                "data":   bc_data,
+                "step": "buy_cover_resume_choice",
+                "data": bc_data,
             }
             if paused.get("kyc_step"):
                 td[KYC_FLOW_KEY] = {
                     "active": False,
-                    "step":   paused["kyc_step"],
-                    "data":   paused.get("kyc_data") or {},
+                    "step": paused["kyc_step"],
+                    "data": paused.get("kyc_data") or {},
                 }
             if paused.get("payment_step"):
                 td[PAYMENT_FLOW_KEY] = {
                     "active": False,
-                    "step":   paused["payment_step"],
-                    "data":   paused.get("payment_data") or {},
+                    "step": paused["payment_step"],
+                    "data": paused.get("payment_data") or {},
                 }
             await save_session(session)
             await _send_buttons(
@@ -598,7 +674,7 @@ async def start_buy_cover_flow(
                 f"{hint}\n\n"
                 "Would you like to continue where you left off?",
                 [
-                    {"id": "resume_yes",   "title": "▶️ Resume"},
+                    {"id": "resume_yes", "title": "▶️ Resume"},
                     {"id": "resume_fresh", "title": "🆕 Start Fresh"},
                 ],
                 phone_number_id,
@@ -625,15 +701,15 @@ async def start_buy_cover_flow(
         user = await ipurvey_service.check_user_exists(msisdn)
         if user and isinstance(user, dict):
             uid = user.get("userId") or user.get("id") or user.get("user_id")
-            api_data["user_id"]     = uid
+            api_data["user_id"] = uid
             api_data["user_exists"] = True
         else:
             api_data["user_exists"] = False
 
         # ── Try to resume an existing API draft ───────────────────────────────
-        resumed     = await ipurvey_service.resume_draft_policy(msisdn)
-        pax_api     = resumed.get("passengers", []) if resumed else []
-        has_named   = any(p.get("firstName") or p.get("surname") for p in pax_api)
+        resumed = await ipurvey_service.resume_draft_policy(msisdn)
+        pax_api = resumed.get("passengers", []) if resumed else []
+        has_named = any(p.get("firstName") or p.get("surname") for p in pax_api)
         if (
             resumed
             and resumed.get("policy_id")
@@ -643,18 +719,19 @@ async def start_buy_cover_flow(
             api_data["resume_draft"] = resumed
             await save_session(session)
 
-            passengers    = resumed.get("passengers", [])
-            names         = [
+            passengers = resumed.get("passengers", [])
+            names = [
                 f"{p.get('firstName', '')} {p.get('surname', '')}".strip()
-                for p in passengers if p.get("firstName") or p.get("surname")
+                for p in passengers
+                if p.get("firstName") or p.get("surname")
             ]
-            itinerary     = resumed.get("itinerary", {})
-            legs          = itinerary.get("legs", [])
-            leg           = legs[0] if legs else {}
-            flight_num    = leg.get("flightNumber", "")
-            dep_code      = leg.get("departureAirport", "")
-            arr_code      = leg.get("arrivalAirport", "")
-            dep_date      = leg.get("departureDate", "")
+            itinerary = resumed.get("itinerary", {})
+            legs = itinerary.get("legs", [])
+            leg = legs[0] if legs else {}
+            flight_num = leg.get("flightNumber", "")
+            dep_code = leg.get("departureAirport", "")
+            arr_code = leg.get("arrivalAirport", "")
+            dep_date = leg.get("departureDate", "")
             traveler_line = ", ".join(names) if names else ""
 
             if state in ("AWAITING_KYC", "DETAILS_COLLECTED"):
@@ -671,7 +748,7 @@ async def start_buy_cover_flow(
                 )
             elif state == "DRAFT" and has_named:
                 h_parts = [f"👤 Traveler: *{traveler_line}*"]
-                email   = resumed.get("email", "")
+                email = resumed.get("email", "")
                 if email:
                     h_parts.append(f"📧 Email: *{email}*")
                     h_parts.append("✈️ Flight details still needed.")
@@ -680,7 +757,8 @@ async def start_buy_cover_flow(
                 hint = "\n".join(h_parts)
             else:
                 hint = (
-                    f"👤 Traveler: *{traveler_line}*" if traveler_line
+                    f"👤 Traveler: *{traveler_line}*"
+                    if traveler_line
                     else "Some details were already saved."
                 )
 
@@ -696,7 +774,7 @@ async def start_buy_cover_flow(
                     "Would you like to continue where you left off?"
                 ),
                 buttons=[
-                    {"id": "resume_yes",   "title": "▶️ Resume"},
+                    {"id": "resume_yes", "title": "▶️ Resume"},
                     {"id": "resume_fresh", "title": "🆕 Start Fresh"},
                 ],
                 phone_number_id=phone_number_id,
@@ -706,11 +784,11 @@ async def start_buy_cover_flow(
         # ── No resumable API draft — create a fresh one ───────────────────────
         draft = await ipurvey_service.create_draft_policy(msisdn)
         if draft:
-            pid          = draft["policy_id"]
-            existing     = draft.get("existing", False)
-            state        = draft.get("creation_state", "DRAFT")
+            pid = draft["policy_id"]
+            existing = draft.get("existing", False)
+            state = draft.get("creation_state", "DRAFT")
             existing_pax = draft.get("passengers", [])
-            has_named_d  = any(
+            has_named_d = any(
                 p.get("firstName") or p.get("surname") for p in existing_pax
             )
 
@@ -720,11 +798,11 @@ async def start_buy_cover_flow(
                     f"state='{state}' has_named={has_named_d} — resume prompt"
                 )
                 api_data["resume_draft"] = {
-                    "policy_id":      pid,
+                    "policy_id": pid,
                     "creation_state": state,
-                    "passengers":     existing_pax,
-                    "email":          draft.get("email", ""),
-                    "itinerary":      draft.get("itinerary", {}),
+                    "passengers": existing_pax,
+                    "email": draft.get("email", ""),
+                    "itinerary": draft.get("itinerary", {}),
                 }
                 flow = session["temp_data"][BUY_COVER_FLOW_KEY]
                 flow["step"] = "buy_cover_resume_choice"
@@ -737,7 +815,7 @@ async def start_buy_cover_flow(
                         "Would you like to continue where you left off?"
                     ),
                     buttons=[
-                        {"id": "resume_yes",   "title": "▶️ Resume"},
+                        {"id": "resume_yes", "title": "▶️ Resume"},
                         {"id": "resume_fresh", "title": "🆕 Start Fresh"},
                     ],
                     phone_number_id=phone_number_id,
@@ -757,7 +835,7 @@ async def start_buy_cover_flow(
                         f"[buy_cover] cancel had no effect, draft still '{pid}' "
                         f"— clearing policy_id"
                     )
-                    pid   = None
+                    pid = None
                     draft = None
                 else:
                     pid = draft["policy_id"] if draft else None
@@ -818,7 +896,7 @@ async def handle_buy_cover_flow(
         if reply_id == "resume_fresh":
             # Cancel paused context draft OR api resume_draft, then start fresh
             paused_f = session.get("paused_context")
-            old_pid  = paused_f.get("policy_id") if paused_f else None
+            old_pid = paused_f.get("policy_id") if paused_f else None
             session.pop("paused_context", None)
             resume_data_f = session.get("api_data", {}).pop("resume_draft", {})
             if not old_pid:
@@ -844,7 +922,7 @@ async def handle_buy_cover_flow(
                 ),
                 [
                     {"id": "cover_just_me", "title": "1. 🧑 Just me"},
-                    {"id": "cover_others",  "title": "2. 👥 Me & Others"},
+                    {"id": "cover_others", "title": "2. 👥 Me & Others"},
                 ],
                 phone_number_id,
             )
@@ -855,50 +933,67 @@ async def handle_buy_cover_flow(
             paused_y = session.get("paused_context")
             if paused_y and paused_y.get("policy_id"):
                 api_data_y = session.setdefault("api_data", {})
-                api_data_y.update({
-                    "policy_id":        paused_y.get("policy_id"),
-                    "policy_code":      paused_y.get("policy_code"),
-                    "passenger_id":     paused_y.get("passenger_id"),
-                    "passenger_ids":    paused_y.get("passenger_ids") or [],
-                    "quotes":           paused_y.get("quotes") or [],
-                    "user_id":          paused_y.get("user_id"),
-                    "payout_method_id": paused_y.get("payout_method_id"),
-                })
-                active_flow_y  = paused_y.get("active_flow", BUY_COVER_FLOW_KEY)
-                bc_step_y      = paused_y.get("buy_cover_step") or "buy_cover_who"
-                bc_data_y      = paused_y.get("buy_cover_data") or {}
-                flow["data"]   = bc_data_y
-                data           = flow["data"]
+                api_data_y.update(
+                    {
+                        "policy_id": paused_y.get("policy_id"),
+                        "policy_code": paused_y.get("policy_code"),
+                        "passenger_id": paused_y.get("passenger_id"),
+                        "passenger_ids": paused_y.get("passenger_ids") or [],
+                        "quotes": paused_y.get("quotes") or [],
+                        "user_id": paused_y.get("user_id"),
+                        "payout_method_id": paused_y.get("payout_method_id"),
+                    }
+                )
+                active_flow_y = paused_y.get("active_flow", BUY_COVER_FLOW_KEY)
+                bc_step_y = paused_y.get("buy_cover_step") or "buy_cover_who"
+                bc_data_y = paused_y.get("buy_cover_data") or {}
+                flow["data"] = bc_data_y
+                data = flow["data"]
 
                 if active_flow_y == KYC_FLOW_KEY:
                     session.pop("paused_context", None)
                     bc_flow_y = session.setdefault("temp_data", {})[BUY_COVER_FLOW_KEY]
-                    bc_flow_y.update({"step": bc_step_y, "active": False, "data": bc_data_y})
+                    bc_flow_y.update(
+                        {"step": bc_step_y, "active": False, "data": bc_data_y}
+                    )
                     await save_session(session)
                     from app.services.kyc_flow_service import start_kyc_flow
+
                     await start_kyc_flow(sender_wa_id, phone_number_id)
                     return
 
                 elif active_flow_y == PAYMENT_FLOW_KEY:
                     session.pop("paused_context", None)
                     bc_flow_y = session.setdefault("temp_data", {})[BUY_COVER_FLOW_KEY]
-                    bc_flow_y.update({"step": bc_step_y, "active": False, "data": bc_data_y})
-                    pay_flow_y = session.setdefault("temp_data", {}).setdefault(PAYMENT_FLOW_KEY, {})
-                    pay_flow_y.update({
-                        "data":   paused_y.get("payment_data") or {},
-                        "step":   paused_y.get("payment_step") or "pay_payout_options",
-                        "active": True,
-                    })
+                    bc_flow_y.update(
+                        {"step": bc_step_y, "active": False, "data": bc_data_y}
+                    )
+                    pay_flow_y = session.setdefault("temp_data", {}).setdefault(
+                        PAYMENT_FLOW_KEY, {}
+                    )
+                    pay_flow_y.update(
+                        {
+                            "data": paused_y.get("payment_data") or {},
+                            "step": paused_y.get("payment_step")
+                            or "pay_payout_options",
+                            "active": True,
+                        }
+                    )
                     await save_session(session)
                     from app.services.payment_flow_service import start_payment_flow
-                    await start_payment_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+
+                    await start_payment_flow(
+                        wa_id=sender_wa_id, phone_number_id=phone_number_id
+                    )
                     return
 
                 else:
                     # If no meaningful step was saved, resolve from API state
                     if not bc_step_y or bc_step_y == "buy_cover_who":
-                        resume_d2 = session.get("api_data", {}).get("resume_draft") or {}
-                        state2    = resume_d2.get("creation_state", "DRAFT")
+                        resume_d2 = (
+                            session.get("api_data", {}).get("resume_draft") or {}
+                        )
+                        state2 = resume_d2.get("creation_state", "DRAFT")
                         if state2 in ("AWAITING_KYC", "DETAILS_COLLECTED"):
                             bc_step_y = "buy_cover_select_cover"
                         elif state2 == "AWAITING_ITINERARY":
@@ -930,38 +1025,39 @@ async def handle_buy_cover_flow(
 
             # ── B. API-based resume (no paused context) ────────────────────────
             resume_data = session.get("api_data", {}).get("resume_draft", {})
-            state       = resume_data.get("creation_state", "DRAFT")
-            pid         = resume_data.get("policy_id")
+            state = resume_data.get("creation_state", "DRAFT")
+            pid = resume_data.get("policy_id")
             session["api_data"]["policy_id"] = pid
 
-            passengers    = resume_data.get("passengers", [])
+            passengers = resume_data.get("passengers", [])
             passenger_ids = [p["id"] for p in passengers if p.get("id")]
             session["api_data"]["passenger_ids"] = passenger_ids
             names = [
                 f"{p.get('firstName', '')} {p.get('surname', '')}".strip()
-                for p in passengers if p.get("firstName") or p.get("surname")
+                for p in passengers
+                if p.get("firstName") or p.get("surname")
             ]
 
-            itinerary     = resume_data.get("itinerary", {})
-            legs          = itinerary.get("legs", [])
-            leg           = legs[0] if legs else {}
-            trip_raw      = resume_data.get("trip_type", "ONE_WAY")
-            data["name"]        = names[0] if names else ""
-            data["email"]       = resume_data.get("email", "")
+            itinerary = resume_data.get("itinerary", {})
+            legs = itinerary.get("legs", [])
+            leg = legs[0] if legs else {}
+            trip_raw = resume_data.get("trip_type", "ONE_WAY")
+            data["name"] = names[0] if names else ""
+            data["email"] = resume_data.get("email", "")
             data["booking_ref"] = itinerary.get("bookingReference", "")
-            data["flight_num"]  = leg.get("flightNumber", "")
-            dep_code            = leg.get("departureAirport", "")
-            arr_code            = leg.get("arrivalAirport", "")
+            data["flight_num"] = leg.get("flightNumber", "")
+            dep_code = leg.get("departureAirport", "")
+            arr_code = leg.get("arrivalAirport", "")
             data["depart_airport"] = f"{dep_code} — {dep_code}" if dep_code else ""
             data["arrive_airport"] = f"{arr_code} — {arr_code}" if arr_code else ""
-            data["date"]        = leg.get("departureDate", "")
+            data["date"] = leg.get("departureDate", "")
             data["depart_time"] = leg.get("departureTime", "")
             data["arrive_time"] = leg.get("arrivalTime", "")
-            data["airline"]     = leg.get("carrier", "")
-            data["trip_type"]   = "Return 🔄" if trip_raw == "RETURN" else "One-way 🗺️"
+            data["airline"] = leg.get("carrier", "")
+            data["trip_type"] = "Return 🔄" if trip_raw == "RETURN" else "One-way 🗺️"
             if len(names) > 1:
-                data["who"]          = "me_and_others"
-                data["travelers"]    = names
+                data["who"] = "me_and_others"
+                data["travelers"] = names
                 data["others_count"] = len(names) - 1
             else:
                 data["who"] = "just_me"
@@ -986,7 +1082,7 @@ async def handle_buy_cover_flow(
                         "⚠️ *We're unable to load covers right now*\n\nPlease try again shortly",
                         [
                             {"id": "summary_confirm", "title": "🔄 Try again"},
-                            {"id": "summary_edit",    "title": "✏️ Edit details"},
+                            {"id": "summary_edit", "title": "✏️ Edit details"},
                         ],
                         phone_number_id,
                     )
@@ -996,17 +1092,28 @@ async def handle_buy_cover_flow(
                 await save_session(session)
                 rows = []
                 for i, q in enumerate(quotes[:8]):
-                    q_name    = str(q.get("name") or q.get("productName") or "Cover option")[:24]
-                    q_price   = q.get("price") or q.get("premiumAmount") or 0
-                    trip_q    = q.get("tripType") or q.get("travelType") or ""
-                    insurer_q = q.get("insurer") or q.get("provider") or q.get("providerName") or ""
-                    coverage  = q.get("coverageTypes") or []
+                    q_name = str(
+                        q.get("name") or q.get("productName") or "Cover option"
+                    )[:24]
+                    q_price = q.get("price") or q.get("premiumAmount") or 0
+                    trip_q = q.get("tripType") or q.get("travelType") or ""
+                    insurer_q = (
+                        q.get("insurer")
+                        or q.get("provider")
+                        or q.get("providerName")
+                        or ""
+                    )
+                    coverage = q.get("coverageTypes") or []
                     price_str = f"💰 ₦{float(q_price):,.0f}"
-                    trip_str  = f"⏱️ {trip_q}" if trip_q else ""
-                    ins_str   = f"🏢 {insurer_q}" if insurer_q else ""
+                    trip_str = f"⏱️ {trip_q}" if trip_q else ""
+                    ins_str = f"🏢 {insurer_q}" if insurer_q else ""
                     cov_count = f"✅ {len(coverage)} covers" if coverage else ""
-                    desc = "  •  ".join(filter(None, [price_str, trip_str or ins_str, cov_count]))
-                    rows.append({"id": f"cov_{i}", "title": q_name, "description": desc[:72]})
+                    desc = "  •  ".join(
+                        filter(None, [price_str, trip_str or ins_str, cov_count])
+                    )
+                    rows.append(
+                        {"id": f"cov_{i}", "title": q_name, "description": desc[:72]}
+                    )
                 await _send_list(
                     sender_wa_id,
                     "🎁 *Great news — your trip details are already saved!*\n\n"
@@ -1037,19 +1144,25 @@ async def handle_buy_cover_flow(
                 if not data.get("email"):
                     flow["step"] = "buy_cover_email"
                     await save_session(session)
-                    await _send_text(sender_wa_id,
+                    await _send_text(
+                        sender_wa_id,
                         "*📧 Please enter your email address*\n"
                         "So we can send your policy documents\n\n"
-                        "_Example: yusuf@email.com_", phone_number_id)
+                        "_Example: yusuf@email.com_",
+                        phone_number_id,
+                    )
                 else:
                     flow["step"] = "buy_cover_trip_type"
                     await save_session(session)
-                    await _send_buttons(sender_wa_id,
+                    await _send_buttons(
+                        sender_wa_id,
                         "🗺️ What type of trip is this?",
                         [
                             {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
                             {"id": "trip_return", "title": "2. 🔄 Return"},
-                        ], phone_number_id)
+                        ],
+                        phone_number_id,
+                    )
                 return
 
             else:
@@ -1060,7 +1173,7 @@ async def handle_buy_cover_flow(
                     "✈️ Let's continue your application!\n\nIs this cover for:",
                     [
                         {"id": "cover_just_me", "title": "1. 🧑 Just me"},
-                        {"id": "cover_others",  "title": "2. 👥 Me & Others"},
+                        {"id": "cover_others", "title": "2. 👥 Me & Others"},
                     ],
                     phone_number_id,
                 )
@@ -1109,7 +1222,7 @@ async def handle_buy_cover_flow(
             await _send_text(
                 sender_wa_id,
                 (
-                    "👤 🔥 *Enter main passenger name*\n"
+                    "👤 👑 *Enter main passenger name*\n"
                     "Enter first name and surname as it appears on the ticket.\n\n"
                     "ℹ️ This person is the main passenger.\n"
                     "📞 This should be the person buying cover and would be linked to this WhatsApp number.\n"
@@ -1180,17 +1293,24 @@ async def handle_buy_cover_flow(
                     if pax_ids:
                         api_data = session.setdefault("api_data", {})
                         api_data["passenger_ids"] = [
-                            (p if isinstance(p, str) else (p.get("passengerId") or p.get("id") or ""))
-                            for p in pax_ids if p
+                            (
+                                p
+                                if isinstance(p, str)
+                                else (p.get("passengerId") or p.get("id") or "")
+                            )
+                            for p in pax_ids
+                            if p
                         ]
-                        logger.info(f"[BUY_COVER] pre-allocated passenger_ids: {api_data['passenger_ids']}")
+                        logger.info(
+                            f"[BUY_COVER] pre-allocated passenger_ids: {api_data['passenger_ids']}"
+                        )
                         await save_session(session)
                 except Exception as exc:
                     logger.error(f"[BUY_COVER] set_traveler_count(1) failed: {exc}")
             await _send_text(
                 sender_wa_id,
                 (
-                    "👤 🔥 *Enter main passenger name*\n"
+                    "👤 👑 *Enter main passenger name*\n"
                     "Enter first name and surname as it appears on the ticket.\n\n"
                     "ℹ️ This person is the main passenger.\n"
                     "📞 This should be the person buying cover and would be linked to this WhatsApp number.\n"
@@ -1215,17 +1335,26 @@ async def handle_buy_cover_flow(
                 if pax_ids:
                     api_data = session.setdefault("api_data", {})
                     api_data["passenger_ids"] = [
-                        (p if isinstance(p, str) else (p.get("passengerId") or p.get("id") or ""))
-                        for p in pax_ids if p
+                        (
+                            p
+                            if isinstance(p, str)
+                            else (p.get("passengerId") or p.get("id") or "")
+                        )
+                        for p in pax_ids
+                        if p
                     ]
-                    logger.info(f"[BUY_COVER] pre-allocated passenger_ids: {api_data['passenger_ids']}")
+                    logger.info(
+                        f"[BUY_COVER] pre-allocated passenger_ids: {api_data['passenger_ids']}"
+                    )
                     await save_session(session)
             except Exception as exc:
-                logger.error(f"[BUY_COVER] set_traveler_count({count_int}) failed: {exc}")
+                logger.error(
+                    f"[BUY_COVER] set_traveler_count({count_int}) failed: {exc}"
+                )
         await _send_text(
             sender_wa_id,
             (
-                "👤 🔥 *Enter main passenger name*\n"
+                "👤 👑 *Enter main passenger name*\n"
                 "Enter first name and surname as it appears on the ticket.\n\n"
                 "ℹ️ This person is the main passenger.\n"
                 "📞 This should be the person buying cover and would be linked to this WhatsApp number.\n"
@@ -1247,7 +1376,7 @@ async def handle_buy_cover_flow(
                 hint = "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Yusuf Abdullahi_"
             await _send_text(sender_wa_id, hint, phone_number_id)
             return
-        policy_id   = session.get("api_data", {}).get("policy_id")
+        policy_id = session.get("api_data", {}).get("policy_id")
         existing_pid = session.get("api_data", {}).get("passenger_id")
         if policy_id:
             fn, ln = _split_name(text)
@@ -1256,7 +1385,9 @@ async def handle_buy_cover_flow(
                     ok = await ipurvey_service.update_passenger(
                         policy_id, existing_pid, fn, ln, is_primary=True
                     )
-                    logger.info(f"[BUY_COVER] update_passenger (primary) → {fn} {ln} ok={ok}")
+                    logger.info(
+                        f"[BUY_COVER] update_passenger (primary) → {fn} {ln} ok={ok}"
+                    )
                     if not ok:
                         await _send_text(
                             sender_wa_id,
@@ -1289,10 +1420,16 @@ async def handle_buy_cover_flow(
                         )
                         return
                     if result and result.get("passengerId"):
-                        session.setdefault("api_data", {})["passenger_id"] = result["passengerId"]
-                        logger.info(f"[BUY_COVER] saved passenger_id='{result['passengerId']}'")
+                        session.setdefault("api_data", {})["passenger_id"] = result[
+                            "passengerId"
+                        ]
+                        logger.info(
+                            f"[BUY_COVER] saved passenger_id='{result['passengerId']}'"
+                        )
             except Exception as exc:
-                logger.error(f"[BUY_COVER] add/update_passenger (primary) failed: {exc}")
+                logger.error(
+                    f"[BUY_COVER] add/update_passenger (primary) failed: {exc}"
+                )
                 await _send_text(
                     sender_wa_id,
                     (
@@ -1447,10 +1584,7 @@ async def handle_buy_cover_flow(
         if not text or not _is_valid_email(text):
             await _send_text(
                 sender_wa_id,
-                (
-                    "⚠️ Please enter a valid email address\n\n"
-                    "_Example: yusuf@email.com_"
-                ),
+                ("⚠️ Please enter a valid email address\n\n_Example: yusuf@email.com_"),
                 phone_number_id,
             )
             return
@@ -1576,10 +1710,7 @@ async def handle_buy_cover_flow(
         if not parsed_dep_time:
             await _send_text(
                 sender_wa_id,
-                (
-                    "⏰ Please enter a valid departure time\n\n"
-                    "_Example: 13:40, 1:40 PM_"
-                ),
+                ("⏰ Please enter a valid departure time\n\n_Example: 13:40, 1:40 PM_"),
                 phone_number_id,
             )
             return
@@ -1632,12 +1763,14 @@ async def handle_buy_cover_flow(
             data["depart_airport"] = f"{code} — {name}"
         elif text and len(text.strip()) >= 3:
             search_term = text.strip()
-            airports = await ipurvey_service.search_airports(search_term, country_code="NG")
+            airports = await ipurvey_service.search_airports(
+                search_term, country_code="NG"
+            )
             if not airports:
                 await _send_buttons(
                     sender_wa_id,
                     (
-                        f"❌ *No airports found matching \"{search_term}\"*\n\n"
+                        f'❌ *No airports found matching "{search_term}"*\n\n'
                         "We couldn't find any airport matching your entry.\n"
                         "Please check the spelling or try searching again."
                     ),
@@ -1710,7 +1843,9 @@ async def handle_buy_cover_flow(
         dep_date = data.get("date", "")
         if dep_date and iso_arr_date < dep_date:
             try:
-                dep_date_fmt = datetime.strptime(dep_date, "%Y-%m-%d").strftime("%d %B %Y")
+                dep_date_fmt = datetime.strptime(dep_date, "%Y-%m-%d").strftime(
+                    "%d %B %Y"
+                )
             except ValueError:
                 dep_date_fmt = dep_date
             await _send_text(
@@ -1742,10 +1877,7 @@ async def handle_buy_cover_flow(
         if not parsed_arr_time:
             await _send_text(
                 sender_wa_id,
-                (
-                    "⏰ Please enter a valid arrival time\n\n"
-                    "_Example: 15:00, 3:00 PM_"
-                ),
+                ("⏰ Please enter a valid arrival time\n\n_Example: 15:00, 3:00 PM_"),
                 phone_number_id,
             )
             return
@@ -1794,12 +1926,14 @@ async def handle_buy_cover_flow(
             data["arrive_airport"] = f"{code} — {name}"
         elif text and len(text.strip()) >= 3:
             search_term = text.strip()
-            airports = await ipurvey_service.search_airports(search_term, country_code="NG")
+            airports = await ipurvey_service.search_airports(
+                search_term, country_code="NG"
+            )
             if not airports:
                 await _send_buttons(
                     sender_wa_id,
                     (
-                        f"❌ *No airports found matching \"{search_term}\"*\n\n"
+                        f'❌ *No airports found matching "{search_term}"*\n\n'
                         "We couldn't find any airport matching your entry.\n"
                         "Please check the spelling or try searching again."
                     ),
@@ -1857,17 +1991,17 @@ async def handle_buy_cover_flow(
     # ── Edit field select ──────────────────────────────────────────────────────
     elif step == "buy_cover_edit_select":
         _EDIT_MAP = {
-            "edit_name":          "buy_cover_name",
-            "edit_email":         "buy_cover_email",
-            "edit_booking_ref":   "buy_cover_booking_ref",
-            "edit_flight_num":    "buy_cover_flight_num",
-            "edit_date":          "buy_cover_date",
-            "edit_arrive_date":   "buy_cover_arrive_date",
-            "edit_depart_time":   "buy_cover_depart_time",
-            "edit_depart_airport":"buy_cover_depart_airport_pick",
-            "edit_arrive_time":   "buy_cover_arrive_time",
-            "edit_arrive_airport":"buy_cover_arrive_airport_pick",
-            "edit_airline":       "buy_cover_airline",
+            "edit_name": "buy_cover_name",
+            "edit_email": "buy_cover_email",
+            "edit_booking_ref": "buy_cover_booking_ref",
+            "edit_flight_num": "buy_cover_flight_num",
+            "edit_date": "buy_cover_date",
+            "edit_arrive_date": "buy_cover_arrive_date",
+            "edit_depart_time": "buy_cover_depart_time",
+            "edit_depart_airport": "buy_cover_depart_airport_pick",
+            "edit_arrive_time": "buy_cover_arrive_time",
+            "edit_arrive_airport": "buy_cover_arrive_airport_pick",
+            "edit_airline": "buy_cover_airline",
         }
         target = _EDIT_MAP.get(reply_id or "")
         if not target:
@@ -1879,40 +2013,29 @@ async def handle_buy_cover_flow(
         flow["step"] = target
         await save_session(session)
         _EDIT_PROMPT = {
-            "buy_cover_name":
-                "*👤 Please enter your updated name*\n"
-                "Enter first name and surname as it appears on your ticket\n\n"
-                "_Example: Yusuf Abdullahi_",
-            "buy_cover_email":
-                "*📧 Please enter your updated email address*\n\n"
-                "_Example: yusuf@email.com_",
-            "buy_cover_booking_ref":
-                "*🎫 Please enter your updated booking reference*\n\n"
-                "_Examples: AB1XY2, 2990FA62_",
-            "buy_cover_flight_num":
-                "*✈️ Please enter your updated flight number*\n\n"
-                "_Example: P47123, Q1402_",
-            "buy_cover_date":
-                "*📅 Please enter your updated departure date*\n\n"
-                "_Example: 12 April 2026, 12/04/2026_",
-            "buy_cover_arrive_date":
-                "*📅 Please enter your updated arrival date*\n\n"
-                "_Example: 12 April 2026, 12/04/2026_",
-            "buy_cover_depart_time":
-                "*⏰ Please enter your updated departure time*\n\n"
-                "_Example: 13:40, 1:40 PM_",
-            "buy_cover_depart_airport_pick":
-                "*🛫 Type at least 3 characters to search for your departure airport*\n\n"
-                "_Example: LOS, Mur, ABV_",
-            "buy_cover_arrive_time":
-                "*⏰ Please enter your updated arrival time*\n\n"
-                "_Example: 15:00, 3:00 PM_",
-            "buy_cover_arrive_airport_pick":
-                "*🛬 Type at least 3 characters to search for your arrival airport*\n\n"
-                "_Example: ABV, LOS, KAN_",
-            "buy_cover_airline":
-                "*✈️ Please enter your updated airline name*\n\n"
-                "_Example: Ibom Air, Air Peace_",
+            "buy_cover_name": "*👤 Please enter your updated name*\n"
+            "Enter first name and surname as it appears on your ticket\n\n"
+            "_Example: Yusuf Abdullahi_",
+            "buy_cover_email": "*📧 Please enter your updated email address*\n\n"
+            "_Example: yusuf@email.com_",
+            "buy_cover_booking_ref": "*🎫 Please enter your updated booking reference*\n\n"
+            "_Examples: AB1XY2, 2990FA62_",
+            "buy_cover_flight_num": "*✈️ Please enter your updated flight number*\n\n"
+            "_Example: P47123, Q1402_",
+            "buy_cover_date": "*📅 Please enter your updated departure date*\n\n"
+            "_Example: 12 April 2026, 12/04/2026_",
+            "buy_cover_arrive_date": "*📅 Please enter your updated arrival date*\n\n"
+            "_Example: 12 April 2026, 12/04/2026_",
+            "buy_cover_depart_time": "*⏰ Please enter your updated departure time*\n\n"
+            "_Example: 13:40, 1:40 PM_",
+            "buy_cover_depart_airport_pick": "*🛫 Type at least 3 characters to search for your departure airport*\n\n"
+            "_Example: LOS, Mur, ABV_",
+            "buy_cover_arrive_time": "*⏰ Please enter your updated arrival time*\n\n"
+            "_Example: 15:00, 3:00 PM_",
+            "buy_cover_arrive_airport_pick": "*🛬 Type at least 3 characters to search for your arrival airport*\n\n"
+            "_Example: ABV, LOS, KAN_",
+            "buy_cover_airline": "*✈️ Please enter your updated airline name*\n\n"
+            "_Example: Ibom Air, Air Peace_",
         }
         await _send_text(
             sender_wa_id,
@@ -1964,9 +2087,11 @@ async def handle_buy_cover_flow(
                     if data.get("arrive_airport")
                     else ""
                 )
-                dep_date = data.get("date", "")   # already ISO YYYY-MM-DD from validation
-                dep_time = data.get("depart_time", "")   # already HH:MM from validation
-                arr_time = data.get("arrive_time", "")   # already HH:MM from validation
+                dep_date = data.get(
+                    "date", ""
+                )  # already ISO YYYY-MM-DD from validation
+                dep_time = data.get("depart_time", "")  # already HH:MM from validation
+                arr_time = data.get("arrive_time", "")  # already HH:MM from validation
                 flight_num = data.get("flight_num", "").upper().replace(" ", "")
                 carrier = flight_num[:2] if len(flight_num) >= 2 else flight_num
                 trip_raw = data.get("trip_type", "One-way 🗺️")
@@ -2002,8 +2127,14 @@ async def handle_buy_cover_flow(
                                 "Please enter a different booking reference."
                             ),
                             [
-                                {"id": "edit_booking_ref", "title": "✏️ Change Booking Ref"},
-                                {"id": "summary_edit",     "title": "📝 Edit other details"},
+                                {
+                                    "id": "edit_booking_ref",
+                                    "title": "✏️ Change Booking Ref",
+                                },
+                                {
+                                    "id": "summary_edit",
+                                    "title": "📝 Edit other details",
+                                },
                             ],
                             phone_number_id,
                         )
@@ -2162,17 +2293,25 @@ async def handle_buy_cover_flow(
             quotes = session.get("api_data", {}).get("quotes") or []
             rows = []
             for i, q in enumerate(quotes[:8]):
-                q_name = str(q.get("name") or q.get("productName") or "Cover option")[:24]
+                q_name = str(q.get("name") or q.get("productName") or "Cover option")[
+                    :24
+                ]
                 q_price = q.get("price") or q.get("premiumAmount") or 0
                 trip = q.get("tripType") or q.get("travelType") or ""
-                insurer = q.get("insurer") or q.get("provider") or q.get("providerName") or ""
+                insurer = (
+                    q.get("insurer") or q.get("provider") or q.get("providerName") or ""
+                )
                 coverage = q.get("coverageTypes") or []
                 price_str = f"💰 ₦{float(q_price):,.0f}"
                 trip_str = f"⏱️ {trip}" if trip else ""
                 insurer_str = f"🏢 {insurer}" if insurer else ""
                 cover_count = f"✅ {len(coverage)} covers" if coverage else ""
-                desc = "  •  ".join(filter(None, [price_str, trip_str or insurer_str, cover_count]))
-                rows.append({"id": f"cov_{i}", "title": q_name, "description": desc[:72]})
+                desc = "  •  ".join(
+                    filter(None, [price_str, trip_str or insurer_str, cover_count])
+                )
+                rows.append(
+                    {"id": f"cov_{i}", "title": q_name, "description": desc[:72]}
+                )
             if rows:
                 await _send_list(
                     sender_wa_id,
@@ -2413,7 +2552,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
     elif prev == "buy_cover_name":
         await _send_text(
             wa_id,
-            "👤 🔥 *Enter main passenger name*\n"
+            "👤 👑 *Enter main passenger name*\n"
             "Enter first name and surname as it appears on the ticket.\n\n"
             "ℹ️ This person is the main passenger.\n"
             "📞 This should be the person buying cover and would be linked to this WhatsApp number.\n"
@@ -2571,7 +2710,7 @@ async def show_cancel_purchase_confirm(wa_id: str, phone_number_id: Optional[str
         "❌ *Cancel Purchase*\n\nAre you sure you want to cancel?\nYour trip details will not be saved.",
         [
             {"id": "cx_yes_buy", "title": "❌ Yes, cancel"},
-            {"id": "cx_no_buy",  "title": "↩️ No, go back"},
+            {"id": "cx_no_buy", "title": "↩️ No, go back"},
         ],
         phone_number_id,
     )
