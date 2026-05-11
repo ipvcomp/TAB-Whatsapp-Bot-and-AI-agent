@@ -41,6 +41,7 @@ WELCOME_BUTTON_IDS = {
     "welcome_purchase_policy", "welcome_submit_boarding", "welcome_get_support",
     "buy_cover", "check_policy", "check_eligibility", "update_details",
     "boarding_pass", "help", "restart_buy", "go_main",
+    "welcome_continue_draft", "welcome_discard_draft",
 }
 
 _CX_CONFIRM_IDS = frozenset({
@@ -762,6 +763,39 @@ async def _handle_welcome_button(
             wa_id=sender_wa_id,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
+        )
+    elif reply_id == "welcome_continue_draft":
+        log_event("WELCOME_BUTTON", {"action": "continue_draft", "from": sender_wa_id})
+        await start_buy_cover_flow(
+            wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+        )
+    elif reply_id == "welcome_discard_draft":
+        log_event("WELCOME_BUTTON", {"action": "discard_draft", "from": sender_wa_id})
+        from app.core.test_overrides import get_msisdn
+        from app.services.session_service import get_session, save_session
+        import app.services.ipurvey_service as _ipurvey_svc_wh
+        _msisdn = get_msisdn(sender_wa_id)
+        _draft = await _ipurvey_svc_wh.resume_draft_policy(_msisdn)
+        if _draft and _draft.get("policy_id"):
+            await _ipurvey_svc_wh.cancel_draft_policy(_draft["policy_id"])
+            logger.info(f"[welcome_discard] cancelled draft {_draft['policy_id']} for {sender_wa_id}")
+        # Clear any lingering session flow state
+        _disc_session = await get_session(sender_wa_id)
+        if _disc_session:
+            _disc_session.setdefault("temp_data", {}).update({
+                "buy_cover_flow": {}, "kyc_flow": {}, "payment_flow": {},
+            })
+            _disc_session.pop("api_data", None)
+            _disc_session.pop("paused_context", None)
+            await save_session(_disc_session)
+        from app.services.auto_reply_service import send_welcome_message
+        await send_welcome_message(
+            to=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+            wa_id=sender_wa_id,
         )
 
 

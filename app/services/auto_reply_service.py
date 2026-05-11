@@ -9,8 +9,8 @@ from app.services.whatsapp_service import (
     get_welcome_image_media_id,
 )
 from app.core.test_overrides import get_msisdn
-from app.services.ipurvey_api import fetch_policies_by_msisdn
 from app.services.session_service import get_session
+from app.services.contact_service import get_contact_by_wa_id
 import app.services.ipurvey_service as _ipurvey_svc
 
 logger = logging.getLogger(__name__)
@@ -97,14 +97,16 @@ def _match_simple_reply(text: str) -> Optional[str]:
 
 
 def _format_policy_card(policy: dict) -> str:
-    """Format a rich draft policy card for the welcome-back message."""
+    """Format a rich draft policy card for the welcome-back message.
+    All fields are always shown; missing values display as —."""
+    policy_id   = policy.get("policy_id") or ""
     booking_ref = policy.get("booking_ref") or ""
     trip_type   = policy.get("trip_type") or ""
     origin      = policy.get("origin") or ""
     dest        = policy.get("dest") or ""
     departure   = policy.get("departure") or ""
     passengers  = policy.get("passengers") or []
-    status      = (policy.get("status") or "DRAFT").upper()
+    status      = (policy.get("status") or "NONE").upper()
 
     if status == "DRAFT":
         badge = "🔄 Draft"
@@ -118,24 +120,27 @@ def _format_policy_card(policy: dict) -> str:
         badge = "❌ Cancelled"
     elif status in ("EXPIRED", "LAPSED"):
         badge = "⏰ Expired"
+    elif status == "NONE":
+        badge = "📋 No active draft"
     else:
         badge = f"📋 {status.title()}"
 
+    # Truncate long UUID policy IDs for display
+    pid_display = (policy_id[:20] + "...") if len(policy_id) > 20 else policy_id
+
     lines = ["*YOUR SAVED POLICY (DRAFT)*", ""]
-    if booking_ref:
-        lines.append(f"Booking Reference   {booking_ref}")
-    if trip_type:
-        lines.append(f"Trip Type           {trip_type}")
-    if origin:
-        lines.append(f"From                {origin}")
-    if dest:
-        lines.append(f"To                  {dest}")
-    if departure:
-        lines.append(f"Departure           {departure}")
+    lines.append(f"Policy ID           {pid_display or '—'}")
+    lines.append(f"Booking Reference   {booking_ref or '—'}")
+    lines.append(f"Trip Type           {trip_type or '—'}")
+    lines.append(f"From                {origin or '—'}")
+    lines.append(f"To                  {dest or '—'}")
+    lines.append(f"Departure           {departure or '—'}")
     if passengers:
         lines.append(f"Passengers          👤 {passengers[0]}")
         for pname in passengers[1:]:
             lines.append(f"                    👤 {pname}")
+    else:
+        lines.append("Passengers          —")
     lines.append("")
     lines.append(badge)
     return "\n".join(lines)
@@ -167,92 +172,121 @@ async def send_welcome_message(
         )
         await asyncio.sleep(1.5)
 
-    # 2. Determine if user has an active draft — only then show welcome-back card
-    lookup_id       = wa_id or to
+    # 2. Determine user existence (contact DB) and draft status in parallel
+    lookup_id        = wa_id or to
     is_existing_user = False
+    has_draft        = False
     draft_policy_id  = ""
     draft_info: dict | None = None
     if lookup_id:
         try:
             msisdn = get_msisdn(lookup_id)
             results = await asyncio.gather(
-                fetch_policies_by_msisdn(msisdn),
+                get_contact_by_wa_id(lookup_id),
                 _ipurvey_svc.resume_draft_policy(msisdn),
                 return_exceptions=True,
             )
-            policies   = results[0] if not isinstance(results[0], Exception) else []
-            draft_info = results[1] if not isinstance(results[1], Exception) else None
+            contact_rec = results[0] if not isinstance(results[0], Exception) else None
+            draft_info  = results[1] if not isinstance(results[1], Exception) else None
 
-            # Only show welcome-back card when there is an active draft policy
+            # Existing user = contact record found in DB
+            is_existing_user = bool(contact_rec)
+
             if draft_info and isinstance(draft_info, dict):
-                draft_policy_id  = draft_info.get("policy_id") or ""
-                is_existing_user = bool(draft_policy_id)
+                draft_policy_id = draft_info.get("policy_id") or ""
+                has_draft       = bool(draft_policy_id)
+                # Fallback: treat as existing if only draft found (first-time edge case)
+                if not is_existing_user and has_draft:
+                    is_existing_user = True
 
             logger.info(
-                f"[welcome] has_draft={is_existing_user} draft_id={draft_policy_id!r} "
-                f"policies={len(policies) if isinstance(policies, list) else 0}"
+                f"[welcome] is_existing={is_existing_user} has_draft={has_draft} "
+                f"draft_id={draft_policy_id!r}"
             )
         except Exception as exc:
             logger.warning(f"[welcome] lookup failed for {lookup_id}: {exc}")
 
-    # 2b. Build card data from draft API response
-    if is_existing_user and draft_info:
-        itinerary  = draft_info.get("itinerary") or {}
-        legs       = itinerary.get("legs", [])
-        leg        = legs[0] if legs else {}
-        pax_list   = draft_info.get("passengers") or []
-        pax_names  = [
-            f"{p.get('firstName', '')} {p.get('surname', '')}".strip()
-            for p in pax_list
-            if p.get("firstName") or p.get("surname")
-        ]
-        trip_raw   = draft_info.get("trip_type", "")
-        dep_date   = leg.get("departureDate", "")
-        dep_time   = leg.get("departureTime", "")
-        # Format departure as "15 May 2026 · 08:30" when both available
-        if dep_date and dep_time:
-            try:
-                from datetime import datetime as _dt
-                dep_display = _dt.strptime(dep_date, "%Y-%m-%d").strftime("%d %b %Y") + f" · {dep_time}"
-            except ValueError:
-                dep_display = f"{dep_date} · {dep_time}"
-        elif dep_date:
-            try:
-                from datetime import datetime as _dt
-                dep_display = _dt.strptime(dep_date, "%Y-%m-%d").strftime("%d %b %Y")
-            except ValueError:
-                dep_display = dep_date
+    # 2b. Build card data (draft fields if available, else all — for existing users)
+    card_data: dict | None = None
+    if is_existing_user:
+        if has_draft and draft_info:
+            itinerary = draft_info.get("itinerary") or {}
+            legs      = itinerary.get("legs", [])
+            leg       = legs[0] if legs else {}
+            pax_list  = draft_info.get("passengers") or []
+            pax_names = [
+                f"{p.get('firstName', '')} {p.get('surname', '')}".strip()
+                for p in pax_list
+                if p.get("firstName") or p.get("surname")
+            ]
+            trip_raw  = draft_info.get("trip_type", "")
+            dep_date  = leg.get("departureDate", "")
+            dep_time  = leg.get("departureTime", "")
+
+            # Format departure as "15 May 2026 · 08:30"
+            if dep_date and dep_time:
+                try:
+                    from datetime import datetime as _dt
+                    dep_display = _dt.strptime(dep_date, "%Y-%m-%d").strftime("%d %b %Y") + f" · {dep_time}"
+                except ValueError:
+                    dep_display = f"{dep_date} · {dep_time}"
+            elif dep_date:
+                try:
+                    from datetime import datetime as _dt
+                    dep_display = _dt.strptime(dep_date, "%Y-%m-%d").strftime("%d %b %Y")
+                except ValueError:
+                    dep_display = dep_date
+            else:
+                dep_display = ""
+
+            trip_label = (
+                "One Way" if trip_raw and "ONE" in trip_raw.upper()
+                else "Return" if trip_raw
+                else ""
+            )
+
+            dep_code = leg.get("departureAirport", "")
+            dep_name = leg.get("departureAirportName", "")
+            arr_code = leg.get("arrivalAirport", "")
+            arr_name = leg.get("arrivalAirportName", "")
+            origin_display = f"{dep_code} ({dep_name})" if dep_name else dep_code
+            dest_display   = f"{arr_code} ({arr_name})" if arr_name else arr_code
+
+            card_data = {
+                "policy_id":   draft_policy_id,
+                "booking_ref": itinerary.get("bookingReference", ""),
+                "trip_type":   trip_label,
+                "origin":      origin_display,
+                "dest":        dest_display,
+                "departure":   dep_display,
+                "passengers":  pax_names,
+                "status":      "DRAFT",
+            }
         else:
-            dep_display = ""
+            # Existing user but no draft — show card with all — values
+            card_data = {
+                "policy_id":   "",
+                "booking_ref": "",
+                "trip_type":   "",
+                "origin":      "",
+                "dest":        "",
+                "departure":   "",
+                "passengers":  [],
+                "status":      "NONE",
+            }
 
-        trip_label = (
-            "One Way" if "ONE" in trip_raw.upper()
-            else "Return" if trip_raw
-            else ""
-        )
-
-        # Airport: "CODE (Name)" if name available, else just "CODE"
-        dep_code = leg.get("departureAirport", "")
-        dep_name = leg.get("departureAirportName", "")
-        arr_code = leg.get("arrivalAirport", "")
-        arr_name = leg.get("arrivalAirportName", "")
-        origin_display = f"{dep_code} ({dep_name})" if dep_name else dep_code
-        dest_display   = f"{arr_code} ({arr_name})" if arr_name else arr_code
-
-        card_data: dict = {
-            "booking_ref": itinerary.get("bookingReference", ""),
-            "trip_type":   trip_label,
-            "origin":      origin_display,
-            "dest":        dest_display,
-            "departure":   dep_display,
-            "passengers":  pax_names,
-            "status":      "DRAFT",
-        }
-
+    # 2c. Build welcome body
+    if is_existing_user and has_draft and card_data:
         welcome_body = (
             "👋 *Welcome back!*\n"
             "*Welcome back to TravelAssist*\n"
             "We've resumed your saved policy draft.\n\n"
+            + _format_policy_card(card_data)
+        )
+    elif is_existing_user and card_data:
+        welcome_body = (
+            "👋 *Welcome back!*\n"
+            "*Welcome back to TravelAssist*\n\n"
             + _format_policy_card(card_data)
         )
     else:
@@ -265,7 +299,32 @@ async def send_welcome_message(
         source="auto_reply",
     )
 
-    # 3. Send button group 1: Buy Cover, Boarding Pass, Check My Policy
+    # 3. When draft exists: show Continue / Discard buttons instead of main menu
+    if is_existing_user and has_draft:
+        draft_action_payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": to,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": "What would you like to do?"},
+                "action": {
+                    "buttons": [
+                        {"type": "reply", "reply": {"id": "welcome_continue_draft", "title": "▶️ Continue"}},
+                        {"type": "reply", "reply": {"id": "welcome_discard_draft",  "title": "🗑 Discard Draft"}},
+                    ]
+                },
+            },
+        }
+        result = await send_whatsapp_payload(
+            whatsapp_payload=draft_action_payload,
+            phone_number_id=phone_number_id,
+            source="auto_reply",
+        )
+        return result
+
+    # 4. No draft: send full main menu (group 1 + group 2 + utility)
     group1_payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
@@ -283,7 +342,6 @@ async def send_welcome_message(
         source="auto_reply",
     )
 
-    # 4. Send button group 2: Check Eligibility, Update Details, Help
     group2_payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
@@ -301,7 +359,6 @@ async def send_welcome_message(
         source="auto_reply",
     )
 
-    # 5. Send utility bar
     await send_text_message(
         to=to,
         body=UTILITY_TEXT,
