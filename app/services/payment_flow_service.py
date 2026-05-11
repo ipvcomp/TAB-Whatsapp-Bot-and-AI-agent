@@ -4,6 +4,7 @@ from typing import Optional
 import app.services.ipurvey_service as ipurvey_service
 
 from app.core.test_overrides import get_msisdn
+from app.services.llm_service import call_extract
 from app.services.session_service import get_session, save_session, invalidate_policy_cache
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -510,6 +511,23 @@ async def handle_payment_flow(
 
     # ── Payout options ────────────────────────────────────────────────────────
     if step == "pay_payout_options":
+        if not reply_id and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="payout_method",
+                question_asked="Choose how you would like to receive money for future payouts: Bank Transfer or Wallet.",
+                user_response=text,
+                expected_format="text",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                ev = str(llm_result["extracted_value"]).lower()
+                if any(k in ev for k in ("bank", "transfer", "account", "bank transfer")):
+                    reply_id = "pay_bank"
+                elif any(k in ev for k in ("wallet", "mobile", "9psb", "opay", "smartcash", "mobile money")):
+                    reply_id = "pay_wallet_payout"
+            if not reply_id:
+                await start_payment_flow(sender_wa_id, phone_number_id)
+                return
         if reply_id == "pay_bank":
             flow["step"] = "pay_acct_number"
             await save_session(session)
@@ -611,11 +629,84 @@ async def handle_payment_flow(
             except (ValueError, IndexError):
                 await _send_text(sender_wa_id, "⚠️ Please select a bank from the list.", phone_number_id)
         else:
+            if text:
+                banks = data.get("pay_bank_list", [])
+                llm_result = await call_extract(
+                    user_id=sender_wa_id,
+                    field_name="bank_selection",
+                    question_asked="Please select a bank from the list provided.",
+                    user_response=text,
+                    expected_format="text",
+                )
+                if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                    ev = str(llm_result["extracted_value"]).lower()
+                    for i, b in enumerate(banks[:9]):
+                        if ev in b["name"].lower() or b["name"].lower() in ev:
+                            reply_id = f"bank_{i}"
+                            break
+                if reply_id and reply_id.startswith("bank_"):
+                    try:
+                        idx = int(reply_id.split("_")[1])
+                        if 0 <= idx < len(banks):
+                            bank = banks[idx]
+                            bank_name = bank["name"]
+                            bank_code = bank["code"]
+                            data["pay_bank_name"] = bank_name
+                            data["pay_bank_code"] = bank_code
+                            api_data = session.get("api_data", {})
+                            user_id = api_data.get("user_id") or ""
+                            account_no = data.get("pay_user_acct", "")
+                            _bc = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
+                            account_name = _bc.get("name") or ""
+                            if user_id:
+                                try:
+                                    payout_result = await ipurvey_service.create_payout_method_bank(
+                                        user_id=user_id,
+                                        account_number=account_no,
+                                        account_name=account_name,
+                                        bank_code=bank_code,
+                                        bank_name=bank_name,
+                                    )
+                                    if payout_result and isinstance(payout_result, dict):
+                                        pm_id = payout_result.get("id") or payout_result.get("payoutMethodId")
+                                        if pm_id:
+                                            session.setdefault("api_data", {})["payout_method_id"] = pm_id
+                                except Exception as exc:
+                                    logger.error(f"[payment] bank_select LLM payout failed: {exc}")
+                            await save_session(session)
+                            await _show_payment_summary(sender_wa_id, session, flow, phone_number_id)
+                            return
+                    except (ValueError, IndexError):
+                        pass
             await _send_text(sender_wa_id, "⚠️ Please select a bank from the list.", phone_number_id)
 
     # ── Wallet payout — select ────────────────────────────────────────────────
     elif step == "pay_wallet_payout_select":
         wallet_map = {"wallet_9psb": "9PSB", "wallet_smartcash": "SmartCash", "wallet_opay": "OPay"}
+        if not reply_id and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="wallet_provider",
+                question_asked="Choose your wallet provider: 9PSB, SmartCash, or OPay.",
+                user_response=text,
+                expected_format="text",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                ev = str(llm_result["extracted_value"]).lower()
+                if "9psb" in ev:
+                    reply_id = "wallet_9psb"
+                elif "smartcash" in ev or "smart cash" in ev:
+                    reply_id = "wallet_smartcash"
+                elif "opay" in ev or "o pay" in ev:
+                    reply_id = "wallet_opay"
+            if not reply_id:
+                await _send_buttons(
+                    sender_wa_id,
+                    "👛 *Wallet*\n\nChoose your wallet provider:",
+                    [{"id": w["id"], "title": w["title"]} for w in WALLET_OPTIONS],
+                    phone_number_id,
+                )
+                return
         if reply_id in wallet_map:
             data["pay_wallet_type"] = wallet_map[reply_id]
             flow["step"] = "pay_wallet_payout_phone"
@@ -659,6 +750,27 @@ async def handle_payment_flow(
 
     # ── Payment method choice ─────────────────────────────────────────────────
     elif step == "pay_method_choice":
+        if not reply_id and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="payment_method",
+                question_asked="Choose a payment method: Bank Transfer, Card Payment, USSD, or Mobile Money.",
+                user_response=text,
+                expected_format="text",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                ev = str(llm_result["extracted_value"]).lower()
+                if any(k in ev for k in ("bank", "transfer", "bank transfer")):
+                    reply_id = "pay_m_bank"
+                elif "card" in ev:
+                    reply_id = "pay_m_card"
+                elif any(k in ev for k in ("wallet", "mobile money", "mobile")):
+                    reply_id = "pay_m_wallet"
+                elif "ussd" in ev:
+                    reply_id = "pay_m_ussd"
+            if not reply_id:
+                await _show_payment_summary(sender_wa_id, session, flow, phone_number_id)
+                return
         if reply_id == "pay_m_bank":
             policy_id  = session.get("api_data", {}).get("policy_id")
             api_ref    = None
@@ -766,6 +878,32 @@ async def handle_payment_flow(
 
     # ── Bank pending ──────────────────────────────────────────────────────────
     elif step == "pay_m_bank_pending":
+        if not reply_id and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="payment_pending_action",
+                question_asked="Payment is being processed. Have you paid or would you like to refresh the payment status?",
+                user_response=text,
+                expected_format="text",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                ev = str(llm_result["extracted_value"]).lower()
+                if any(k in ev for k in ("paid", "done", "i have paid", "completed", "made payment", "already paid")):
+                    reply_id = "pay_m_done"
+                elif any(k in ev for k in ("refresh", "check", "status", "update", "verify")):
+                    reply_id = "pay_m_refresh"
+            if not reply_id:
+                _method_display = data.get("pay_method_display", "Bank Transfer")
+                await _send_buttons(
+                    sender_wa_id,
+                    f"✅ *Payment method selected*\nYou chose: 1. {_method_display}\n\nPlease make your payment and reply below:",
+                    [
+                        {"id": "pay_m_done", "title": "✅ I have paid"},
+                        {"id": "pay_m_refresh", "title": "🔄 Refresh status"},
+                    ],
+                    phone_number_id,
+                )
+                return
         ref = data.get("pay_m_bank_ref", "TA000000")
         _pending_api_data    = session.get("api_data", {})
         _p_bank_name         = _pending_api_data.get("bank_name", "")
@@ -880,6 +1018,22 @@ async def handle_payment_flow(
     elif step == "pay_success":
         pol = data.get("pay_policy", "—")
         ref = data.get("pay_ref",    "—")
+        if not reply_id and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="pay_success_action",
+                question_asked="Payment successful. What would you like to do next? View policy document, Upload boarding pass, or Go to main menu.",
+                user_response=text,
+                expected_format="text",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                ev = str(llm_result["extracted_value"]).lower()
+                if any(k in ev for k in ("view", "document", "policy doc", "pdf")):
+                    reply_id = "pay_view_doc"
+                elif any(k in ev for k in ("upload", "boarding", "boarding pass")):
+                    reply_id = "pay_upload_bp"
+                elif any(k in ev for k in ("menu", "home", "main", "exit")):
+                    reply_id = "pay_home"
         if reply_id in ("pay_view_policy", "pay_view_doc"):
             await _send_text(sender_wa_id,
                 f"📄 *Your Policy Document*\n\n"
@@ -952,6 +1106,31 @@ async def handle_payment_flow(
         err_ref    = data.get("submission_ref", "—")
         err_cname  = data.get("submission_cname", "—")
         err_amount = data.get("submission_amount", amount)
+        if not reply_id and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="submit_retry_action",
+                question_asked="Policy submission failed. Would you like to retry submission or go to the main menu?",
+                user_response=text,
+                expected_format="text",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                ev = str(llm_result["extracted_value"]).lower()
+                if any(k in ev for k in ("retry", "try again", "resubmit", "submit again")):
+                    reply_id = "pay_retry_submit"
+                elif any(k in ev for k in ("menu", "home", "main", "exit", "cancel")):
+                    reply_id = "pay_home"
+            if not reply_id:
+                await _send_buttons(
+                    sender_wa_id,
+                    "⚠️ *Policy Submission Failed*\n\nWhat would you like to do?",
+                    [
+                        {"id": "pay_retry_submit", "title": "🔄 Retry Submission"},
+                        {"id": "pay_home", "title": "🏠 Main menu"},
+                    ],
+                    phone_number_id,
+                )
+                return
         if reply_id == "pay_retry_submit":
             api_data_ = session.get("api_data", {})
             policy_ref = (

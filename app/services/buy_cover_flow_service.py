@@ -6,6 +6,7 @@ from typing import Optional
 import app.services.ipurvey_service as ipurvey_service
 
 from app.core.test_overrides import get_msisdn
+from app.services.llm_service import call_extract
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -1193,6 +1194,31 @@ async def handle_buy_cover_flow(
 
     # ── Who is covered ────────────────────────────────────────────────────────
     elif step == "buy_cover_who":
+        if not reply_id and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="cover_for",
+                question_asked="Is this cover for just you or for you and others?",
+                user_response=text,
+                expected_format="text",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                ev = str(llm_result["extracted_value"]).lower()
+                if any(k in ev for k in ("just me", "only me", "myself", "just_me", "solo", "alone", "single", "one person")):
+                    reply_id = "cover_just_me"
+                elif any(k in ev for k in ("others", "group", "family", "friends", "more", "multiple", "me and", "me_and")):
+                    reply_id = "cover_others"
+            if not reply_id:
+                await _send_buttons(
+                    sender_wa_id,
+                    "✈️ *Who is this cover for?*\n\nPlease select an option:",
+                    [
+                        {"id": "cover_just_me", "title": "1. 🧑 Just me"},
+                        {"id": "cover_others", "title": "2. 👥 Me & Others"},
+                    ],
+                    phone_number_id,
+                )
+                return
         if reply_id == "cover_just_me":
             data["who"] = "just_me"
             flow["step"] = "buy_cover_name"
@@ -1369,12 +1395,39 @@ async def handle_buy_cover_flow(
     elif step == "buy_cover_name":
         if not text or not _is_valid_name(text):
             if text and "@" in text:
-                hint = "⚠️ That looks like an email address — please enter your *name* instead.\n\n_Example: Yusuf Abdullahi_"
-            elif text and len([p for p in text.strip().split() if p]) < 2:
-                hint = "⚠️ Please enter *both your first name and surname*.\n\n_Example: Yusuf Abdullahi_"
-            else:
-                hint = "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Yusuf Abdullahi_"
-            await _send_text(sender_wa_id, hint, phone_number_id)
+                await _send_text(sender_wa_id, "⚠️ That looks like an email address — please enter your *name* instead.\n\n_Example: Yusuf Abdullahi_", phone_number_id)
+                return
+            if _contains_emoji(text or ""):
+                await _send_text(sender_wa_id, "⚠️ Name cannot contain emojis. Please enter your *full name*.\n\n_Example: Yusuf Abdullahi_", phone_number_id)
+                return
+            if not text or not any(c.isalpha() for c in text):
+                await _send_text(sender_wa_id, "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Yusuf Abdullahi_", phone_number_id)
+                return
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="passenger_name",
+                question_asked="Please enter your full name (first name and surname) as it appears on your ticket",
+                user_response=text,
+                expected_format="full_name",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                extracted_name = str(llm_result["extracted_value"]).strip()
+                if _is_valid_name(extracted_name):
+                    data["_pending_name"] = extracted_name
+                    data["_name_confirm_for"] = "main"
+                    flow["step"] = "buy_cover_name_confirm"
+                    await save_session(session)
+                    await _send_buttons(
+                        sender_wa_id,
+                        f"Did you mean: *{extracted_name}*?",
+                        [
+                            {"id": "name_confirm_yes", "title": "✅ Yes, that's correct"},
+                            {"id": "name_confirm_no", "title": "✏️ Re-enter name"},
+                        ],
+                        phone_number_id,
+                    )
+                    return
+            await _send_text(sender_wa_id, "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Yusuf Abdullahi_", phone_number_id)
             return
         policy_id = session.get("api_data", {}).get("policy_id")
         existing_pid = session.get("api_data", {}).get("passenger_id")
@@ -1489,16 +1542,157 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
 
+    # ── Name confirmation (LLM-extracted) ─────────────────────────────────────
+    elif step == "buy_cover_name_confirm":
+        pending_name = data.get("_pending_name", "")
+        confirm_for = data.get("_name_confirm_for", "main")
+        if reply_id == "name_confirm_yes" and pending_name:
+            name_to_use = pending_name
+            data.pop("_pending_name", None)
+            data.pop("_name_confirm_for", None)
+            if confirm_for == "other":
+                policy_id = session.get("api_data", {}).get("policy_id")
+                if policy_id:
+                    fn, ln = _split_name(name_to_use)
+                    try:
+                        result = await ipurvey_service.add_passenger(policy_id, fn, ln, is_primary=False)
+                        if result is None:
+                            flow["step"] = "buy_cover_other_name"
+                            await save_session(session)
+                            await _send_text(sender_wa_id, "⚠️ We couldn't save this traveler's name — please enter their *full name*.\n\n_Example: Amina Bello_", phone_number_id)
+                            return
+                    except Exception as exc:
+                        logger.error(f"[BUY_COVER] name_confirm add_passenger (other) failed: {exc}")
+                        flow["step"] = "buy_cover_other_name"
+                        await save_session(session)
+                        await _send_text(sender_wa_id, "⚠️ We couldn't save this traveler's name — please enter their *full name*.\n\n_Example: Amina Bello_", phone_number_id)
+                        return
+                travelers = data.get("travelers", [])
+                travelers.append(name_to_use)
+                data["travelers"] = travelers
+                others_count = data.get("others_count", 1)
+                others_collected = len(travelers) - 1
+                if others_collected < others_count:
+                    next_num = others_collected + 2
+                    total = others_count + 1
+                    flow["step"] = "buy_cover_other_name"
+                    await save_session(session)
+                    await _send_text(sender_wa_id, f"👤 *Traveller {next_num} of {total}*\nEnter first name and surname as it appears on their ticket.\n\n_Example: Amina Bello_", phone_number_id)
+                else:
+                    flow["step"] = "buy_cover_email"
+                    await save_session(session)
+                    summary_lines = []
+                    for i, n in enumerate(travelers):
+                        if i == 0:
+                            summary_lines.append(f"{i + 1}. {n}  👤👑 _(Main passenger)_")
+                        else:
+                            summary_lines.append(f"{i + 1}. {n}  👤")
+                    await _send_text(sender_wa_id, f"✅ *All traveller names added*\n\n" + "\n".join(summary_lines), phone_number_id)
+                    await _send_text(sender_wa_id, "*📧 Please enter your email address*\nSo we can send your policy documents\n\n_Example: yusuf@email.com_", phone_number_id)
+            else:
+                policy_id = session.get("api_data", {}).get("policy_id")
+                existing_pid = session.get("api_data", {}).get("passenger_id")
+                if policy_id:
+                    fn, ln = _split_name(name_to_use)
+                    try:
+                        if existing_pid:
+                            ok = await ipurvey_service.update_passenger(policy_id, existing_pid, fn, ln, is_primary=True)
+                            if not ok:
+                                flow["step"] = "buy_cover_name"
+                                await save_session(session)
+                                await _send_text(sender_wa_id, "⚠️ We couldn't update your name — please try again.\n\n_Example: Yusuf Abdullahi_", phone_number_id)
+                                return
+                        else:
+                            result = await ipurvey_service.add_passenger(policy_id, fn, ln, is_primary=True)
+                            if result is None:
+                                flow["step"] = "buy_cover_name"
+                                await save_session(session)
+                                await _send_text(sender_wa_id, "⚠️ We couldn't save your name — please enter your *full name*.\n\n_Example: Yusuf Abdullahi_", phone_number_id)
+                                return
+                            if result and result.get("passengerId"):
+                                session.setdefault("api_data", {})["passenger_id"] = result["passengerId"]
+                    except Exception as exc:
+                        logger.error(f"[BUY_COVER] name_confirm add/update_passenger failed: {exc}")
+                        flow["step"] = "buy_cover_name"
+                        await save_session(session)
+                        await _send_text(sender_wa_id, "⚠️ We couldn't save your name — please enter your *full name*.\n\n_Example: Yusuf Abdullahi_", phone_number_id)
+                        return
+                data["name"] = name_to_use
+                if data.pop("_edit_mode", False):
+                    await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
+                    return
+                if data.get("who") == "me_and_others":
+                    travelers = data.get("travelers", [])
+                    travelers.append(name_to_use)
+                    data["travelers"] = travelers
+                    others_count = data.get("others_count", 0)
+                    if others_count == 0:
+                        flow["step"] = "buy_cover_email"
+                        await save_session(session)
+                        await _send_text(sender_wa_id, "*📧 Please enter your email address*\nSo we can send your policy documents\n\n_Example: yusuf@email.com_", phone_number_id)
+                    else:
+                        data["others_collected"] = 0
+                        flow["step"] = "buy_cover_other_name"
+                        await save_session(session)
+                        total = others_count + 1
+                        await _send_text(sender_wa_id, f"👤 *Traveller 2 of {total}*\nEnter first name and surname as it appears on their ticket.\n\n_Example: Amina Bello_", phone_number_id)
+                else:
+                    flow["step"] = "buy_cover_email"
+                    await save_session(session)
+                    await _send_text(sender_wa_id, "*📧 Please enter your email address*\nSo we can send your policy documents\n\n_Example: yusuf@email.com_", phone_number_id)
+        else:
+            data.pop("_pending_name", None)
+            data.pop("_name_confirm_for", None)
+            if confirm_for == "other":
+                flow["step"] = "buy_cover_other_name"
+                others_count = data.get("others_count", 1)
+                collected = max(len(data.get("travelers", [])) - 1, 0)
+                total = others_count + 1
+                next_num = collected + 2
+                await save_session(session)
+                await _send_text(sender_wa_id, f"👤 *Traveller {next_num} of {total}*\nEnter first name and surname as it appears on their ticket.\n\n_Example: Amina Bello_", phone_number_id)
+            else:
+                flow["step"] = "buy_cover_name"
+                await save_session(session)
+                await _send_text(sender_wa_id, "👤 *Please enter your full name*\nEnter first name and surname as it appears on the ticket.\n\n_Example: Yusuf Abdullahi_", phone_number_id)
+
     # ── Additional traveler names ──────────────────────────────────────────────
     elif step == "buy_cover_other_name":
         if not text or not _is_valid_name(text):
             if text and "@" in text:
-                hint = "⚠️ That looks like an email address — please enter the traveler's *name* instead.\n\n_Example: Amina Bello_"
-            elif text and len([p for p in text.strip().split() if p]) < 2:
-                hint = "⚠️ Please enter *both first name and surname* for this traveler.\n\n_Example: Amina Bello_"
-            else:
-                hint = "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Amina Bello_"
-            await _send_text(sender_wa_id, hint, phone_number_id)
+                await _send_text(sender_wa_id, "⚠️ That looks like an email address — please enter the traveler's *name* instead.\n\n_Example: Amina Bello_", phone_number_id)
+                return
+            if _contains_emoji(text or ""):
+                await _send_text(sender_wa_id, "⚠️ Name cannot contain emojis. Please enter the traveler's *full name*.\n\n_Example: Amina Bello_", phone_number_id)
+                return
+            if not text or not any(c.isalpha() for c in text):
+                await _send_text(sender_wa_id, "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Amina Bello_", phone_number_id)
+                return
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="passenger_name",
+                question_asked="Please enter the traveler's full name (first name and surname) as it appears on their ticket",
+                user_response=text,
+                expected_format="full_name",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                extracted_name = str(llm_result["extracted_value"]).strip()
+                if _is_valid_name(extracted_name):
+                    data["_pending_name"] = extracted_name
+                    data["_name_confirm_for"] = "other"
+                    flow["step"] = "buy_cover_name_confirm"
+                    await save_session(session)
+                    await _send_buttons(
+                        sender_wa_id,
+                        f"Did you mean: *{extracted_name}*?",
+                        [
+                            {"id": "name_confirm_yes", "title": "✅ Yes, that's correct"},
+                            {"id": "name_confirm_no", "title": "✏️ Re-enter name"},
+                        ],
+                        phone_number_id,
+                    )
+                    return
+            await _send_text(sender_wa_id, "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Amina Bello_", phone_number_id)
             return
         policy_id = session.get("api_data", {}).get("policy_id")
         if policy_id:
@@ -1613,6 +1807,31 @@ async def handle_buy_cover_flow(
 
     # ── Trip type ─────────────────────────────────────────────────────────────
     elif step == "buy_cover_trip_type":
+        if not reply_id and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="trip_type",
+                question_asked="Is this a one-way or return trip?",
+                user_response=text,
+                expected_format="text",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                ev = str(llm_result["extracted_value"]).lower()
+                if any(k in ev for k in ("one way", "one-way", "oneway", "single", "one_way", "1 way")):
+                    reply_id = "trip_oneway"
+                elif any(k in ev for k in ("return", "round", "two way", "two-way", "roundtrip", "both ways")):
+                    reply_id = "trip_return"
+            if not reply_id:
+                await _send_buttons(
+                    sender_wa_id,
+                    "🗺️ What type of trip is this?",
+                    [
+                        {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
+                        {"id": "trip_return", "title": "2. 🔄 Return"},
+                    ],
+                    phone_number_id,
+                )
+                return
         trip = "One-way 🗺️" if reply_id == "trip_oneway" else "Return 🔄"
         data["trip_type"] = trip
         flow["step"] = "buy_cover_booking_ref"
@@ -1672,6 +1891,16 @@ async def handle_buy_cover_flow(
     # ── Flying date ───────────────────────────────────────────────────────────
     elif step == "buy_cover_date":
         iso_date = _parse_date_to_iso(text or "")
+        if not iso_date and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="departure_date",
+                question_asked="What is your departure date? Please provide in DD/MM/YYYY format.",
+                user_response=text,
+                expected_format="date",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                iso_date = _parse_date_to_iso(str(llm_result["extracted_value"]))
         if not iso_date:
             await _send_text(
                 sender_wa_id,
@@ -1707,6 +1936,16 @@ async def handle_buy_cover_flow(
     # ── Departure time ────────────────────────────────────────────────────────
     elif step == "buy_cover_depart_time":
         parsed_dep_time = _parse_time_to_hhmm(text or "")
+        if not parsed_dep_time and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="departure_time",
+                question_asked="What time is your flight scheduled to depart? Please provide in HH:MM or H:MM AM/PM format.",
+                user_response=text,
+                expected_format="time",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                parsed_dep_time = _parse_time_to_hhmm(str(llm_result["extracted_value"]))
         if not parsed_dep_time:
             await _send_text(
                 sender_wa_id,
@@ -1819,6 +2058,16 @@ async def handle_buy_cover_flow(
     # ── Arrival date ──────────────────────────────────────────────────────────
     elif step == "buy_cover_arrive_date":
         iso_arr_date = _parse_date_to_iso(text or "")
+        if not iso_arr_date and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="arrival_date",
+                question_asked="What is your arrival date? Please provide in DD/MM/YYYY format.",
+                user_response=text,
+                expected_format="date",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                iso_arr_date = _parse_date_to_iso(str(llm_result["extracted_value"]))
         if not iso_arr_date:
             await _send_text(
                 sender_wa_id,
@@ -1874,6 +2123,16 @@ async def handle_buy_cover_flow(
     # ── Arrival time ──────────────────────────────────────────────────────────
     elif step == "buy_cover_arrive_time":
         parsed_arr_time = _parse_time_to_hhmm(text or "")
+        if not parsed_arr_time and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="arrival_time",
+                question_asked="What time is your flight scheduled to arrive? Please provide in HH:MM or H:MM AM/PM format.",
+                user_response=text,
+                expected_format="time",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                parsed_arr_time = _parse_time_to_hhmm(str(llm_result["extracted_value"]))
         if not parsed_arr_time:
             await _send_text(
                 sender_wa_id,
@@ -2045,6 +2304,21 @@ async def handle_buy_cover_flow(
 
     # ── Trip summary ──────────────────────────────────────────────────────────
     elif step == "buy_cover_summary":
+        if not reply_id and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="trip_summary_action",
+                question_asked="Would you like to confirm your trip details or edit them?",
+                user_response=text,
+                expected_format="text",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                ev = str(llm_result["extracted_value"]).lower()
+                if any(k in ev for k in ("confirm", "yes", "proceed", "correct", "ok", "looks good", "continue", "submit")):
+                    reply_id = "summary_confirm"
+                elif any(k in ev for k in ("edit", "change", "no", "wrong", "incorrect", "update", "modify")):
+                    reply_id = "summary_edit"
+
         if reply_id == "summary_edit":
             flow["step"] = "buy_cover_edit_select"
             await save_session(session)

@@ -4,6 +4,7 @@ from typing import Optional
 import app.services.ipurvey_service as ipurvey_service
 
 from app.core.test_overrides import get_msisdn
+from app.services.llm_service import call_extract
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -216,6 +217,25 @@ async def handle_kyc_flow(
 
     # ── KYC intro ─────────────────────────────────────────────────────────────
     if step == "kyc_intro":
+        if not reply_id and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="kyc_method_choice",
+                question_asked="How would you like to verify your identity? Options: BVN (Nigeria), NIN (Nigeria), or Get Help.",
+                user_response=text,
+                expected_format="text",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                ev = str(llm_result["extracted_value"]).lower()
+                if "bvn" in ev:
+                    reply_id = "kyc_bvn"
+                elif "nin" in ev:
+                    reply_id = "kyc_nin"
+                elif any(k in ev for k in ("help", "support", "assist", "question")):
+                    reply_id = "kyc_help"
+            if not reply_id:
+                await start_kyc_flow(sender_wa_id, phone_number_id)
+                return
         if reply_id == "kyc_help":
             await _send_help(sender_wa_id, session, phone_number_id)
         elif reply_id == "kyc_nin":
@@ -249,6 +269,32 @@ async def handle_kyc_flow(
 
     # ── Consent ───────────────────────────────────────────────────────────────
     elif step == "kyc_consent":
+        if not reply_id and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="kyc_consent",
+                question_asked="Do you consent to using your National Biometric ID for identity verification?",
+                user_response=text,
+                expected_format="text",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                ev = str(llm_result["extracted_value"]).lower()
+                if any(k in ev for k in ("yes", "agree", "ok", "continue", "proceed", "consent", "sure", "accept")):
+                    reply_id = "kyc_consent_yes"
+                elif any(k in ev for k in ("no", "back", "cancel", "go back", "decline", "refuse")):
+                    reply_id = "kyc_consent_no"
+            if not reply_id:
+                method = data.get("kyc_method", "BVN")
+                await _send_buttons(
+                    sender_wa_id,
+                    f"🔒 We will only use your *{method}* to verify your identity for this purchase.\n\nDo you consent to proceed?",
+                    [
+                        {"id": "kyc_consent_yes", "title": "1. ✅ Yes, continue"},
+                        {"id": "kyc_consent_no", "title": "2. Go back"},
+                    ],
+                    phone_number_id,
+                )
+                return
         if reply_id == "kyc_consent_no":
             flow["step"] = "kyc_intro"
             await save_session(session)
@@ -274,6 +320,14 @@ async def handle_kyc_flow(
             return
         id_number = text.replace(" ", "")
         method = data.get("kyc_method", "BVN")
+        if not id_number.isdigit():
+            await _send_text(
+                sender_wa_id,
+                f"⚠️ Your *{method}* must contain numbers only.\n\n"
+                f"_Example: 12345678901_",
+                phone_number_id,
+            )
+            return
         masked = _mask_id(id_number)
         data["kyc_id"] = id_number
         await _send_text(
@@ -517,6 +571,34 @@ async def handle_kyc_flow(
 
     # ── Verified — next steps ─────────────────────────────────────────────────
     elif step == "kyc_verified":
+        if not reply_id and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="kyc_verified_action",
+                question_asked="Identity verified. What would you like to do next? Continue to payment, Review trip details, or Go to Main menu.",
+                user_response=text,
+                expected_format="text",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                ev = str(llm_result["extracted_value"]).lower()
+                if any(k in ev for k in ("pay", "payment", "continue", "proceed", "activate")):
+                    reply_id = "kyc_pay"
+                elif any(k in ev for k in ("review", "trip", "details", "summary")):
+                    reply_id = "kyc_review"
+                elif any(k in ev for k in ("menu", "home", "main", "exit")):
+                    reply_id = "kyc_home"
+            if not reply_id:
+                await _send_buttons(
+                    sender_wa_id,
+                    "✅ *Identity Verified*\n\nWhat would you like to do next?",
+                    [
+                        {"id": "kyc_pay", "title": "1. Continue to pay"},
+                        {"id": "kyc_review", "title": "2. Review trip"},
+                        {"id": "kyc_home", "title": "3. Main menu"},
+                    ],
+                    phone_number_id,
+                )
+                return
         if reply_id == "kyc_pay":
             from app.services.payment_flow_service import start_payment_flow
 
@@ -568,6 +650,35 @@ async def handle_kyc_flow(
 
     # ── Failed — retry options ────────────────────────────────────────────────
     elif step == "kyc_failed":
+        if not reply_id and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="kyc_failed_action",
+                question_asked="Verification incomplete. Would you like to try BVN, try NIN, or get help?",
+                user_response=text,
+                expected_format="text",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                ev = str(llm_result["extracted_value"]).lower()
+                if "bvn" in ev:
+                    reply_id = "kyc_try_bvn"
+                elif "nin" in ev:
+                    reply_id = "kyc_try_nin"
+                elif any(k in ev for k in ("help", "support", "agent")):
+                    reply_id = "kyc_help"
+            if not reply_id:
+                _other = "NIN" if data.get("kyc_method", "BVN") == "BVN" else "BVN"
+                _other_id = "kyc_try_nin" if data.get("kyc_method", "BVN") == "BVN" else "kyc_try_bvn"
+                await _send_buttons(
+                    sender_wa_id,
+                    "⚠️ *Verification Incomplete*\n\nPlease choose:",
+                    [
+                        {"id": _other_id, "title": f"🪪 Try {_other} instead"},
+                        {"id": "kyc_help", "title": "🆘 Get help"},
+                    ],
+                    phone_number_id,
+                )
+                return
         if reply_id == "kyc_try_bvn":
             data["kyc_method"] = "BVN"
             flow["step"] = "kyc_consent"
