@@ -125,11 +125,7 @@ def _format_policy_card(policy: dict) -> str:
     else:
         badge = f"📋 {status.title()}"
 
-    # Truncate long UUID policy IDs for display
-    pid_display = (policy_id[:20] + "...") if len(policy_id) > 20 else policy_id
-
     lines = ["*YOUR SAVED POLICY (DRAFT)*", ""]
-    lines.append(f"Policy ID           {pid_display or '—'}")
     lines.append(f"Booking Reference   {booking_ref or '—'}")
     lines.append(f"Trip Type           {trip_type or '—'}")
     lines.append(f"From                {origin or '—'}")
