@@ -831,7 +831,7 @@ async def _handle_cx_confirm(reply_id: str, wa_id: str, phone_number_id: str, se
     from app.services.auto_reply_service import send_welcome_message, send_main_menu
 
     if reply_id == "cx_yes_exit":
-        await send_welcome_message(to=wa_id, phone_number_id=phone_number_id, wa_id=wa_id)
+        await send_welcome_message(to=wa_id, phone_number_id=phone_number_id, in_reply_to=None, wa_id=wa_id)
 
     elif reply_id == "cx_no_exit":
         await send_text_message(

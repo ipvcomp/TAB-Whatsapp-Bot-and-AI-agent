@@ -744,7 +744,7 @@ async def handle_payment_flow(
                 "After payment, reply with:",
                 [
                     {"id": "pay_m_done",    "title": "✅ I have paid"},
-                    {"id": "pay_m_refresh", "title": "🔄 Refresh payment status"},
+                    {"id": "pay_m_refresh", "title": "🔄 Refresh status"},
                 ],
                 phone_number_id,
             )
@@ -852,7 +852,7 @@ async def handle_payment_flow(
                 "After payment, reply with:",
                 [
                     {"id": "pay_m_done",    "title": "✅ I have paid"},
-                    {"id": "pay_m_refresh", "title": "🔄 Refresh payment status"},
+                    {"id": "pay_m_refresh", "title": "🔄 Refresh status"},
                 ],
                 phone_number_id,
             )
