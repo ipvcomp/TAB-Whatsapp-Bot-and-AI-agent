@@ -2244,7 +2244,17 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
-        data["airline"] = text
+        llm_airline = await call_extract(
+            user_id=sender_wa_id,
+            field_name="airline_name",
+            question_asked="Who are you flying with? Please enter the airline name.",
+            user_response=text,
+            expected_format="text",
+        )
+        if llm_airline and llm_airline.get("is_valid") and llm_airline.get("extracted_value"):
+            data["airline"] = str(llm_airline["extracted_value"])
+        else:
+            data["airline"] = text
         await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
 
     # ── Edit field select ──────────────────────────────────────────────────────
@@ -2644,6 +2654,23 @@ async def handle_buy_cover_flow(
 
     # ── Next steps ────────────────────────────────────────────────────────────
     elif step == "buy_cover_next_steps":
+        if not reply_id and text:
+            llm_next = await call_extract(
+                user_id=sender_wa_id,
+                field_name="next_action",
+                question_asked="What would you like to do? Continue to KYC, Ask a question, or Cancel purchase?",
+                user_response=text,
+                expected_format="text",
+            )
+            if llm_next and llm_next.get("is_valid") and llm_next.get("extracted_value"):
+                ev = str(llm_next["extracted_value"]).lower()
+                if any(k in ev for k in ("kyc", "continue", "proceed", "next", "yes", "ok", "go ahead")):
+                    reply_id = "next_kyc"
+                elif any(k in ev for k in ("ask", "question", "know", "enquire", "more info")):
+                    reply_id = "next_ask"
+                elif any(k in ev for k in ("cancel", "stop", "exit", "no")):
+                    reply_id = "next_cancel"
+
         if reply_id == "next_kyc":
             from app.services.kyc_flow_service import start_kyc_flow
 

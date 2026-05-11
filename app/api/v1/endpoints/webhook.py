@@ -9,7 +9,7 @@ from app.models.webhook import WebhookPayload
 from app.services import contact_service, message_service
 from app.services.auto_reply_service import handle_auto_reply
 from app.services.session_service import get_session, save_session, build_default_session
-from app.services.llm_service import call_generic
+from app.services.llm_service import call_generic, call_extract
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 from app.services.llm_log_service import save_llm_log
 from app.services.buy_cover_flow_service import (
@@ -270,16 +270,16 @@ async def _process_change(entry_id: str, change):
                         "get support": "welcome_get_support",
                     }
                     matched_welcome = welcome_text_map.get(text_norm)
-                    if (
-                        matched_welcome
-                        and not is_in_buy_cover_flow(user_session)
+                    _no_active_flow = (
+                        not is_in_buy_cover_flow(user_session)
                         and not is_in_kyc_flow(user_session)
                         and not is_in_payment_flow(user_session)
                         and not is_in_bp_link_flow(user_session)
                         and not is_in_help_flow(user_session)
                         and not is_in_check_policy_flow(user_session)
                         and not is_in_update_details_flow(user_session)
-                    ):
+                    )
+                    if matched_welcome and _no_active_flow:
                         await _handle_welcome_button(
                             reply_id=matched_welcome,
                             message=message,
@@ -289,6 +289,39 @@ async def _process_change(entry_id: str, change):
                         )
                         log_event("WELCOME_TEXT_MATCH", {"to": sender_wa_id, "action": matched_welcome})
                         continue
+
+                    # ── Row 1: Wake-up / main menu — LLM intent detection ──────
+                    if not matched_welcome and _no_active_flow:
+                        _wakeup_llm = await call_extract(
+                            user_id=sender_wa_id,
+                            field_name="menu_intent",
+                            question_asked=(
+                                "Main menu options: 'buy insurance / purchase policy / travel cover', "
+                                "'submit boarding pass / upload boarding pass', or 'get support / help'."
+                            ),
+                            user_response=message.text.body,
+                            expected_format="text",
+                        )
+                        if _wakeup_llm and _wakeup_llm.get("is_valid") and _wakeup_llm.get("extracted_value"):
+                            _wk_ev = str(_wakeup_llm["extracted_value"]).lower()
+                            _wk_intent = None
+                            if any(k in _wk_ev for k in ("buy", "purchase", "cover", "policy", "insurance", "travel")):
+                                _wk_intent = "welcome_purchase_policy"
+                            elif any(k in _wk_ev for k in ("boarding", "pass", "submit", "upload")):
+                                _wk_intent = "welcome_submit_boarding"
+                            elif any(k in _wk_ev for k in ("support", "help", "question", "assist", "enquiry")):
+                                _wk_intent = "welcome_get_support"
+                            if _wk_intent:
+                                await _handle_welcome_button(
+                                    reply_id=_wk_intent,
+                                    message=message,
+                                    sender_wa_id=sender_wa_id,
+                                    profile_name=resolved_profile,
+                                    phone_number_id=msg_phone_number_id,
+                                )
+                                log_event("WELCOME_LLM_INTENT", {"to": sender_wa_id, "intent": _wk_intent})
+                                continue
+                    # ──────────────────────────────────────────────────────────
 
                 if message.type == "text" and message.text:
                     text_lower_mm = message.text.body.lower().strip()
@@ -399,6 +432,61 @@ async def _process_change(entry_id: str, change):
                             )
                             log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "none→menu"})
                         continue
+
+                # ── Row 34: Utility menu — LLM shortcut intent detection ──────
+                if message.type == "text" and message.text:
+                    _util_text = message.text.body.strip()
+                    if _util_text and len(_util_text) <= 80:
+                        _util_llm = await call_extract(
+                            user_id=sender_wa_id,
+                            field_name="navigation_intent",
+                            question_asked=(
+                                "Navigation shortcuts available: go back (0), help (9), "
+                                "main menu (00), cancel/exit (99)."
+                            ),
+                            user_response=_util_text,
+                            expected_format="text",
+                        )
+                        if _util_llm and _util_llm.get("is_valid") and _util_llm.get("extracted_value"):
+                            _nav_ev = str(_util_llm["extracted_value"]).lower()
+                            _nav_matched = False
+                            if any(k in _nav_ev for k in ("back", "previous", "undo", "return", "go back")):
+                                from app.services.auto_reply_service import send_main_menu as _smm
+                                if is_in_buy_cover_flow(user_session):
+                                    from app.services.buy_cover_flow_service import go_back_one_step as _bc_b
+                                    await _bc_b(wa_id=sender_wa_id, phone_number_id=msg_phone_number_id)
+                                elif is_in_kyc_flow(user_session):
+                                    from app.services.kyc_flow_service import go_back_one_step as _kyc_b
+                                    await _kyc_b(wa_id=sender_wa_id, phone_number_id=msg_phone_number_id)
+                                elif is_in_payment_flow(user_session):
+                                    from app.services.payment_flow_service import go_back_one_step as _pay_b
+                                    await _pay_b(wa_id=sender_wa_id, phone_number_id=msg_phone_number_id)
+                                else:
+                                    await _smm(to=sender_wa_id, phone_number_id=msg_phone_number_id, wa_id=sender_wa_id)
+                                log_event("SHORTCUT_LLM_BACK", {"to": sender_wa_id, "text": _util_text})
+                                _nav_matched = True
+                            elif any(k in _nav_ev for k in ("help", "assist", "support")):
+                                await pause_buy_cover_flow(sender_wa_id)
+                                await start_help_flow(wa_id=sender_wa_id, phone_number_id=msg_phone_number_id)
+                                log_event("SHORTCUT_LLM_HELP", {"to": sender_wa_id, "text": _util_text})
+                                _nav_matched = True
+                            elif any(k in _nav_ev for k in ("main menu", "home", "start over", "restart")):
+                                await pause_buy_cover_flow(sender_wa_id)
+                                from app.services.auto_reply_service import send_main_menu as _smm2
+                                await _smm2(to=sender_wa_id, phone_number_id=msg_phone_number_id, wa_id=sender_wa_id)
+                                log_event("SHORTCUT_LLM_MENU", {"to": sender_wa_id, "text": _util_text})
+                                _nav_matched = True
+                            elif any(k in _nav_ev for k in ("cancel", "exit", "quit", "stop")):
+                                from app.services.buy_cover_flow_service import show_cancel_purchase_confirm
+                                if is_in_buy_cover_flow(user_session) or is_in_kyc_flow(user_session) or is_in_payment_flow(user_session):
+                                    await show_cancel_purchase_confirm(sender_wa_id, msg_phone_number_id)
+                                else:
+                                    from app.services.auto_reply_service import send_main_menu as _smm3
+                                    await _smm3(to=sender_wa_id, phone_number_id=msg_phone_number_id, wa_id=sender_wa_id)
+                                log_event("SHORTCUT_LLM_CANCEL", {"to": sender_wa_id, "text": _util_text})
+                                _nav_matched = True
+                            if _nav_matched:
+                                continue
                 # ─────────────────────────────────────────────────────────────
 
                 # === Global cancel-confirmation response handler ===
