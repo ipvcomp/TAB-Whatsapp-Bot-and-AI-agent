@@ -341,7 +341,7 @@ async def _process_change(entry_id: str, change):
                         continue
 
                     # 0 or #back → go back exactly ONE step in current flow
-                    if _nav_text == "0" or _nav_norm == "#back":
+                    if _nav_text == "0" or _nav_norm in ("#back", "back"):
                         from app.services.auto_reply_service import send_main_menu
                         if is_in_buy_cover_flow(user_session):
                             from app.services.buy_cover_flow_service import go_back_one_step as _bc_back
