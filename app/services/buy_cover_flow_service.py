@@ -76,6 +76,16 @@ def _is_valid_flight_number(fn: str) -> bool:
     return bool(re.match(r"^[A-Za-z]{1,3}\s?\d{1,6}$", fn.strip()))
 
 
+def _is_valid_booking_ref(ref: str) -> bool:
+    """Booking reference: 4–20 alphanumeric chars (letters, digits, hyphens, underscores).
+    Rejects plain sentences or freetext (spaces → invalid unless very short)."""
+    cleaned = ref.strip().upper()
+    # Reject if it contains spaces longer than 1 char gap (i.e. full sentences)
+    if " " in cleaned:
+        return False
+    return bool(re.match(r"^[A-Z0-9][A-Z0-9_\-]{3,19}$", cleaned))
+
+
 def _is_valid_email(email: str) -> bool:
     """Basic email sanity check before hitting the API."""
     return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email.strip()))
@@ -1844,14 +1854,20 @@ async def handle_buy_cover_flow(
 
     # ── Booking reference ─────────────────────────────────────────────────────
     elif step == "buy_cover_booking_ref":
-        if not text:
+        if not text or not _is_valid_booking_ref(text):
             await _send_text(
                 sender_wa_id,
-                "Please enter your booking reference to continue.",
+                (
+                    "🎫 That doesn't look like a valid booking reference.\n\n"
+                    "Your booking reference is a short alphanumeric code found in "
+                    "your airline confirmation email or ticket.\n\n"
+                    "_Examples: AB1XY2, 2990FA62, XYZ123_\n\n"
+                    "Please enter your booking reference, or type *0* to go back."
+                ),
                 phone_number_id,
             )
             return
-        data["booking_ref"] = text.upper()
+        data["booking_ref"] = text.strip().upper()
         if data.pop("_edit_mode", False):
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
             return
