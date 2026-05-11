@@ -18,3 +18,9 @@ id = "H9TbVlmNQapZHrUl-x--R"
 uri = "file://docs/bot_error_messages.md"
 type = "text"
 title = "Bot Static Error Messages Reference"
+
+[[outputs]]
+id = "FdA9fH5CL8mHS4pv9Pt6q"
+uri = "file://TravelAssist_Self_Defined_Messages.docx"
+type = "word_document"
+title = "TravelAssist — Self-Defined Static Messages v1.0"
