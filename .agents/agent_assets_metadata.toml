@@ -30,3 +30,9 @@ id = "PeIBr8k0jps8PoKBNNOfw"
 uri = "file://TravelAssist_Project_Issues_And_Gaps.docx"
 type = "word_document"
 title = "TravelAssist — Project Issues, Gaps & Unresolved Items v1.0"
+
+[[outputs]]
+id = "VqpTb9bE7iKobAOkxRx2y"
+uri = "file://TravelAssist_API_Error_Mapping.docx"
+type = "word_document"
+title = "Document 3 — API Error Response Mapping"
