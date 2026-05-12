@@ -177,18 +177,26 @@ def _build_trip_summary_text(data: dict) -> str:
         if travelers
         else f"1 — {data.get('name', '')}"
     )
-    arrive_date = data.get("arrive_date", "")
-    arrive_date_line = f"Arr Date\t\t*{arrive_date}*\n" if arrive_date else ""
+    def _fmt_date(iso: str) -> str:
+        try:
+            return datetime.strptime(iso, "%Y-%m-%d").strftime("%d-%m-%Y")
+        except ValueError:
+            return iso
+
+    arrive_date_raw = data.get("arrive_date", "")
+    arrive_date_disp = _fmt_date(arrive_date_raw) if arrive_date_raw else ""
+    arrive_date_line = f"Arr Date\t\t*{arrive_date_disp}*\n" if arrive_date_disp else ""
+    dep_date_disp = _fmt_date(data.get("date", ""))
     return (
         "*✈️ YOUR TRIP*\n\n"
         f"Airline\t\t\t*{data.get('airline', '')}*\n"
         f"Route\t\t\t*{dep} → {arr}*\n"
         f"Flight\t\t\t*{data.get('flight_num', '')}*\n"
-        f"Dep Date\t\t*{data.get('date', '')}*\n"
+        f"Dep Date\t\t*{dep_date_disp}*\n"
         f"{arrive_date_line}"
         f"Departs\t\t\t*{data.get('depart_time', '')}*\n"
         f"Arrives\t\t\t*{data.get('arrive_time', '')}*\n"
-        f"Travellers\t*{traveler_line}*"
+        f"Travellers\t\t*{traveler_line}*"
     )
 
 
@@ -1900,7 +1908,7 @@ async def handle_buy_cover_flow(
         await save_session(session)
         await _send_text(
             sender_wa_id,
-            "*📅 What date are you flying?*\n\n_Example: 12 April 2026, 12/04/2026, 12/04/26_",
+            "*📅 What date are you flying?*\n\n_Example: 12 April 2026, 12/04/2026, 12-04-2026_",
             phone_number_id,
         )
 
@@ -2138,6 +2146,23 @@ async def handle_buy_cover_flow(
 
     # ── Arrival time ──────────────────────────────────────────────────────────
     elif step == "buy_cover_arrive_time":
+        if reply_id == "arr_time_change_date":
+            flow["step"] = "buy_cover_arrive_date"
+            await save_session(session)
+            await _send_text(
+                sender_wa_id,
+                "*📅 What date does your flight arrive?*\n\n"
+                "_Example: 12 April 2026, 12/04/2026, 12-04-2026_",
+                phone_number_id,
+            )
+            return
+        if reply_id == "arr_time_retry":
+            await _send_text(
+                sender_wa_id,
+                "*⏰ What time is your flight scheduled to arrive?*\n\n_Example: 15:00, 3:00 PM_",
+                phone_number_id,
+            )
+            return
         parsed_arr_time = _parse_time_to_hhmm(text or "")
         if not parsed_arr_time and text:
             llm_result = await call_extract(
@@ -2160,16 +2185,19 @@ async def handle_buy_cover_flow(
         dep_date = data.get("date", "")
         arr_date = data.get("arrive_date", dep_date)
         if arr_date == dep_date and dep_time and parsed_arr_time <= dep_time:
-            await _send_text(
+            await _send_buttons(
                 sender_wa_id,
                 (
-                    f"⚠️ Arrival time must be *after* departure time on the same day\n\n"
+                    f"⚠️ *Arrival time must be after departure time on the same day*\n\n"
                     f"Your flight departs at *{dep_time}* — "
-                    f"please enter an arrival time later than that.\n\n"
-                    f"If this is an overnight flight, type *0* to go back and "
-                    f"change the arrival date first.\n\n"
+                    f"please enter an arrival time later than that, or if this is an "
+                    f"overnight flight tap *Change Arrival Date* to set the correct date first.\n\n"
                     "_Example: 15:00, 3:00 PM_"
                 ),
+                [
+                    {"id": "arr_time_change_date", "title": "🗓️ Change Arrival Date"},
+                    {"id": "arr_time_retry",        "title": "⏰ Enter Time Again"},
+                ],
                 phone_number_id,
             )
             return
