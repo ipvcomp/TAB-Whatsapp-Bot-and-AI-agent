@@ -120,8 +120,8 @@ async def _show_bypass_screen(wa_id: str, session: dict, phone_number_id: Option
             {
                 "title": "Options",
                 "rows": [
-                    {"id": "kyc_bypass_pay",    "title": "💳 Continue to payment"},
-                    {"id": "kyc_bypass_review", "title": "📋 Review trip details"},
+                    {"id": "kyc_bypass_pay",    "title": "💳 Continue to pay"},
+                    {"id": "kyc_bypass_review", "title": "📋 Review details"},
                     {"id": "kyc_bypass_menu",   "title": "🏠 Main menu"},
                     {"id": "kyc_bypass_help",   "title": "🧑 Get help"},
                 ],
