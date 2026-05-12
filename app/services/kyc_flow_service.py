@@ -390,31 +390,54 @@ async def handle_kyc_flow(
                 ln = parts[1] if len(parts) > 1 else ""
                 email = bc_data.get("email", "")
 
-                if not user_id:
-                    # ── NEW USER: create account then link ────────────────────
-                    user_result = await ipurvey_service.create_user(
-                        msisdn=msisdn,
-                        first_name=fn,
-                        last_name=ln,
-                        email=email,
-                        identity_type=method,
-                        identity_number=id_number,
-                    )
-                    if user_result and isinstance(user_result, dict):
-                        uid = user_result.get("userId") or user_result.get("id")
-                        if uid:
-                            session.setdefault("api_data", {})["user_id"] = uid
-                            user_id = uid
+                # ── ALWAYS call create_user with full KYC details ─────────────
+                # Even if the user already exists, POST /api/tab-ums/users is
+                # called so the backend receives identityType + identityNumber
+                # together with the passenger's name and email.  If the backend
+                # returns 409 (user exists), create_user() fetches the existing
+                # record and returns it.  We then update the existing user's
+                # name/email with the latest passenger details.
+                user_existed_before = bool(
+                    user_id or session.get("api_data", {}).get("user_exists")
+                )
+                user_result = await ipurvey_service.create_user(
+                    msisdn=msisdn,
+                    first_name=fn,
+                    last_name=ln,
+                    email=email,
+                    identity_type=method,
+                    identity_number=id_number,
+                )
+                if user_result and isinstance(user_result, dict):
+                    uid = user_result.get("userId") or user_result.get("id")
+                    if uid:
+                        session.setdefault("api_data", {})["user_id"] = uid
+                        user_id = uid
+                        if user_existed_before:
+                            # Update name & email so backend reflects the
+                            # passenger details just collected in this flow.
                             logger.info(
-                                f"[kyc] new user created → user_id='{uid}', linking to policy"
+                                f"[kyc] existing user → updating details user_id='{uid}'"
                             )
-                            await ipurvey_service.link_user_to_policy(policy_id, uid)
-                else:
-                    # ── EXISTING USER: link only — do NOT update name/email ────
-                    # The user is already verified (Samuel Olamide / BVN/NIN).
-                    # Patching their details would corrupt the verified identity.
-                    logger.info(
-                        f"[kyc] existing user → linking user_id='{user_id}' to policy (no update)"
+                            await ipurvey_service.update_user(
+                                uid,
+                                {
+                                    "firstName": fn,
+                                    "lastName": ln,
+                                    "email": email,
+                                },
+                            )
+                        else:
+                            logger.info(
+                                f"[kyc] new user created → user_id='{uid}'"
+                            )
+                        await ipurvey_service.link_user_to_policy(policy_id, uid)
+                elif user_id:
+                    # create_user failed but we still have an existing user_id
+                    # from the flow start — fall back to linking that user.
+                    logger.warning(
+                        f"[kyc] create_user failed; falling back to existing "
+                        f"user_id='{user_id}' for policy link"
                     )
                     await ipurvey_service.link_user_to_policy(policy_id, user_id)
 
