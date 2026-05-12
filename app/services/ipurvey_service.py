@@ -745,7 +745,11 @@ async def initiate_kyc(
     identity_type: str,
     identity_number: str,
 ) -> Optional[dict]:
-    logger.info(f"[ipurvey] initiate_kyc user_id='{user_id}' identity_type='{identity_type}'")
+    masked_num = f"{identity_number[:2]}{'*' * (len(identity_number) - 4)}{identity_number[-2:]}" if len(identity_number) > 4 else "****"
+    logger.info(
+        f"[ipurvey] initiate_kyc user_id='{user_id}' identity_type='{identity_type}'"
+        f" identity_number='{masked_num}'"
+    )
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
             r = await c.post(
@@ -753,8 +757,16 @@ async def initiate_kyc(
                 json={"identityType": identity_type, "identityNumber": identity_number},
             )
             if r.status_code in (200, 201):
-                logger.info(f"[ipurvey] initiate_kyc → success ({r.status_code})")
-                return _extract(r.json())
+                body = _extract(r.json())
+                kyc_status = (body.get("status") or "") if isinstance(body, dict) else ""
+                if kyc_status.upper() in ("FAILED", "ERROR", "REJECTED"):
+                    logger.warning(
+                        f"[ipurvey] initiate_kyc → HTTP {r.status_code} but KYC status='{kyc_status}'"
+                        f" | full response: {r.text[:500]}"
+                    )
+                else:
+                    logger.info(f"[ipurvey] initiate_kyc → success ({r.status_code})")
+                return body
             logger.error(f"[ipurvey] initiate_kyc {r.status_code}: {r.text[:200]}")
             return None
     except Exception as e:

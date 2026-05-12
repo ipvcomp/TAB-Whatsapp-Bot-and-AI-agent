@@ -446,10 +446,12 @@ async def handle_kyc_flow(
                             or resp_verified is True
                         ):
                             api_verified = True
-                        logger.info(
+                        log_fn = logger.info if api_verified else logger.warning
+                        log_fn(
                             f"[kyc] initiate_kyc result: method={method} "
                             f"status={status} verified={resp_verified} "
                             f"sessionId={'set' if sid else 'none'}"
+                            + (f" | raw={kyc_result}" if not api_verified else "")
                         )
 
                 await save_session(session)
