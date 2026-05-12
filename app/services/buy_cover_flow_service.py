@@ -20,8 +20,10 @@ PAYMENT_FLOW_KEY = "payment_flow"
 def _parse_date_to_iso(date_str: str) -> Optional[str]:
     """Parse user date input → ISO YYYY-MM-DD.  Returns None if unrecognised."""
     clean = date_str.strip()
+    # Strip ordinal suffixes: "14th" → "14", "1st" → "1", "3rd" → "3"
+    clean = re.sub(r"(\d+)(st|nd|rd|th)\b", r"\1", clean, flags=re.IGNORECASE)
     for fmt in [
-        "%d %B %Y",  # 12 April 2026
+        "%d %B %Y",  # 12 April 2026 / 14th May 2026
         "%d %b %Y",  # 12 Apr 2026
         "%d/%m/%Y",  # 12/04/2026
         "%d-%m-%Y",  # 12-04-2026
@@ -51,8 +53,14 @@ def _parse_time_to_hhmm(time_str: str) -> Optional[str]:
         if 0 <= h_int <= 23 and 0 <= m_int <= 59:
             return f"{h_int:02d}:{m_int:02d}"
         return None
-    # AM/PM variants — normalise dot separator and strip trailing am/pm before parsing
+    # Dot-separator variant: "13.40" or "1.40 PM"
     normalized = ts.replace(".", ":")
+    # After dot→colon, try pure 24-h again (e.g. "13.40" → "13:40")
+    if re.match(r"^\d{1,2}:\d{2}$", normalized):
+        h, m = normalized.split(":")
+        h_int, m_int = int(h), int(m)
+        if 0 <= h_int <= 23 and 0 <= m_int <= 59:
+            return f"{h_int:02d}:{m_int:02d}"
     # Insert space before am/pm if missing: "1:40PM" → "1:40 PM"
     normalized = re.sub(r"([AaPp][Mm])$", r" \1", normalized).strip()
     for fmt in ["%I:%M %p", "%I %p"]:
@@ -1826,6 +1834,12 @@ async def handle_buy_cover_flow(
     # ── Trip type ─────────────────────────────────────────────────────────────
     elif step == "buy_cover_trip_type":
         if not reply_id and text:
+            _t = text.strip()
+            if _t == "1":
+                reply_id = "trip_oneway"
+            elif _t == "2":
+                reply_id = "trip_return"
+        if not reply_id and text:
             llm_result = await call_extract(
                 user_id=sender_wa_id,
                 field_name="trip_type",
@@ -1930,7 +1944,7 @@ async def handle_buy_cover_flow(
                 sender_wa_id,
                 (
                     "📅 Please enter the date like this: *12 April 2026*\n\n"
-                    "_Other accepted formats: 12/04/2026, 12-04-2026, 12/04/26_"
+                    "_Other accepted formats: 12/04/2026, 12-04-2026, 12-04-26_"
                 ),
                 phone_number_id,
             )
@@ -2097,7 +2111,7 @@ async def handle_buy_cover_flow(
                 sender_wa_id,
                 (
                     "📅 Please enter the arrival date like this: *12 April 2026*\n\n"
-                    "_Other accepted formats: 12/04/2026, 12-04-2026, 12/04/26_"
+                    "_Other accepted formats: 12/04/2026, 12-04-2026, 12-04-26_"
                 ),
                 phone_number_id,
             )

@@ -150,8 +150,8 @@ async def _send_help(wa_id: str, session: dict, phone_number_id: Optional[str]):
         "> 🔢 Both BVN and NIN are 11 digits — example: 12345678901\n\n"
         "Ready to verify?",
         [
-            {"id": "kyc_bvn", "title": "🪪 Verify with BVN"},
             {"id": "kyc_nin", "title": "🪪 Verify with NIN"},
+            {"id": "kyc_bvn", "title": "🪪 Verify with BVN"},
             {"id": "kyc_agent", "title": "📞 Speak to agent"},
         ],
         phone_number_id,
@@ -212,8 +212,8 @@ async def start_kyc_flow(
         "How would you like to verify your identity?\n"
         "Select the country that issued your national biometric ID:",
         [
-            {"id": "kyc_bvn", "title": "🪪 BVN (Nigeria)"},
             {"id": "kyc_nin", "title": "🪪 NIN (Nigeria)"},
+            {"id": "kyc_bvn", "title": "🪪 BVN (Nigeria)"},
             {"id": "kyc_help", "title": "🆘 Help"},
         ],
         phone_number_id,
@@ -944,8 +944,8 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             "How would you like to verify your identity?\n"
             "Select the country that issued your national biometric ID:",
             [
-                {"id": "kyc_bvn", "title": "🪪 BVN (Nigeria)"},
                 {"id": "kyc_nin", "title": "🪪 NIN (Nigeria)"},
+                {"id": "kyc_bvn", "title": "🪪 BVN (Nigeria)"},
                 {"id": "kyc_help", "title": "🆘 Help"},
             ],
             phone_number_id,

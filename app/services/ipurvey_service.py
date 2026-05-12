@@ -222,8 +222,11 @@ async def create_user(
             if r.status_code in (200, 201):
                 logger.info(f"[ipurvey] create_user → success ({r.status_code})")
                 return _extract(r.json())
-            if r.status_code == 409:
-                logger.warning(f"[ipurvey] create_user → 409 conflict, fetching existing user")
+            if r.status_code == 409 or (
+                r.status_code == 400
+                and ("already exists" in r.text.lower() or "duplicate" in r.text.lower())
+            ):
+                logger.warning(f"[ipurvey] create_user → {r.status_code} conflict/duplicate, fetching existing user")
                 existing = await check_user_exists(msisdn)
                 if existing and isinstance(existing, dict):
                     logger.info(f"[ipurvey] create_user → resolved via check_user_exists")
