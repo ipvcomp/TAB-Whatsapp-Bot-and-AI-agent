@@ -413,24 +413,10 @@ async def handle_kyc_flow(
                     if uid:
                         session.setdefault("api_data", {})["user_id"] = uid
                         user_id = uid
-                        if user_existed_before:
-                            # Update name & email so backend reflects the
-                            # passenger details just collected in this flow.
-                            logger.info(
-                                f"[kyc] existing user → updating details user_id='{uid}'"
-                            )
-                            await ipurvey_service.update_user(
-                                uid,
-                                {
-                                    "firstName": fn,
-                                    "lastName": ln,
-                                    "email": email,
-                                },
-                            )
-                        else:
-                            logger.info(
-                                f"[kyc] new user created → user_id='{uid}'"
-                            )
+                        logger.info(
+                            f"[kyc] {'existing' if user_existed_before else 'new'} user "
+                            f"→ create_user POST succeeded user_id='{uid}', linking to policy"
+                        )
                         await ipurvey_service.link_user_to_policy(policy_id, uid)
                 elif user_id:
                     # create_user failed but we still have an existing user_id
