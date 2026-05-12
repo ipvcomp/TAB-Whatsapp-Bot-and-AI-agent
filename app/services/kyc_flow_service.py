@@ -103,6 +103,40 @@ async def _send_list(
     )
 
 
+async def _show_bypass_screen(wa_id: str, session: dict, phone_number_id: Optional[str]):
+    """Show the 'both methods failed' bypass screen — user can still continue to payment."""
+    flow = session.get("temp_data", {}).get(KYC_FLOW_KEY, {})
+    flow["step"] = "kyc_both_failed"
+    await save_session(session)
+    await _send_list(
+        wa_id,
+        "⚠️ *Verification Incomplete*\n"
+        "We could not complete verification automatically.\n\n"
+        "📋 Please review and resubmit your trip details and ensure the name of the "
+        "main passenger or purchaser matches the Biometric ID details.\n\n"
+        "This will help avoid delays to any future payout.",
+        "What would you like to do next?",
+        [
+            {
+                "title": "Options",
+                "rows": [
+                    {"id": "kyc_bypass_pay",    "title": "💳 Continue to payment"},
+                    {"id": "kyc_bypass_review", "title": "📋 Review trip details"},
+                    {"id": "kyc_bypass_menu",   "title": "🏠 Main menu"},
+                    {"id": "kyc_bypass_help",   "title": "🧑 Get help"},
+                ],
+            }
+        ],
+        phone_number_id,
+        header="⚠️ Verification Incomplete",
+    )
+
+
+def _both_methods_tried(data: dict) -> bool:
+    tried = set(data.get("kyc_methods_tried", []))
+    return "BVN" in tried and "NIN" in tried
+
+
 async def _send_help(wa_id: str, session: dict, phone_number_id: Optional[str]):
     session["temp_data"][KYC_FLOW_KEY]["step"] = "kyc_help"
     await save_session(session)
@@ -447,21 +481,27 @@ async def handle_kyc_flow(
             )
         elif api_call_done:
             data["kyc_verified"] = False
+            tried = data.setdefault("kyc_methods_tried", [])
+            if method not in tried:
+                tried.append(method)
             flow["step"] = "kyc_failed"
             await save_session(session)
-            _other = "NIN" if method == "BVN" else "BVN"
-            _other_id = "kyc_try_nin" if method == "BVN" else "kyc_try_bvn"
-            await _send_buttons(
-                sender_wa_id,
-                "⚠️ *Verification Incomplete*\n"
-                "> We could not complete verification automatically.\n\n"
-                "Please choose:",
-                [
-                    {"id": _other_id, "title": f"🪪 Try {_other} instead"},
-                    {"id": "kyc_help", "title": "🆘 Get help"},
-                ],
-                phone_number_id,
-            )
+            if _both_methods_tried(data):
+                await _show_bypass_screen(sender_wa_id, session, phone_number_id)
+            else:
+                _other = "NIN" if method == "BVN" else "BVN"
+                _other_id = "kyc_try_nin" if method == "BVN" else "kyc_try_bvn"
+                await _send_buttons(
+                    sender_wa_id,
+                    "⚠️ *Verification Incomplete*\n"
+                    "> We could not complete verification automatically.\n\n"
+                    "Please choose:",
+                    [
+                        {"id": _other_id, "title": f"🪪 Try {_other} instead"},
+                        {"id": "kyc_help", "title": "🆘 Get help"},
+                    ],
+                    phone_number_id,
+                )
         elif id_number.isdigit() and len(id_number) == 11:
             data["kyc_verified"] = True
             flow["step"] = "kyc_verified"
@@ -481,21 +521,27 @@ async def handle_kyc_flow(
             )
         else:
             data["kyc_verified"] = False
+            tried = data.setdefault("kyc_methods_tried", [])
+            if method not in tried:
+                tried.append(method)
             flow["step"] = "kyc_failed"
             await save_session(session)
-            _other = "NIN" if method == "BVN" else "BVN"
-            _other_id = "kyc_try_nin" if method == "BVN" else "kyc_try_bvn"
-            await _send_buttons(
-                sender_wa_id,
-                "⚠️ *Verification Incomplete*\n"
-                "> We could not complete verification automatically.\n\n"
-                "Please choose:",
-                [
-                    {"id": _other_id, "title": f"🪪 Try {_other} instead"},
-                    {"id": "kyc_help", "title": "🆘 Get help"},
-                ],
-                phone_number_id,
-            )
+            if _both_methods_tried(data):
+                await _show_bypass_screen(sender_wa_id, session, phone_number_id)
+            else:
+                _other = "NIN" if method == "BVN" else "BVN"
+                _other_id = "kyc_try_nin" if method == "BVN" else "kyc_try_bvn"
+                await _send_buttons(
+                    sender_wa_id,
+                    "⚠️ *Verification Incomplete*\n"
+                    "> We could not complete verification automatically.\n\n"
+                    "Please choose:",
+                    [
+                        {"id": _other_id, "title": f"🪪 Try {_other} instead"},
+                        {"id": "kyc_help", "title": "🆘 Get help"},
+                    ],
+                    phone_number_id,
+                )
 
     # ── OTP input (after API initiates KYC) ───────────────────────────────────
     elif step == "kyc_otp_input":
@@ -558,16 +604,24 @@ async def handle_kyc_flow(
                 phone_number_id,
             )
         else:
-            await _send_buttons(
-                sender_wa_id,
-                "❌ *Incorrect OTP*\n\nThe code you entered is incorrect or has expired.\n\n"
-                "Please try again or request a new OTP:",
-                [
-                    {"id": "kyc_otp_resend", "title": "📲 Resend OTP"},
-                    {"id": "kyc_help", "title": "🆘 Get help"},
-                ],
-                phone_number_id,
-            )
+            # BVN OTP failed — mark BVN as tried so if user also tried NIN we show bypass
+            tried = data.setdefault("kyc_methods_tried", [])
+            if "BVN" not in tried:
+                tried.append("BVN")
+            await save_session(session)
+            if _both_methods_tried(data):
+                await _show_bypass_screen(sender_wa_id, session, phone_number_id)
+            else:
+                await _send_buttons(
+                    sender_wa_id,
+                    "❌ *Incorrect OTP*\n\nThe code you entered is incorrect or has expired.\n\n"
+                    "Please try again or request a new OTP:",
+                    [
+                        {"id": "kyc_otp_resend", "title": "📲 Resend OTP"},
+                        {"id": "kyc_help",       "title": "🆘 Get help"},
+                    ],
+                    phone_number_id,
+                )
 
     # ── Verified — next steps ─────────────────────────────────────────────────
     elif step == "kyc_verified":
@@ -650,6 +704,10 @@ async def handle_kyc_flow(
 
     # ── Failed — retry options ────────────────────────────────────────────────
     elif step == "kyc_failed":
+        # If both methods already tried, any message routes to bypass screen
+        if _both_methods_tried(data):
+            await _show_bypass_screen(sender_wa_id, session, phone_number_id)
+            return
         if not reply_id and text:
             llm_result = await call_extract(
                 user_id=sender_wa_id,
@@ -754,6 +812,82 @@ async def handle_kyc_flow(
         else:
             await _send_help(sender_wa_id, session, phone_number_id)
 
+    # ── Both methods failed — bypass screen handler ───────────────────────────
+    elif step == "kyc_both_failed":
+        if not reply_id and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="kyc_bypass_action",
+                question_asked=(
+                    "Verification could not be completed. "
+                    "Would you like to continue to payment, review trip details, "
+                    "go to the main menu, or get help?"
+                ),
+                user_response=text,
+                expected_format="text",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                ev = str(llm_result["extracted_value"]).lower()
+                if any(k in ev for k in ("pay", "payment", "continue", "proceed")):
+                    reply_id = "kyc_bypass_pay"
+                elif any(k in ev for k in ("review", "trip", "details", "summary")):
+                    reply_id = "kyc_bypass_review"
+                elif any(k in ev for k in ("menu", "home", "main", "exit")):
+                    reply_id = "kyc_bypass_menu"
+                elif any(k in ev for k in ("help", "support", "agent")):
+                    reply_id = "kyc_bypass_help"
+            if not reply_id:
+                await _show_bypass_screen(sender_wa_id, session, phone_number_id)
+                return
+
+        if reply_id == "kyc_bypass_pay":
+            data["kyc_verified"] = False
+            data["kyc_bypassed"] = True
+            flow["step"] = "kyc_verified"
+            await save_session(session)
+            from app.services.payment_flow_service import start_payment_flow
+            await start_payment_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+
+        elif reply_id == "kyc_bypass_review":
+            bc_data = (
+                session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
+            )
+            travelers = bc_data.get("travelers", [])
+            traveler_lines = (
+                "\n".join(f"  {i + 1} — {n}" for i, n in enumerate(travelers))
+                if travelers
+                else f"  1 — {bc_data.get('name', '—')}"
+            )
+            dep = bc_data.get("depart_airport", "").split("—")[0].strip() or "—"
+            arr = bc_data.get("arrive_airport", "").split("—")[0].strip() or "—"
+            summary = (
+                "📋 *Trip Summary*\n\n"
+                f"✈️ YOUR TRIP\n"
+                f"Airline: {bc_data.get('airline', '—')}\n"
+                f"Route: {dep} → {arr}\n"
+                f"Flight: {bc_data.get('flight_num', '—')}\n"
+                f"Date: {bc_data.get('date', '—')}\n"
+                f"Departs: {bc_data.get('depart_time', '—')}\n"
+                f"Arrives: {bc_data.get('arrive_time', '—')}\n\n"
+                f"👥 TRAVELLERS\n{traveler_lines}\n\n"
+                f"🛡️ Cover: {bc_data.get('cover', '—')}"
+            )
+            await _send_text(sender_wa_id, summary, phone_number_id)
+            await _show_bypass_screen(sender_wa_id, session, phone_number_id)
+
+        elif reply_id == "kyc_bypass_menu":
+            session["temp_data"][KYC_FLOW_KEY] = {}
+            session["temp_data"][BUY_COVER_FLOW_KEY] = {}
+            await save_session(session)
+            from app.services.auto_reply_service import send_main_menu
+            await send_main_menu(to=sender_wa_id, phone_number_id=phone_number_id)
+
+        elif reply_id == "kyc_bypass_help":
+            await _send_help(sender_wa_id, session, phone_number_id)
+
+        else:
+            await _show_bypass_screen(sender_wa_id, session, phone_number_id)
+
     # ── Catch-all ─────────────────────────────────────────────────────────────
     else:
         session["temp_data"][KYC_FLOW_KEY] = {}
@@ -771,9 +905,11 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
     data = flow.get("data", {})
 
     _PREV = {
-        "kyc_consent": "kyc_intro",
-        "kyc_id_input": "kyc_consent",
-        "kyc_otp_input": "kyc_id_input",
+        "kyc_consent":     "kyc_intro",
+        "kyc_id_input":    "kyc_consent",
+        "kyc_otp_input":   "kyc_id_input",
+        "kyc_failed":      "kyc_intro",
+        "kyc_both_failed": "kyc_intro",
     }
 
     prev = _PREV.get(step)
