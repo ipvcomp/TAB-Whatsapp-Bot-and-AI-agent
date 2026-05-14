@@ -201,7 +201,7 @@ async def start_kyc_flow(
         except Exception as exc:
             logger.error(f"[kyc] check_kyc_status failed: {exc}")
 
-    await _send_buttons(
+    await _send_list(
         wa_id,
         "We may verify your identity to support any future payouts and ensure "
         "security and accurate policy issuance. If you've already completed this, "
@@ -211,12 +211,19 @@ async def start_kyc_flow(
         "purchase. Your data is handled securely and never shared.\n\n"
         "How would you like to verify your identity?\n"
         "Select the country that issued your national biometric ID:",
+        "Select ID type",
         [
-            {"id": "kyc_nin", "title": "🪪 NIN (Nigeria)"},
-            {"id": "kyc_bvn", "title": "🪪 BVN (Nigeria)"},
-            {"id": "kyc_help", "title": "🆘 Help"},
+            {
+                "title": "Verification Method",
+                "rows": [
+                    {"id": "kyc_nin", "title": "🪪 NIN (Nigeria)", "description": "National Identification Number"},
+                    {"id": "kyc_bvn", "title": "🪪 BVN (Nigeria)", "description": "Bank Verification Number"},
+                    {"id": "kyc_help", "title": "🆘 Help", "description": "Learn more about verification"},
+                ],
+            }
         ],
         phone_number_id,
+        header="🔒 Identity Verification",
     )
 
 
@@ -252,19 +259,27 @@ async def handle_kyc_flow(
     # ── KYC intro ─────────────────────────────────────────────────────────────
     if step == "kyc_intro":
         if not reply_id and text:
+            _t = text.strip().lower()
+            if _t in ("1", "nin", "national identification number", "nin (nigeria)"):
+                reply_id = "kyc_nin"
+            elif _t in ("2", "bvn", "bank verification number", "bvn (nigeria)"):
+                reply_id = "kyc_bvn"
+            elif _t in ("3", "help", "support", "assist"):
+                reply_id = "kyc_help"
+        if not reply_id and text:
             llm_result = await call_extract(
                 user_id=sender_wa_id,
                 field_name="kyc_method_choice",
-                question_asked="How would you like to verify your identity? Options: BVN (Nigeria), NIN (Nigeria), or Get Help.",
+                question_asked="How would you like to verify your identity? Options: NIN (Nigeria), BVN (Nigeria), or Get Help.",
                 user_response=text,
                 expected_format="text",
             )
             if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
                 ev = str(llm_result["extracted_value"]).lower()
-                if "bvn" in ev:
-                    reply_id = "kyc_bvn"
-                elif "nin" in ev:
+                if "nin" in ev:
                     reply_id = "kyc_nin"
+                elif "bvn" in ev:
+                    reply_id = "kyc_bvn"
                 elif any(k in ev for k in ("help", "support", "assist", "question")):
                     reply_id = "kyc_help"
             if not reply_id:
@@ -303,6 +318,12 @@ async def handle_kyc_flow(
 
     # ── Consent ───────────────────────────────────────────────────────────────
     elif step == "kyc_consent":
+        if not reply_id and text:
+            _t = text.strip().lower()
+            if _t in ("1", "yes", "ok", "continue", "proceed", "agree", "sure", "accept", "consent", "yep", "yeah"):
+                reply_id = "kyc_consent_yes"
+            elif _t in ("2", "no", "back", "cancel", "go back", "decline", "refuse", "nope"):
+                reply_id = "kyc_consent_no"
         if not reply_id and text:
             llm_result = await call_extract(
                 user_id=sender_wa_id,

@@ -327,13 +327,10 @@ async def _redisplay_step(
         )
 
     elif step == "buy_cover_trip_type":
-        await _send_buttons(
+        # Auto-advance — only ONE_WAY supported; show booking_ref prompt
+        await _send_text(
             wa_id,
-            "🗺️ What type of trip is this?",
-            [
-                {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
-                {"id": "trip_return", "title": "2. 🔄 Return"},
-            ],
+            "*🎫 Please enter your booking reference*\n\n_Examples: AB1XY2, 2990FA62_",
             phone_number_id,
         )
 
@@ -1221,6 +1218,12 @@ async def handle_buy_cover_flow(
     # ── Who is covered ────────────────────────────────────────────────────────
     elif step == "buy_cover_who":
         if not reply_id and text:
+            _t = text.strip().lower()
+            if _t in ("1", "just me", "just_me", "me", "solo", "alone", "single", "one", "only me", "myself", "me only"):
+                reply_id = "cover_just_me"
+            elif _t in ("2", "others", "me and others", "group", "family", "friends", "more", "multiple", "me_and", "we"):
+                reply_id = "cover_others"
+        if not reply_id and text:
             llm_result = await call_extract(
                 user_id=sender_wa_id,
                 field_name="cover_for",
@@ -1833,39 +1836,8 @@ async def handle_buy_cover_flow(
 
     # ── Trip type ─────────────────────────────────────────────────────────────
     elif step == "buy_cover_trip_type":
-        if not reply_id and text:
-            _t = text.strip()
-            if _t == "1":
-                reply_id = "trip_oneway"
-            elif _t == "2":
-                reply_id = "trip_return"
-        if not reply_id and text:
-            llm_result = await call_extract(
-                user_id=sender_wa_id,
-                field_name="trip_type",
-                question_asked="Is this a one-way or return trip?",
-                user_response=text,
-                expected_format="text",
-            )
-            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
-                ev = str(llm_result["extracted_value"]).lower()
-                if any(k in ev for k in ("one way", "one-way", "oneway", "single", "one_way", "1 way")):
-                    reply_id = "trip_oneway"
-                elif any(k in ev for k in ("return", "round", "two way", "two-way", "roundtrip", "both ways")):
-                    reply_id = "trip_return"
-            if not reply_id:
-                await _send_buttons(
-                    sender_wa_id,
-                    "🗺️ What type of trip is this?",
-                    [
-                        {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
-                        {"id": "trip_return", "title": "2. 🔄 Return"},
-                    ],
-                    phone_number_id,
-                )
-                return
-        trip = "One-way 🗺️" if reply_id == "trip_oneway" else "Return 🔄"
-        data["trip_type"] = trip
+        # Return journey is currently not offered — auto-select One-way and proceed
+        data["trip_type"] = "One-way 🗺️"
         flow["step"] = "buy_cover_booking_ref"
         await save_session(session)
         await _send_text(
@@ -2373,6 +2345,12 @@ async def handle_buy_cover_flow(
     # ── Trip summary ──────────────────────────────────────────────────────────
     elif step == "buy_cover_summary":
         if not reply_id and text:
+            _t = text.strip().lower()
+            if _t in ("1", "yes", "confirm", "ok", "correct", "proceed", "submit", "looks good", "continue"):
+                reply_id = "summary_confirm"
+            elif _t in ("2", "no", "edit", "change", "wrong", "incorrect", "update", "modify"):
+                reply_id = "summary_edit"
+        if not reply_id and text:
             llm_result = await call_extract(
                 user_id=sender_wa_id,
                 field_name="trip_summary_action",
@@ -2713,6 +2691,14 @@ async def handle_buy_cover_flow(
     # ── Next steps ────────────────────────────────────────────────────────────
     elif step == "buy_cover_next_steps":
         if not reply_id and text:
+            _t = text.strip().lower()
+            if _t in ("1", "kyc", "continue", "proceed", "yes", "ok", "go ahead", "next"):
+                reply_id = "next_kyc"
+            elif _t in ("2", "ask", "question", "enquire", "more info", "know"):
+                reply_id = "next_ask"
+            elif _t in ("3", "cancel", "exit", "no", "stop", "quit"):
+                reply_id = "next_cancel"
+        if not reply_id and text:
             llm_next = await call_extract(
                 user_id=sender_wa_id,
                 field_name="next_action",
@@ -2847,8 +2833,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         "buy_cover_traveler_count": "buy_cover_who",
         "buy_cover_other_name": "buy_cover_name",
         "buy_cover_email": None,
-        "buy_cover_trip_type": "buy_cover_email",
-        "buy_cover_booking_ref": "buy_cover_trip_type",
+        "buy_cover_booking_ref": "buy_cover_email",
         "buy_cover_flight_num": "buy_cover_booking_ref",
         "buy_cover_date": "buy_cover_flight_num",
         "buy_cover_depart_time": "buy_cover_date",
@@ -2940,17 +2925,6 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             "*📧 Please enter your email address*\n"
             "So we can send your policy documents\n\n"
             "_Example: yusuf@email.com_",
-            phone_number_id,
-        )
-
-    elif prev == "buy_cover_trip_type":
-        await _send_buttons(
-            wa_id,
-            "🗺️ What type of trip is this?",
-            [
-                {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
-                {"id": "trip_return", "title": "2. 🔄 Return"},
-            ],
             phone_number_id,
         )
 
