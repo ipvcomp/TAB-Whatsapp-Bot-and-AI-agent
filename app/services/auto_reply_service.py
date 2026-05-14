@@ -258,18 +258,7 @@ async def send_welcome_message(
                 "passengers":  pax_names,
                 "status":      "DRAFT",
             }
-        else:
-            # Existing user but no draft — show card with all — values
-            card_data = {
-                "policy_id":   "",
-                "booking_ref": "",
-                "trip_type":   "",
-                "origin":      "",
-                "dest":        "",
-                "departure":   "",
-                "passengers":  [],
-                "status":      "NONE",
-            }
+        # else: existing user but no draft — leave card_data as None → generic welcome
 
     # 2c. Build welcome body
     if is_existing_user and has_draft and card_data:
