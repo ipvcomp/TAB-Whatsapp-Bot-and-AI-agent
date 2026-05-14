@@ -377,7 +377,7 @@ async def _redisplay_step(
             wa_id,
             "*🛬 What airport are you arriving at?*\n\n"
             "Type at least 3 characters of the airport name or IATA code\n\n"
-            "_Example: LHR, CDG, DXB_",
+            "_Example: LOS, Lagos, ABV, Abuja_",
             phone_number_id,
         )
 
@@ -2117,7 +2117,7 @@ async def handle_buy_cover_flow(
             rows.append({"id": "dep_search_again", "title": "🔍 Search again"})
             await _send_list(
                 sender_wa_id,
-                "*🔍 We found some airports*\n\nNone of these is the airport you're looking for? You can search again.",
+                "Found these matches! ✈️ Please select your airport below.\n\nNot on the list? Try searching again.",
                 "Select airport",
                 [{"title": "🛫 Departure Airports", "rows": rows}],
                 phone_number_id,
@@ -2274,7 +2274,7 @@ async def handle_buy_cover_flow(
         await save_session(session)
         await _send_text(
             sender_wa_id,
-            "*✈️ What airport are you arriving at?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LHR, Heathrow, JFK_",
+            "*✈️ What airport are you arriving at?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, Lagos, ABV, Abuja_",
             phone_number_id,
         )
 
@@ -2320,7 +2320,7 @@ async def handle_buy_cover_flow(
             rows.append({"id": "arr_search_again", "title": "🔍 Search again"})
             await _send_list(
                 sender_wa_id,
-                "*🔍 We found some airports*\n\nNone of these is the airport you're looking for? You can search again.",
+                "Found these matches! ✈️ Please select your airport below.\n\nNot on the list? Try searching again.",
                 "Select airport",
                 [{"title": "🛬 Arrival Airports", "rows": rows}],
                 phone_number_id,
@@ -2466,10 +2466,11 @@ async def handle_buy_cover_flow(
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
             return
 
-        await _send_text(
-            sender_wa_id,
-            "⏳ *Fetching available covers for your trip...*\n_Please wait a moment_",
-            phone_number_id,
+        await send_text_message(
+            to=sender_wa_id,
+            body="⏳ *Fetching available covers for your trip...*\n_Please wait a moment_",
+            phone_number_id=phone_number_id,
+            source="buy_cover_flow",
         )
 
         policy_id = session.get("api_data", {}).get("policy_id")
@@ -2688,7 +2689,7 @@ async def handle_buy_cover_flow(
             except (ValueError, IndexError):
                 pass
         if not selected_q:
-            # Re-show the cover list — do not auto-select
+            # Re-show the cover list with a helpful prompt
             quotes = session.get("api_data", {}).get("quotes") or []
             rows = []
             for i, q in enumerate(quotes[:8]):
@@ -2714,7 +2715,11 @@ async def handle_buy_cover_flow(
             if rows:
                 await _send_list(
                     sender_wa_id,
-                    "👇 Please select a cover from the list below:",
+                    (
+                        "⚠️ *Invalid selection*\n\n"
+                        "Please tap *Select cover* below to choose a cover from the list, "
+                        "or use the utility options to go back or return to the main menu."
+                    ),
                     "Select cover",
                     [{"title": "🛡️ Available Covers", "rows": rows}],
                     phone_number_id,
@@ -3092,7 +3097,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             wa_id,
             "*✈️ What airport are you arriving at?*\n\n"
             "Type at least 3 characters of the airport name or IATA code to search.\n\n"
-            "_Example: LHR, Heathrow, JFK_",
+            "_Example: LOS, Lagos, ABV, Abuja_",
             phone_number_id,
         )
 
