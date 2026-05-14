@@ -1613,15 +1613,29 @@ async def handle_buy_cover_flow(
                 policy_id = session.get("api_data", {}).get("policy_id")
                 if policy_id:
                     fn, ln = _split_name(name_to_use)
+                    current_travelers_c = data.get("travelers", [])
+                    pax_idx_c = len(current_travelers_c)
+                    pax_ids_c = session.get("api_data", {}).get("passenger_ids", [])
+                    existing_other_pid_c = pax_ids_c[pax_idx_c] if pax_idx_c < len(pax_ids_c) else None
                     try:
-                        result = await ipurvey_service.add_passenger(policy_id, fn, ln, is_primary=False)
-                        if result is None:
-                            flow["step"] = "buy_cover_other_name"
-                            await save_session(session)
-                            await _send_text(sender_wa_id, "⚠️ We couldn't save this traveler's name — please enter their *full name*.\n\n_Example: Amina Bello_", phone_number_id)
-                            return
+                        if existing_other_pid_c:
+                            ok_c = await ipurvey_service.update_passenger(
+                                policy_id, existing_other_pid_c, fn, ln, is_primary=False
+                            )
+                            if not ok_c:
+                                flow["step"] = "buy_cover_other_name"
+                                await save_session(session)
+                                await _send_text(sender_wa_id, "⚠️ We couldn't save this traveler's name — please enter their *full name*.\n\n_Example: Amina Bello_", phone_number_id)
+                                return
+                        else:
+                            result = await ipurvey_service.add_passenger(policy_id, fn, ln, is_primary=False)
+                            if result is None:
+                                flow["step"] = "buy_cover_other_name"
+                                await save_session(session)
+                                await _send_text(sender_wa_id, "⚠️ We couldn't save this traveler's name — please enter their *full name*.\n\n_Example: Amina Bello_", phone_number_id)
+                                return
                     except Exception as exc:
-                        logger.error(f"[BUY_COVER] name_confirm add_passenger (other) failed: {exc}")
+                        logger.error(f"[BUY_COVER] name_confirm add/update_passenger (other) failed: {exc}")
                         flow["step"] = "buy_cover_other_name"
                         await save_session(session)
                         await _send_text(sender_wa_id, "⚠️ We couldn't save this traveler's name — please enter their *full name*.\n\n_Example: Amina Bello_", phone_number_id)
@@ -1756,29 +1770,58 @@ async def handle_buy_cover_flow(
         policy_id = session.get("api_data", {}).get("policy_id")
         if policy_id:
             fn, ln = _split_name(text)
+            # pax_idx: position in passenger_ids list for this additional traveller.
+            # travelers[0] = main pax, so len(travelers before append) = slot index.
+            current_travelers = data.get("travelers", [])
+            pax_idx = len(current_travelers)
+            pax_ids = session.get("api_data", {}).get("passenger_ids", [])
+            existing_other_pid = pax_ids[pax_idx] if pax_idx < len(pax_ids) else None
             try:
-                result = await ipurvey_service.add_passenger(
-                    policy_id, fn, ln, is_primary=False
-                )
-                logger.info(
-                    f"[BUY_COVER] add_passenger (additional) → {fn} {ln} result={result}"
-                )
-                if result is None:
-                    logger.error(
-                        f"[BUY_COVER] add_passenger (additional) returned None for '{fn} {ln}'"
+                if existing_other_pid:
+                    # Slot already pre-allocated (or previously filled via back-nav).
+                    # Use update_passenger to avoid "all slots filled" 400 error.
+                    ok = await ipurvey_service.update_passenger(
+                        policy_id, existing_other_pid, fn, ln, is_primary=False
                     )
-                    await _send_text(
-                        sender_wa_id,
-                        (
-                            "⚠️ We couldn't save this traveler's name — please enter their *full name* "
-                            "(first name and surname) as it appears on their ticket.\n\n"
-                            "_Example: Amina Bello_"
-                        ),
-                        phone_number_id,
+                    logger.info(
+                        f"[BUY_COVER] update_passenger (additional) → {fn} {ln} "
+                        f"pid={existing_other_pid} ok={ok}"
                     )
-                    return
+                    if not ok:
+                        await _send_text(
+                            sender_wa_id,
+                            (
+                                "⚠️ We couldn't save this traveler's name — please enter their *full name* "
+                                "(first name and surname) as it appears on their ticket.\n\n"
+                                "_Example: Amina Bello_"
+                            ),
+                            phone_number_id,
+                        )
+                        return
+                else:
+                    # No pre-allocated slot — fall back to add_passenger.
+                    result = await ipurvey_service.add_passenger(
+                        policy_id, fn, ln, is_primary=False
+                    )
+                    logger.info(
+                        f"[BUY_COVER] add_passenger (additional) → {fn} {ln} result={result}"
+                    )
+                    if result is None:
+                        logger.error(
+                            f"[BUY_COVER] add_passenger (additional) returned None for '{fn} {ln}'"
+                        )
+                        await _send_text(
+                            sender_wa_id,
+                            (
+                                "⚠️ We couldn't save this traveler's name — please enter their *full name* "
+                                "(first name and surname) as it appears on their ticket.\n\n"
+                                "_Example: Amina Bello_"
+                            ),
+                            phone_number_id,
+                        )
+                        return
             except Exception as exc:
-                logger.error(f"[BUY_COVER] add_passenger (additional) failed: {exc}")
+                logger.error(f"[BUY_COVER] add/update_passenger (additional) failed: {exc}")
                 await _send_text(
                     sender_wa_id,
                     (
