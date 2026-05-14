@@ -2908,6 +2908,12 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
 
     elif prev == "buy_cover_other_name":
         travelers = data.get("travelers", [])
+        # Undo the last collected additional traveller so the user can re-enter it.
+        # travelers[0] is always the main passenger — never remove that.
+        if len(travelers) > 1:
+            travelers.pop()
+            data["travelers"] = travelers
+            await save_session(session)
         others_count = data.get("others_count", 1)
         next_num = len(travelers) + 1
         total = others_count + 1
