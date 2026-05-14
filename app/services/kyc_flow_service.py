@@ -201,6 +201,40 @@ async def start_kyc_flow(
         except Exception as exc:
             logger.error(f"[kyc] check_kyc_status failed: {exc}")
 
+    # ── Fetch supported ID types dynamically from the API ─────────────────────
+    supported_types = await ipurvey_service.fetch_kyc_supported_countries()
+
+    # Fallback to hardcoded NG types if the API is unavailable
+    if not supported_types:
+        supported_types = [
+            {"countryCode": "NG", "countryName": "Nigeria", "type": "NIN",
+             "displayName": "National Identification Number (NIN)",
+             "formatRegex": r"^\d{11}$", "minLength": 11, "maxLength": 11},
+            {"countryCode": "NG", "countryName": "Nigeria", "type": "BVN",
+             "displayName": "Bank Verification Number (BVN)",
+             "formatRegex": r"^\d{11}$", "minLength": 11, "maxLength": 11},
+        ]
+
+    # Store in session so the handler can use them without re-fetching
+    kyc_flow = session["temp_data"][KYC_FLOW_KEY]
+    kyc_flow["data"]["kyc_supported_types"] = supported_types
+    await save_session(session)
+
+    # Build list rows — row ID: kyc_type_{countryCode}_{type}
+    def _row_title(t: dict) -> str:
+        raw = f"🪪 {t['type']} ({t['countryName']})"
+        return raw if len(raw) <= 20 else raw[:19] + "…"
+
+    rows = [
+        {
+            "id": f"kyc_type_{t['countryCode']}_{t['type']}",
+            "title": _row_title(t),
+            "description": t["displayName"][:72] if t["displayName"] else "",
+        }
+        for t in supported_types
+    ]
+    rows.append({"id": "kyc_help", "title": "🆘 Help", "description": "Learn more about verification"})
+
     await _send_list(
         wa_id,
         "We may verify your identity to support any future payouts and ensure "
@@ -212,16 +246,7 @@ async def start_kyc_flow(
         "How would you like to verify your identity?\n"
         "Select the country that issued your national biometric ID:",
         "Select ID type",
-        [
-            {
-                "title": "Verification Method",
-                "rows": [
-                    {"id": "kyc_nin", "title": "🪪 NIN (Nigeria)", "description": "National Identification Number"},
-                    {"id": "kyc_bvn", "title": "🪪 BVN (Nigeria)", "description": "Bank Verification Number"},
-                    {"id": "kyc_help", "title": "🆘 Help", "description": "Learn more about verification"},
-                ],
-            }
-        ],
+        [{"title": "Verification Method", "rows": rows}],
         phone_number_id,
         header="🔒 Identity Verification",
     )
@@ -258,37 +283,56 @@ async def handle_kyc_flow(
 
     # ── KYC intro ─────────────────────────────────────────────────────────────
     if step == "kyc_intro":
+        supported = data.get("kyc_supported_types", [])
         if not reply_id and text:
             _t = text.strip().lower()
-            if _t in ("1", "nin", "national identification number", "nin (nigeria)"):
-                reply_id = "kyc_nin"
-            elif _t in ("2", "bvn", "bank verification number", "bvn (nigeria)"):
-                reply_id = "kyc_bvn"
-            elif _t in ("3", "help", "support", "assist"):
+            # Positional number — map to dynamic list index
+            num_map = {str(i + 1): t for i, t in enumerate(supported)}
+            help_num = str(len(supported) + 1)
+            if _t in num_map:
+                t = num_map[_t]
+                reply_id = f"kyc_type_{t['countryCode']}_{t['type']}"
+            elif _t in (help_num, "help", "support", "assist"):
                 reply_id = "kyc_help"
+            else:
+                # Match by type keyword (e.g. "nin", "bvn")
+                for t in supported:
+                    if _t in (t["type"].lower(), t["displayName"].lower()):
+                        reply_id = f"kyc_type_{t['countryCode']}_{t['type']}"
+                        break
         if not reply_id and text:
+            type_names = ", ".join(f"{t['type']} ({t['countryName']})" for t in supported) or "NIN (Nigeria), BVN (Nigeria)"
             llm_result = await call_extract(
                 user_id=sender_wa_id,
                 field_name="kyc_method_choice",
-                question_asked="How would you like to verify your identity? Options: NIN (Nigeria), BVN (Nigeria), or Get Help.",
+                question_asked=f"How would you like to verify your identity? Options: {type_names}, or Get Help.",
                 user_response=text,
                 expected_format="text",
             )
             if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
                 ev = str(llm_result["extracted_value"]).lower()
-                if "nin" in ev:
-                    reply_id = "kyc_nin"
-                elif "bvn" in ev:
-                    reply_id = "kyc_bvn"
+                matched_llm = None
+                for t in supported:
+                    if t["type"].lower() in ev:
+                        matched_llm = t
+                        break
+                if matched_llm:
+                    reply_id = f"kyc_type_{matched_llm['countryCode']}_{matched_llm['type']}"
                 elif any(k in ev for k in ("help", "support", "assist", "question")):
                     reply_id = "kyc_help"
             if not reply_id:
                 await start_kyc_flow(sender_wa_id, phone_number_id)
                 return
+
         if reply_id == "kyc_help":
             await _send_help(sender_wa_id, session, phone_number_id)
-        elif reply_id == "kyc_nin":
-            data["kyc_method"] = "NIN"
+        elif reply_id and reply_id.startswith("kyc_type_"):
+            # Extract countryCode and type from the dynamic ID
+            parts = reply_id.split("_", 3)  # ["kyc", "type", CC, TYPE]
+            selected_type = parts[3] if len(parts) >= 4 else ""
+            selected_cc = parts[2] if len(parts) >= 3 else ""
+            data["kyc_method"] = selected_type
+            data["kyc_country_code_selected"] = selected_cc
             flow["step"] = "kyc_consent"
             await save_session(session)
             await _send_buttons(
@@ -301,8 +345,9 @@ async def handle_kyc_flow(
                 ],
                 phone_number_id,
             )
-        else:
-            data["kyc_method"] = "BVN"
+        elif reply_id in ("kyc_nin", "kyc_bvn"):
+            # Legacy fallback for any old cached reply_id
+            data["kyc_method"] = "NIN" if reply_id == "kyc_nin" else "BVN"
             flow["step"] = "kyc_consent"
             await save_session(session)
             await _send_buttons(
@@ -311,7 +356,7 @@ async def handle_kyc_flow(
                 "your identity for this purchase.",
                 [
                     {"id": "kyc_consent_yes", "title": "1. ✅ Yes, continue"},
-                    {"id": "kyc_consent_no", "title": "2. Go back"},
+                    {"id": "kyc_consent_no", "title": "2. 🔙Go back"},
                 ],
                 phone_number_id,
             )
@@ -375,11 +420,30 @@ async def handle_kyc_flow(
             return
         id_number = text.replace(" ", "")
         method = data.get("kyc_method", "BVN")
+
+        # Look up validation rules from the dynamically fetched types stored in session
+        supported_types = data.get("kyc_supported_types", [])
+        type_info = next(
+            (t for t in supported_types if t.get("type", "").upper() == method.upper()),
+            None,
+        )
+        min_len: int = type_info["minLength"] if type_info else 11
+        max_len: int = type_info["maxLength"] if type_info else 11
+
         if not id_number.isdigit():
             await _send_text(
                 sender_wa_id,
                 f"⚠️ Your *{method}* must contain numbers only.\n\n"
-                f"_Example: 12345678901_",
+                f"_Example: {'1' * min_len}_",
+                phone_number_id,
+            )
+            return
+        if not (min_len <= len(id_number) <= max_len):
+            length_hint = f"{min_len} digits" if min_len == max_len else f"{min_len}–{max_len} digits"
+            await _send_text(
+                sender_wa_id,
+                f"⚠️ Your *{method}* must be *{length_hint}*. You entered {len(id_number)} digit(s).\n\n"
+                f"_Example: {'1' * min_len}_",
                 phone_number_id,
             )
             return

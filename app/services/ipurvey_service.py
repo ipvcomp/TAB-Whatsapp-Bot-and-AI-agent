@@ -100,6 +100,59 @@ async def search_banks(query: str, country_code: str = "NG") -> list[dict]:
         return []
 
 
+# ── KYC SUPPORTED COUNTRIES ───────────────────────────────────────────────────
+
+_kyc_countries_cache: Optional[tuple[float, list]] = None
+_KYC_COUNTRIES_TTL: int = 3600  # 1 hour — these rarely change
+
+
+async def fetch_kyc_supported_countries() -> list[dict]:
+    """Fetch supported KYC countries + identity types from the UMS API.
+
+    Returns a flat list of dicts, one entry per identity type:
+        countryCode, countryName, type, displayName, formatRegex, minLength, maxLength
+
+    Results are cached in memory for 1 hour.  Returns [] on any error so
+    callers can fall back to hardcoded defaults.
+    """
+    global _kyc_countries_cache
+    now = time.monotonic()
+    if _kyc_countries_cache is not None and now - _kyc_countries_cache[0] < _KYC_COUNTRIES_TTL:
+        return _kyc_countries_cache[1]
+    try:
+        url = f"{_base()}/api/tab-ums/users/kyc/supported-countries"
+        logger.info(f"[ipurvey] fetch_kyc_supported_countries → {url}")
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(url)
+            if r.status_code == 200:
+                countries = r.json()
+                if not isinstance(countries, list):
+                    countries = []
+                flat: list[dict] = []
+                for country in countries:
+                    cc = country.get("countryCode", "")
+                    cn = country.get("countryName", "")
+                    for id_type in country.get("identityTypes", []):
+                        flat.append({
+                            "countryCode": cc,
+                            "countryName": cn,
+                            "type": id_type.get("type", ""),
+                            "displayName": id_type.get("displayName", ""),
+                            "formatRegex": id_type.get("formatRegex", ""),
+                            "minLength": id_type.get("minLength", 11),
+                            "maxLength": id_type.get("maxLength", 11),
+                        })
+                logger.info(f"[ipurvey] fetch_kyc_supported_countries → {len(flat)} type(s)")
+                _kyc_countries_cache = (now, flat)
+                return flat
+            logger.warning(
+                f"[ipurvey] fetch_kyc_supported_countries {r.status_code}: {r.text[:200]}"
+            )
+    except Exception as exc:
+        logger.error(f"[ipurvey] fetch_kyc_supported_countries failed: {exc}")
+    return []
+
+
 # ── AIRPORT SEARCH ────────────────────────────────────────────────────────────
 
 async def search_airports(query: str, country_code: Optional[str] = None) -> list[dict]:
