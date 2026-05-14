@@ -430,26 +430,46 @@ async def _redisplay_step(
                 except Exception as exc:
                     logger.error(f"[buy_cover] _redisplay_step fetch_quotes: {exc}")
         if quotes:
-            rows = []
-            for i, q in enumerate(quotes[:8]):
-                q_name = str(q.get("name") or q.get("productName") or "Cover option")[
-                    :24
-                ]
+            def _make_title_rd(name: str) -> str:
+                if len(name) <= 24:
+                    return name
+                truncated = name[:24]
+                last_space = truncated.rfind(" ")
+                if last_space >= 16:
+                    truncated = truncated[:last_space]
+                return truncated
+
+            rd_rows = []
+            for i, q in enumerate(quotes):
+                full_name = str(q.get("name") or q.get("productName") or "Cover option")
                 q_price = q.get("price") or q.get("premiumAmount") or 0
                 insurer = (
                     q.get("insurer") or q.get("provider") or q.get("providerName") or ""
                 )
-                desc = f"💰 ₦{float(q_price):,.0f}" + (
+                title = _make_title_rd(full_name)
+                name_prefix = f"{full_name}  •  " if len(full_name) > len(title) else ""
+                desc = name_prefix + f"💰 ₦{float(q_price):,.0f}" + (
                     f"  •  🏢 {insurer}" if insurer else ""
                 )
-                rows.append(
-                    {"id": f"cov_{i}", "title": q_name, "description": desc[:72]}
+                rd_rows.append(
+                    {"id": f"cov_{i}", "title": title, "description": desc[:72]}
                 )
+            _MAX_ROWS_RD = 10
+            rd_sections = []
+            for chunk_start in range(0, len(rd_rows), _MAX_ROWS_RD):
+                chunk = rd_rows[chunk_start : chunk_start + _MAX_ROWS_RD]
+                part_num = chunk_start // _MAX_ROWS_RD + 1
+                sec_title = (
+                    f"🛡️ Covers (Part {part_num})"
+                    if len(rd_rows) > _MAX_ROWS_RD
+                    else "🛡️ Available Covers"
+                )
+                rd_sections.append({"title": sec_title, "rows": chunk})
             await _send_list(
                 wa_id,
                 "🎁 *Welcome back!* 👇 Please pick your cover plan:",
                 "Select cover",
-                [{"title": "🛡️ Available Covers", "rows": rows}],
+                rd_sections,
                 phone_number_id,
                 header="🛡️ Select from available cover(s)",
             )
@@ -1150,36 +1170,54 @@ async def handle_buy_cover_flow(
                 session.setdefault("api_data", {})["quotes"] = quotes
                 flow["step"] = "buy_cover_select_cover"
                 await save_session(session)
-                rows = []
-                for i, q in enumerate(quotes[:8]):
-                    q_name = str(
-                        q.get("name") or q.get("productName") or "Cover option"
-                    )[:24]
+
+                def _make_title_rs(name: str) -> str:
+                    if len(name) <= 24:
+                        return name
+                    truncated = name[:24]
+                    last_space = truncated.rfind(" ")
+                    if last_space >= 16:
+                        truncated = truncated[:last_space]
+                    return truncated
+
+                rs_rows = []
+                for i, q in enumerate(quotes):
+                    full_name_rs = str(q.get("name") or q.get("productName") or "Cover option")
                     q_price = q.get("price") or q.get("premiumAmount") or 0
                     trip_q = q.get("tripType") or q.get("travelType") or ""
                     insurer_q = (
-                        q.get("insurer")
-                        or q.get("provider")
-                        or q.get("providerName")
-                        or ""
+                        q.get("insurer") or q.get("provider") or q.get("providerName") or ""
                     )
                     coverage = q.get("coverageTypes") or []
+                    title_rs = _make_title_rs(full_name_rs)
                     price_str = f"💰 ₦{float(q_price):,.0f}"
                     trip_str = f"⏱️ {trip_q}" if trip_q else ""
                     ins_str = f"🏢 {insurer_q}" if insurer_q else ""
                     cov_count = f"✅ {len(coverage)} covers" if coverage else ""
-                    desc = "  •  ".join(
+                    name_prefix_rs = f"{full_name_rs}  •  " if len(full_name_rs) > len(title_rs) else ""
+                    desc = name_prefix_rs + "  •  ".join(
                         filter(None, [price_str, trip_str or ins_str, cov_count])
                     )
-                    rows.append(
-                        {"id": f"cov_{i}", "title": q_name, "description": desc[:72]}
+                    rs_rows.append({"id": f"cov_{i}", "title": title_rs, "description": desc[:72]})
+
+                _MAX_ROWS_RS = 10
+                rs_sections = []
+                for chunk_start in range(0, len(rs_rows), _MAX_ROWS_RS):
+                    chunk = rs_rows[chunk_start : chunk_start + _MAX_ROWS_RS]
+                    part_num = chunk_start // _MAX_ROWS_RS + 1
+                    sec_title = (
+                        f"🛡️ Covers (Part {part_num})"
+                        if len(rs_rows) > _MAX_ROWS_RS
+                        else "🛡️ Available Covers"
                     )
+                    rs_sections.append({"title": sec_title, "rows": chunk})
+
                 await _send_list(
                     sender_wa_id,
                     "🎁 *Great news — your trip details are already saved!*\n\n"
                     "👇 Just pick your cover plan to continue:",
                     "Select cover",
-                    [{"title": "🛡️ Available Covers", "rows": rows}],
+                    rs_sections,
                     phone_number_id,
                     header="🛡️ Select from available cover(s)",
                 )
@@ -2592,23 +2630,46 @@ async def handle_buy_cover_flow(
 
         session.setdefault("api_data", {})["quotes"] = quotes
         await save_session(session)
-        rows = []
-        for i, q in enumerate(quotes[:8]):
-            q_name = str(q.get("name") or q.get("productName") or "Cover option")[:24]
+
+        def _make_title(name: str) -> str:
+            if len(name) <= 24:
+                return name
+            truncated = name[:24]
+            last_space = truncated.rfind(" ")
+            if last_space >= 16:
+                truncated = truncated[:last_space]
+            return truncated
+
+        all_rows = []
+        for i, q in enumerate(quotes):
+            full_name = str(q.get("name") or q.get("productName") or "Cover option")
             q_price = q.get("price") or q.get("premiumAmount") or 0
-            trip = q.get("tripType") or q.get("travelType") or ""
             insurer = (
                 q.get("insurer") or q.get("provider") or q.get("providerName") or ""
             )
             coverage = q.get("coverageTypes") or []
+            title = _make_title(full_name)
             price_str = f"💰 ₦{float(q_price):,.0f}"
-            trip_str = f"⏱️ {trip}" if trip else ""
             insurer_str = f"🏢 {insurer}" if insurer else ""
             cover_count = f"✅ {len(coverage)} covers" if coverage else ""
-            desc = "  •  ".join(
-                filter(None, [price_str, trip_str or insurer_str, cover_count])
+            name_prefix = f"{full_name}  •  " if len(full_name) > len(title) else ""
+            desc = name_prefix + "  •  ".join(
+                filter(None, [price_str, insurer_str, cover_count])
             )
-            rows.append({"id": f"cov_{i}", "title": q_name, "description": desc[:72]})
+            all_rows.append({"id": f"cov_{i}", "title": title, "description": desc[:72]})
+
+        _MAX_ROWS = 10
+        sections = []
+        for chunk_start in range(0, len(all_rows), _MAX_ROWS):
+            chunk = all_rows[chunk_start : chunk_start + _MAX_ROWS]
+            part_num = chunk_start // _MAX_ROWS + 1
+            sec_title = (
+                f"🛡️ Covers (Part {part_num})"
+                if len(all_rows) > _MAX_ROWS
+                else "🛡️ Available Covers"
+            )
+            sections.append({"title": sec_title, "rows": chunk})
+
         flow["step"] = "buy_cover_select_cover"
         await save_session(session)
         await _send_list(
@@ -2622,7 +2683,7 @@ async def handle_buy_cover_flow(
                 "👇 Tap *Select cover* to choose your plan:"
             ),
             "Select cover",
-            [{"title": "🛡️ Available Covers", "rows": rows}],
+            sections,
             phone_number_id,
             header="🛡️ Select from available cover(s)",
         )
