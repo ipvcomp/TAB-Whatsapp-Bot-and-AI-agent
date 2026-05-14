@@ -2894,6 +2894,14 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         )
 
     elif prev == "buy_cover_name":
+        # If coming back from buy_cover_other_name, the main passenger name was
+        # already appended to travelers[0] — pop it so re-entry doesn't duplicate.
+        if step == "buy_cover_other_name":
+            travelers = data.get("travelers", [])
+            if travelers:
+                travelers.pop(0)
+                data["travelers"] = travelers
+                await save_session(session)
         await _send_text(
             wa_id,
             "👤 👑 *Enter main passenger name*\n"
