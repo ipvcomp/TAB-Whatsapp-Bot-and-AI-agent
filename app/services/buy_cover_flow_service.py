@@ -42,25 +42,31 @@ def _parse_date_to_iso(date_str: str) -> Optional[str]:
 def _parse_time_to_hhmm(time_str: str) -> Optional[str]:
     """Parse user time input → 24-h HH:MM.  Returns None if unrecognised.
 
-    Handles: 13:40 / 1:40 / 1:40 PM / 1:40PM / 1.40 PM / 13:40pm (reject)
+    Handles: 13:40 / 1:40 / 1:40 PM / 1:40PM / 1.40 PM / 13:40 pm / 13.40 pm
     The API strictly requires HH:MM with no am/pm suffix.
     """
     ts = time_str.strip()
-    # Pure 24-h input: H:MM or HH:MM
-    if re.match(r"^\d{1,2}:\d{2}$", ts):
-        h, m = ts.split(":")
-        h_int, m_int = int(h), int(m)
-        if 0 <= h_int <= 23 and 0 <= m_int <= 59:
-            return f"{h_int:02d}:{m_int:02d}"
-        return None
-    # Dot-separator variant: "13.40" or "1.40 PM"
+    # Normalize dot → colon: "13.40 pm" → "13:40 pm", "1.40 PM" → "1:40 PM"
     normalized = ts.replace(".", ":")
-    # After dot→colon, try pure 24-h again (e.g. "13.40" → "13:40")
-    if re.match(r"^\d{1,2}:\d{2}$", normalized):
-        h, m = normalized.split(":")
+
+    # Strip any trailing am/pm to get the bare H:MM part
+    stripped = re.sub(r"\s*[AaPp][Mm]\s*$", "", normalized).strip()
+    had_ampm = stripped != normalized.strip()
+
+    if re.match(r"^\d{1,2}:\d{2}$", stripped):
+        h, m = stripped.split(":")
         h_int, m_int = int(h), int(m)
-        if 0 <= h_int <= 23 and 0 <= m_int <= 59:
-            return f"{h_int:02d}:{m_int:02d}"
+        if 0 <= m_int <= 59:
+            # Hour > 12 with am/pm = user wrote 24h clock + redundant pm suffix
+            # e.g. "13:40 pm", "13.40 pm" → 13:40
+            # No am/pm at all = plain 24h input: "13:40", "13.40"
+            if not had_ampm or h_int > 12:
+                if 0 <= h_int <= 23:
+                    return f"{h_int:02d}:{m_int:02d}"
+                return None
+            # Hour ≤ 12 with am/pm → fall through to 12h strptime below
+
+    # 12-hour format: "1:40 PM", "1:40PM", "1.40 PM", "12:00 am"
     # Insert space before am/pm if missing: "1:40PM" → "1:40 PM"
     normalized = re.sub(r"([AaPp][Mm])$", r" \1", normalized).strip()
     for fmt in ["%I:%M %p", "%I %p"]:
