@@ -506,7 +506,7 @@ async def _send_edit_menu(to: str, phone_number_id: Optional[str]):
         "Select field",
         [
             {
-                "title": "Select a field to edit",
+                "title": " ",
                 "rows": [
                     {"id": "edit_name", "title": "👤 Passenger name"},
                     {"id": "edit_email", "title": "📧 Email address"},
@@ -2747,27 +2747,61 @@ async def handle_buy_cover_flow(
             or selected_q.get("providerName")
             or "Tangerine Insurance"
         )
+        naicom_reg = (
+            selected_q.get("naicomReg")
+            or selected_q.get("regulatoryRef")
+            or selected_q.get("regNumber")
+            or ""
+        )
+        payout_limit = (
+            selected_q.get("coverageAmount")
+            or selected_q.get("maxPayout")
+            or selected_q.get("sumInsured")
+            or 0
+        )
         coverage = selected_q.get("coverageTypes") or [
             "Major delay",
             "Cancellation",
             "Travel disruption",
         ]
         coverage_lines = "\n".join(f"✅ {c}" for c in coverage)
-        await _send_buttons(
+        naicom_line = f"📋 NAICOM Reg: {naicom_reg}\n" if naicom_reg else ""
+        payout_line = (
+            f"\n💰 *Disruption Payout: ₦{float(payout_limit):,.2f}*\n"
+            f"_(Maximum payable for covered events)_"
+            if payout_limit
+            else ""
+        )
+        card_body = (
+            f"✅ *{cover_name}*\n"
+            f"_Cover selected_\n\n"
+            f"✈️ Trip Type: {trip_type}\n"
+            f"🏢 Insurer: {insurer}\n"
+            f"{naicom_line}"
+            f"\n*Your cover includes:*\n"
+            f"{coverage_lines}\n\n"
+            f"💳 *Insurance Premium: ₦{float(cover_price):,.2f}*\n"
+            f"_(Inclusive of taxes & fees)_"
+            f"{payout_line}\n\n"
+            f"ℹ️ _This policy provides protection for covered travel disruption events only. "
+            f"Terms, limits, exclusions and waiting periods apply._\n\n"
+            f"📌 _Please review the Policy Terms before payment and activation._\n\n"
+            f"What would you like to do next?"
+        )
+        await _send_list(
             sender_wa_id,
-            (
-                f"✅ *Cover selected!*\n\n"
-                f"📋 *{cover_name}*\n"
-                f"🛡️ Your trip can be protected against:\n"
-                f"{coverage_lines}\n\n"
-                f"💰 *₦{float(cover_price):,.0f}*\n"
-                f"🏢 {insurer}  •  ⏱️ {trip_type}\n\n"
-                "What would you like to do next?"
-            ),
+            card_body,
+            "What's next?",
             [
-                {"id": "next_kyc", "title": "🪪 Continue to KYC"},
-                {"id": "next_ask", "title": "❓ Ask a question"},
-                {"id": "next_cancel", "title": "❌ Cancel"},
+                {
+                    "title": "Options",
+                    "rows": [
+                        {"id": "next_kyc", "title": "🪪 Continue to KYC"},
+                        {"id": "next_terms", "title": "📄 View Policy Terms"},
+                        {"id": "next_ask", "title": "❓ Ask a Question"},
+                        {"id": "next_cancel", "title": "❌ Cancel"},
+                    ],
+                }
             ],
             phone_number_id,
         )
@@ -2778,15 +2812,17 @@ async def handle_buy_cover_flow(
             _t = text.strip().lower()
             if _t in ("1", "kyc", "continue", "proceed", "yes", "ok", "go ahead", "next"):
                 reply_id = "next_kyc"
-            elif _t in ("2", "ask", "question", "enquire", "more info", "know"):
+            elif _t in ("2", "terms", "policy terms", "view terms", "view policy"):
+                reply_id = "next_terms"
+            elif _t in ("3", "ask", "question", "enquire", "more info", "know"):
                 reply_id = "next_ask"
-            elif _t in ("3", "cancel", "exit", "no", "stop", "quit"):
+            elif _t in ("4", "cancel", "exit", "no", "stop", "quit"):
                 reply_id = "next_cancel"
         if not reply_id and text:
             llm_next = await call_extract(
                 user_id=sender_wa_id,
                 field_name="next_action",
-                question_asked="What would you like to do? Continue to KYC, Ask a question, or Cancel purchase?",
+                question_asked="What would you like to do? Continue to KYC, View Policy Terms, Ask a question, or Cancel purchase?",
                 user_response=text,
                 expected_format="text",
             )
@@ -2794,6 +2830,8 @@ async def handle_buy_cover_flow(
                 ev = str(llm_next["extracted_value"]).lower()
                 if any(k in ev for k in ("kyc", "continue", "proceed", "next", "yes", "ok", "go ahead")):
                     reply_id = "next_kyc"
+                elif any(k in ev for k in ("terms", "policy terms", "view")):
+                    reply_id = "next_terms"
                 elif any(k in ev for k in ("ask", "question", "know", "enquire", "more info")):
                     reply_id = "next_ask"
                 elif any(k in ev for k in ("cancel", "stop", "exit", "no")):
@@ -2803,6 +2841,30 @@ async def handle_buy_cover_flow(
             from app.services.kyc_flow_service import start_kyc_flow
 
             await start_kyc_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+        elif reply_id == "next_terms":
+            await _send_text(
+                sender_wa_id,
+                (
+                    "📄 *Policy Terms Summary*\n\n"
+                    "This TravelAssist policy covers travel disruption events including delays and cancellations.\n\n"
+                    "• Coverage begins from policy activation date\n"
+                    "• Waiting periods and exclusions apply — see full terms\n"
+                    "• Payout is automatic — no claim forms needed\n"
+                    "• For the full policy document, visit *www.ipurvey.com*\n\n"
+                    "_Please review the complete terms before proceeding to payment._"
+                ),
+                phone_number_id,
+            )
+            await _send_buttons(
+                sender_wa_id,
+                "What would you like to do next?",
+                [
+                    {"id": "next_kyc", "title": "🪪 Continue to KYC"},
+                    {"id": "next_ask", "title": "❓ Ask a Question"},
+                    {"id": "next_cancel", "title": "❌ Cancel"},
+                ],
+                phone_number_id,
+            )
         elif reply_id == "next_ask":
             flow["step"] = "buy_cover_ask_question"
             await save_session(session)
@@ -2822,13 +2884,20 @@ async def handle_buy_cover_flow(
         elif reply_id == "next_cancel":
             await show_cancel_purchase_confirm(sender_wa_id, phone_number_id)
         else:
-            await _send_buttons(
+            await _send_list(
                 sender_wa_id,
                 "What would you like to do next?",
+                "What's next?",
                 [
-                    {"id": "next_kyc", "title": "1. Continue to KYC"},
-                    {"id": "next_ask", "title": "2. Ask another"},
-                    {"id": "next_cancel", "title": "3. Cancel"},
+                    {
+                        "title": "Options",
+                        "rows": [
+                            {"id": "next_kyc", "title": "🪪 Continue to KYC"},
+                            {"id": "next_terms", "title": "📄 View Policy Terms"},
+                            {"id": "next_ask", "title": "❓ Ask a Question"},
+                            {"id": "next_cancel", "title": "❌ Cancel"},
+                        ],
+                    }
                 ],
                 phone_number_id,
             )
