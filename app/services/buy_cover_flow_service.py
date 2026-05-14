@@ -1018,16 +1018,46 @@ async def handle_buy_cover_flow(
                             session.get("api_data", {}).get("resume_draft") or {}
                         )
                         state2 = resume_d2.get("creation_state", "DRAFT")
+                        # Also check API passengers in case bc_data_y is stale/empty
+                        api_pax2 = resume_d2.get("passengers", [])
+                        api_names2 = [
+                            f"{p.get('firstName', '')} {p.get('surname', '')}".strip()
+                            for p in api_pax2
+                            if p.get("firstName") or p.get("surname")
+                        ]
+                        api_email2 = resume_d2.get("email", "")
                         if state2 in ("AWAITING_KYC", "DETAILS_COLLECTED"):
                             bc_step_y = "buy_cover_select_cover"
                         elif state2 == "AWAITING_ITINERARY":
                             bc_step_y = "buy_cover_trip_type"
-                        elif bc_data_y.get("email"):
+                        elif bc_data_y.get("email") or api_email2:
                             bc_step_y = "buy_cover_trip_type"
-                        elif bc_data_y.get("name"):
+                        elif bc_data_y.get("name") or api_names2:
                             bc_step_y = "buy_cover_email"
                         else:
                             bc_step_y = "buy_cover_who"
+                        # If bc_data_y is empty/stale but API has passenger data,
+                        # populate bc_data_y so the resumed flow has the right context
+                        if api_names2 and not bc_data_y.get("name"):
+                            bc_data_y["name"] = api_names2[0]
+                            if api_email2:
+                                bc_data_y["email"] = api_email2
+                            if len(api_names2) > 1:
+                                bc_data_y["who"] = "me_and_others"
+                                bc_data_y["travelers"] = api_names2
+                                bc_data_y["others_count"] = len(api_names2) - 1
+                            else:
+                                bc_data_y["who"] = "just_me"
+                            # Restore passenger_ids from API into api_data
+                            pax_ids2 = [p["id"] for p in api_pax2 if p.get("id")]
+                            if pax_ids2:
+                                session["api_data"]["passenger_ids"] = pax_ids2
+                            prim2 = next(
+                                (p for p in api_pax2 if p.get("isPrimary")),
+                                api_pax2[0] if api_pax2 else None,
+                            )
+                            if prim2 and prim2.get("id"):
+                                session["api_data"]["passenger_id"] = prim2["id"]
                         logger.info(
                             f"[buy_cover] paused_context had no step; resolved to "
                             f"'{bc_step_y}' from API state '{state2}'"
@@ -2833,6 +2863,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         "buy_cover_traveler_count": "buy_cover_who",
         "buy_cover_other_name": "buy_cover_name",
         "buy_cover_email": None,
+        "buy_cover_trip_type": "buy_cover_email",
         "buy_cover_booking_ref": "buy_cover_email",
         "buy_cover_flight_num": "buy_cover_booking_ref",
         "buy_cover_date": "buy_cover_flight_num",
@@ -2939,6 +2970,17 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             "*📧 Please enter your email address*\n"
             "So we can send your policy documents\n\n"
             "_Example: yusuf@email.com_",
+            phone_number_id,
+        )
+
+    elif prev == "buy_cover_trip_type":
+        await _send_buttons(
+            wa_id,
+            "🗺️ What type of trip is this?",
+            [
+                {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
+                {"id": "trip_return", "title": "2. 🔄 Return"},
+            ],
             phone_number_id,
         )
 
