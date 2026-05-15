@@ -6,7 +6,7 @@ from typing import Optional
 import app.services.ipurvey_service as ipurvey_service
 
 from app.core.test_overrides import get_msisdn
-from app.services.llm_service import call_extract
+from app.services.llm_service import call_extract, call_generic
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -148,6 +148,57 @@ def _is_valid_name(value: str) -> bool:
     parts = [p for p in v.split() if p]
     if len(parts) < 2:
         return False  # must have at least first name + surname
+    return True
+
+
+_QUESTION_STARTERS = (
+    "why ", "what ", "how ", "who ", "when ", "where ", "which ",
+    "do you ", "does the ", "is this ", "will you ", "can you ",
+    "please explain", "tell me ", "explain ", "i don't", "i dont",
+    "why do", "why does", "what is", "what are", "what does",
+)
+
+def _looks_like_question(text: str) -> bool:
+    t = text.lower().strip()
+    if "?" in t:
+        return True
+    for s in _QUESTION_STARTERS:
+        if t.startswith(s):
+            return True
+    words = t.split()
+    if len(words) > 6 and not any(c.isdigit() for c in t):
+        return True
+    return False
+
+
+async def _maybe_answer_question(
+    text: str,
+    sender_wa_id: str,
+    phone_number_id: str,
+    reprompt_msg: str,
+    current_node: str = "buy_cover_flow",
+) -> bool:
+    if not _looks_like_question(text):
+        return False
+    try:
+        llm_resp = await call_generic(
+            user_id=sender_wa_id,
+            phone_number=sender_wa_id,
+            message=text,
+            user_name="",
+            current_node=current_node,
+        )
+        if llm_resp and isinstance(llm_resp.get("data"), dict):
+            answer = (
+                llm_resp["data"].get("response")
+                or llm_resp["data"].get("message")
+                or ""
+            )
+            if answer:
+                await _send_text(sender_wa_id, answer, phone_number_id)
+    except Exception:
+        pass
+    await _send_text(sender_wa_id, reprompt_msg, phone_number_id)
     return True
 
 
@@ -1493,6 +1544,12 @@ async def handle_buy_cover_flow(
 
     # ── Name ──────────────────────────────────────────────────────────────────
     elif step == "buy_cover_name":
+        if text and await _maybe_answer_question(
+            text, sender_wa_id, phone_number_id,
+            "👤 Please enter your *full name* (first name and surname) as it appears on your ticket.\n\n_Example: Yusuf Abdullahi_",
+            current_node="buy_cover_name",
+        ):
+            return
         if not text or not _is_valid_name(text):
             if text and "@" in text:
                 await _send_text(sender_wa_id, "⚠️ That looks like an email address — please enter your *name* instead.\n\n_Example: Yusuf Abdullahi_", phone_number_id)
@@ -1918,6 +1975,12 @@ async def handle_buy_cover_flow(
 
     # ── Email ─────────────────────────────────────────────────────────────────
     elif step == "buy_cover_email":
+        if text and await _maybe_answer_question(
+            text, sender_wa_id, phone_number_id,
+            "📧 Please enter your *email address* so we can send your policy documents.\n\n_Example: yusuf@email.com_",
+            current_node="buy_cover_email",
+        ):
+            return
         if not text or not _is_valid_email(text):
             await _send_text(
                 sender_wa_id,
@@ -1972,6 +2035,12 @@ async def handle_buy_cover_flow(
 
     # ── Booking reference ─────────────────────────────────────────────────────
     elif step == "buy_cover_booking_ref":
+        if text and await _maybe_answer_question(
+            text, sender_wa_id, phone_number_id,
+            "🎫 Please enter your *booking reference* — a short alphanumeric code from your airline confirmation email.\n\n_Examples: AB1XY2, 2990FA62_",
+            current_node="buy_cover_booking_ref",
+        ):
+            return
         if not text or not _is_valid_booking_ref(text):
             await _send_text(
                 sender_wa_id,

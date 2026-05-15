@@ -4,7 +4,7 @@ from typing import Optional
 import app.services.ipurvey_service as ipurvey_service
 
 from app.core.test_overrides import get_msisdn
-from app.services.llm_service import call_extract
+from app.services.llm_service import call_extract, call_generic
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -416,6 +416,34 @@ async def handle_kyc_flow(
         if not text:
             await _send_text(
                 sender_wa_id, "Please type your ID number to continue.", phone_number_id
+            )
+            return
+        _kyc_q = text.lower().strip()
+        _is_q = (
+            "?" in _kyc_q
+            or any(_kyc_q.startswith(s) for s in (
+                "why ", "what ", "how ", "who ", "is this ", "do you ",
+                "why do", "what is", "tell me", "explain ",
+            ))
+            or (len(_kyc_q.split()) > 5 and not any(c.isdigit() for c in _kyc_q))
+        )
+        if _is_q:
+            try:
+                _lr = await call_generic(
+                    user_id=sender_wa_id, phone_number=sender_wa_id,
+                    message=text, user_name="", current_node="kyc_id_input",
+                )
+                if _lr and isinstance(_lr.get("data"), dict):
+                    _ans = _lr["data"].get("response") or _lr["data"].get("message") or ""
+                    if _ans:
+                        await _send_text(sender_wa_id, _ans, phone_number_id)
+            except Exception:
+                pass
+            method = data.get("kyc_method", "BVN")
+            await _send_text(
+                sender_wa_id,
+                f"🔏 Please enter your *11-digit {method}* to continue.\n\n_Example: 12345678901_",
+                phone_number_id,
             )
             return
         id_number = text.replace(" ", "")

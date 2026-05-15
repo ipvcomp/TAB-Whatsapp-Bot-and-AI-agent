@@ -4,7 +4,7 @@ from typing import Optional
 import app.services.ipurvey_service as ipurvey_service
 
 from app.core.test_overrides import get_msisdn
-from app.services.llm_service import call_extract
+from app.services.llm_service import call_extract, call_generic
 from app.services.session_service import get_session, save_session, invalidate_policy_cache
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -545,6 +545,33 @@ async def handle_payment_flow(
 
     # ── Bank — account number ─────────────────────────────────────────────────
     elif step == "pay_acct_number":
+        _pay_q = (text or "").lower().strip()
+        _is_q = (
+            "?" in _pay_q
+            or any(_pay_q.startswith(s) for s in (
+                "why ", "what ", "how ", "who ", "is this ", "do you ",
+                "why do", "what is", "tell me", "explain ",
+            ))
+            or (len(_pay_q.split()) > 5 and not any(c.isdigit() for c in _pay_q))
+        )
+        if _is_q:
+            try:
+                _lr = await call_generic(
+                    user_id=sender_wa_id, phone_number=sender_wa_id,
+                    message=text, user_name="", current_node="pay_acct_number",
+                )
+                if _lr and isinstance(_lr.get("data"), dict):
+                    _ans = _lr["data"].get("response") or _lr["data"].get("message") or ""
+                    if _ans:
+                        await _send_text(sender_wa_id, _ans, phone_number_id)
+            except Exception:
+                pass
+            await _send_text(
+                sender_wa_id,
+                "🏦 Please enter your *10-digit bank account number* to continue.\n\n_Example: 0123456789_",
+                phone_number_id,
+            )
+            return
         acct = text.replace(" ", "")
         if acct.isdigit() and 9 <= len(acct) <= 11:
             data["pay_user_acct"] = acct
