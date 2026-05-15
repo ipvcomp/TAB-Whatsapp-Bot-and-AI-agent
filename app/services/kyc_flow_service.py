@@ -46,6 +46,13 @@ async def _send_text(to: str, body: str, phone_number_id: Optional[str]):
     )
 
 
+async def _send_text_plain(to: str, body: str, phone_number_id: Optional[str]):
+    """Send a plain text message without utility bar — used for loading/processing states."""
+    await send_text_message(
+        to=to, body=body, phone_number_id=phone_number_id, source="kyc_flow"
+    )
+
+
 async def _send_buttons(
     to: str, body: str, buttons: list, phone_number_id: Optional[str]
 ):
@@ -474,7 +481,7 @@ async def handle_kyc_flow(
             return
         masked = _mask_id(id_number)
         data["kyc_id"] = id_number
-        await _send_text(
+        await _send_text_plain(
             sender_wa_id,
             f"🔍 *Checking your details...*\n_{method}: {masked}_\n_Please wait a moment_ ⏳",
             phone_number_id,
