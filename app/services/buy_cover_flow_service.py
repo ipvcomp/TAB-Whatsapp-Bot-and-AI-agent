@@ -1230,7 +1230,6 @@ async def handle_buy_cover_flow(
                     "🗺️ What type of trip is this?",
                     [
                         {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
-                        {"id": "trip_return", "title": "2. 🔄 Return"},
                     ],
                     phone_number_id,
                 )
@@ -1256,7 +1255,6 @@ async def handle_buy_cover_flow(
                         "🗺️ What type of trip is this?",
                         [
                             {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
-                            {"id": "trip_return", "title": "2. 🔄 Return"},
                         ],
                         phone_number_id,
                     )
@@ -1945,22 +1943,32 @@ async def handle_buy_cover_flow(
             "🗺️ What type of trip is this?",
             [
                 {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
-                {"id": "trip_return", "title": "2. 🔄 Return"},
             ],
             phone_number_id,
         )
 
     # ── Trip type ─────────────────────────────────────────────────────────────
     elif step == "buy_cover_trip_type":
-        # Return journey is currently not offered — auto-select One-way and proceed
-        data["trip_type"] = "One-way 🗺️"
-        flow["step"] = "buy_cover_booking_ref"
-        await save_session(session)
-        await _send_text(
-            sender_wa_id,
-            "*🎫 Please enter your booking reference*\n\n_Examples: AB1XY2, 2990FA62_",
-            phone_number_id,
-        )
+        if reply_id == "trip_oneway" or (text and text.strip() == "1"):
+            data["trip_type"] = "One-way 🗺️"
+            flow["step"] = "buy_cover_booking_ref"
+            await save_session(session)
+            await _send_text(
+                sender_wa_id,
+                "*🎫 Please enter your booking reference*\n\n_Examples: AB1XY2, 2990FA62_",
+                phone_number_id,
+            )
+        else:
+            await _send_buttons(
+                sender_wa_id,
+                "❌ *Invalid selection.*\n\n"
+                "Only *One-way* trips are available at this time.\n\n"
+                "Please tap the button below to continue:",
+                [
+                    {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
+                ],
+                phone_number_id,
+            )
 
     # ── Booking reference ─────────────────────────────────────────────────────
     elif step == "buy_cover_booking_ref":
@@ -3093,7 +3101,6 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             "🗺️ What type of trip is this?",
             [
                 {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
-                {"id": "trip_return", "title": "2. 🔄 Return"},
             ],
             phone_number_id,
         )
