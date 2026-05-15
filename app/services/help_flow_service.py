@@ -124,14 +124,6 @@ async def start_help_flow(
         phone_number_id=phone_number_id,
     )
 
-    await _send_buttons(
-        to=wa_id,
-        body="🤝 *Need a human?*",
-        buttons=[
-            {"id": "hlp_agent", "title": "📞 Speak to an agent"},
-        ],
-        phone_number_id=phone_number_id,
-    )
 
 
 async def handle_help_flow(
