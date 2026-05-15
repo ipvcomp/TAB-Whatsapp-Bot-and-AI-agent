@@ -108,27 +108,20 @@ async def _show_bypass_screen(wa_id: str, session: dict, phone_number_id: Option
     flow = session.get("temp_data", {}).get(KYC_FLOW_KEY, {})
     flow["step"] = "kyc_both_failed"
     await save_session(session)
-    await _send_list(
+    await _send_buttons(
         wa_id,
         "⚠️ *Verification Incomplete*\n"
         "We could not complete verification automatically.\n\n"
-        "📋 Please review and resubmit your trip details and ensure the name of the "
-        "main passenger or purchaser matches the Biometric ID details.\n\n"
-        "This will help avoid delays to any future payout.",
-        "What would you like to do next?",
+        "📋 Please review your trip details and ensure the main passenger name "
+        "matches the Biometric ID.\n\n"
+        "This will help avoid delays to any future payout.\n\n"
+        "What would you like to do?",
         [
-            {
-                "title": "Options",
-                "rows": [
-                    {"id": "kyc_bypass_pay",    "title": "💳 Continue to pay"},
-                    {"id": "kyc_bypass_review", "title": "📋 Review details"},
-                    {"id": "kyc_bypass_menu",   "title": "🏠 Main menu"},
-                    {"id": "kyc_bypass_help",   "title": "🧑 Get help"},
-                ],
-            }
+            {"id": "kyc_bypass_pay",    "title": "💳 Continue to pay"},
+            {"id": "kyc_bypass_review", "title": "📋 Review details"},
+            {"id": "kyc_bypass_menu",   "title": "🏠 Main menu"},
         ],
         phone_number_id,
-        header="⚠️ Verification Incomplete",
     )
 
 
