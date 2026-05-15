@@ -211,16 +211,28 @@ async def _call_llm_and_reprompt(
             user_name="",
             current_node=current_node,
         )
-        if llm_resp and isinstance(llm_resp.get("data"), dict):
+        if llm_resp:
+            # API may return response at root level OR inside data{}
+            data_block = llm_resp.get("data") if isinstance(llm_resp.get("data"), dict) else {}
             answer = (
-                llm_resp["data"].get("response")
-                or llm_resp["data"].get("message")
+                llm_resp.get("response")
+                or data_block.get("response")
+                or data_block.get("message")
                 or ""
+            )
+            logger.info(
+                f"[LLM_GENERIC] node={current_node} user={sender_wa_id} "
+                f"input={text!r} answer={answer!r}"
             )
             if answer:
                 await _send_text(sender_wa_id, answer, phone_number_id)
-    except Exception:
-        pass
+        else:
+            logger.warning(
+                f"[LLM_GENERIC] node={current_node} user={sender_wa_id} "
+                f"input={text!r} → no response from LLM"
+            )
+    except Exception as exc:
+        logger.error(f"[LLM_GENERIC] node={current_node} user={sender_wa_id} error: {exc}")
     if reprompt_msg:
         await _send_text(sender_wa_id, reprompt_msg, phone_number_id)
 
@@ -2077,16 +2089,21 @@ async def handle_buy_cover_flow(
                         user_name="",
                         current_node="buy_cover_trip_type",
                     )
-                    if llm_resp and isinstance(llm_resp.get("data"), dict):
+                    if llm_resp:
+                        _db = llm_resp.get("data") if isinstance(llm_resp.get("data"), dict) else {}
                         answer = (
-                            llm_resp["data"].get("response")
-                            or llm_resp["data"].get("message")
+                            llm_resp.get("response")
+                            or _db.get("response")
+                            or _db.get("message")
                             or ""
                         )
+                        logger.info(f"[LLM_GENERIC] node=buy_cover_trip_type user={sender_wa_id} input={text!r} answer={answer!r}")
                         if answer:
                             await _send_text(sender_wa_id, answer, phone_number_id)
-                except Exception:
-                    pass
+                    else:
+                        logger.warning(f"[LLM_GENERIC] node=buy_cover_trip_type user={sender_wa_id} input={text!r} → no response")
+                except Exception as exc:
+                    logger.error(f"[LLM_GENERIC] node=buy_cover_trip_type user={sender_wa_id} error: {exc}")
             await _send_buttons(
                 sender_wa_id,
                 "Only *One-way* trips are available at this time.\n\nPlease tap the button below to continue:",

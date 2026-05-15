@@ -560,12 +560,16 @@ async def handle_payment_flow(
                     user_id=sender_wa_id, phone_number=sender_wa_id,
                     message=text, user_name="", current_node="pay_acct_number",
                 )
-                if _lr and isinstance(_lr.get("data"), dict):
-                    _ans = _lr["data"].get("response") or _lr["data"].get("message") or ""
+                if _lr:
+                    _db = _lr.get("data") if isinstance(_lr.get("data"), dict) else {}
+                    _ans = _lr.get("response") or _db.get("response") or _db.get("message") or ""
+                    logger.info(f"[LLM_GENERIC] node=pay_acct_number user={sender_wa_id} input={text!r} answer={_ans!r}")
                     if _ans:
                         await _send_text(sender_wa_id, _ans, phone_number_id)
-            except Exception:
-                pass
+                else:
+                    logger.warning(f"[LLM_GENERIC] node=pay_acct_number user={sender_wa_id} input={text!r} → no response")
+            except Exception as _exc:
+                logger.error(f"[LLM_GENERIC] node=pay_acct_number user={sender_wa_id} error: {_exc}")
             await _send_text(
                 sender_wa_id,
                 "🏦 Please enter your *10-digit bank account number* to continue.\n\n_Example: 0123456789_",
