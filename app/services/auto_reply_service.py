@@ -15,7 +15,7 @@ import app.services.ipurvey_service as _ipurvey_svc
 
 logger = logging.getLogger(__name__)
 
-GREETING_PATTERNS = [r"\b(hi|hello|hey|assalam|salam|aoa|start|menu)\b"]
+GREETING_PATTERNS = [r"\b(hi+|hello+|hey+|hlo|helo|h[iy]+|assalam+|salam+|aoa|start|menu)\b"]
 HELP_PATTERNS = [r"\b(help|support|assist)\b"]
 THANKS_PATTERNS = [r"\b(thank|thanks|shukria|shukriya)\b"]
 BYE_PATTERNS = [r"\b(bye|goodbye|see you|khuda hafiz)\b"]
