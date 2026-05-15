@@ -595,7 +595,7 @@ async def handle_kyc_flow(
                     [
                         {"id": "kyc_retry_same", "title": f"🔄 Try {method} again"},
                         {"id": "kyc_try_another_id", "title": f"🪪 Try {_other} instead"},
-                        {"id": "kyc_help", "title": "🆘 Get Help"},
+                        {"id": "kyc_continue_purchase", "title": "💳 Continue Purchase"},
                     ],
                     phone_number_id,
                 )
@@ -636,7 +636,7 @@ async def handle_kyc_flow(
                     [
                         {"id": "kyc_retry_same", "title": f"🔄 Try {method} again"},
                         {"id": "kyc_try_another_id", "title": f"🪪 Try {_other} instead"},
-                        {"id": "kyc_help", "title": "🆘 Get Help"},
+                        {"id": "kyc_continue_purchase", "title": "💳 Continue Purchase"},
                     ],
                     phone_number_id,
                 )
@@ -821,7 +821,9 @@ async def handle_kyc_flow(
             )
             if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
                 ev = str(llm_result["extracted_value"]).lower()
-                if any(k in ev for k in ("retry", "again", "same", "re-enter", "reenter")):
+                if any(k in ev for k in ("continue", "purchase", "proceed", "payment", "skip")):
+                    reply_id = "kyc_continue_purchase"
+                elif any(k in ev for k in ("retry", "again", "same", "re-enter", "reenter")):
                     reply_id = "kyc_retry_same"
                 elif any(k in ev for k in ("another", "different", "other", "instead", "switch")):
                     reply_id = "kyc_try_another_id"
@@ -842,12 +844,15 @@ async def handle_kyc_flow(
                     [
                         {"id": "kyc_retry_same", "title": f"🔄 Try {method} again"},
                         {"id": "kyc_try_another_id", "title": f"🪪 Try {_other} instead"},
-                        {"id": "kyc_help", "title": "🆘 Get Help"},
+                        {"id": "kyc_continue_purchase", "title": "💳 Continue Purchase"},
                     ],
                     phone_number_id,
                 )
                 return
-        if reply_id == "kyc_retry_same":
+        if reply_id == "kyc_continue_purchase":
+            from app.services.payment_flow_service import start_payment_flow
+            await start_payment_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+        elif reply_id == "kyc_retry_same":
             data.pop("kyc_id", None)
             flow["step"] = "kyc_id_input"
             await save_session(session)
