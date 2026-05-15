@@ -588,13 +588,13 @@ async def handle_kyc_flow(
                 _other = "NIN" if method == "BVN" else "BVN"
                 await _send_buttons(
                     sender_wa_id,
-                    "🔔 *Verification Pending*\n\n"
-                    "Your BVN/NIN could not be verified automatically.\n\n"
-                    "✅ You can still continue with your policy purchase.\n\n"
-                    "ℹ️ _Verification may be required before any disruption payout is processed._",
+                    f"⚠️ *{method} Verification Failed*\n\n"
+                    f"We could not verify your *{method}*: `{masked}`\n\n"
+                    f"You may have entered an incorrect number. "
+                    f"Please try again or use your {_other} instead.",
                     [
-                        {"id": "kyc_continue_purchase", "title": "💳 Continue Purchase"},
-                        {"id": "kyc_try_another_id", "title": f"🔄 Try {_other} instead"},
+                        {"id": "kyc_retry_same", "title": f"🔄 Try {method} again"},
+                        {"id": "kyc_try_another_id", "title": f"🪪 Try {_other} instead"},
                         {"id": "kyc_help", "title": "🆘 Get Help"},
                     ],
                     phone_number_id,
@@ -629,13 +629,13 @@ async def handle_kyc_flow(
                 _other = "NIN" if method == "BVN" else "BVN"
                 await _send_buttons(
                     sender_wa_id,
-                    "🔔 *Verification Pending*\n\n"
-                    "Your BVN/NIN could not be verified automatically.\n\n"
-                    "✅ You can still continue with your policy purchase.\n\n"
-                    "ℹ️ _Verification may be required before any disruption payout is processed._",
+                    f"⚠️ *{method} Verification Failed*\n\n"
+                    f"We could not verify your *{method}*: `{masked}`\n\n"
+                    f"You may have entered an incorrect number. "
+                    f"Please try again or use your {_other} instead.",
                     [
-                        {"id": "kyc_continue_purchase", "title": "💳 Continue Purchase"},
-                        {"id": "kyc_try_another_id", "title": f"🔄 Try {_other} instead"},
+                        {"id": "kyc_retry_same", "title": f"🔄 Try {method} again"},
+                        {"id": "kyc_try_another_id", "title": f"🪪 Try {_other} instead"},
                         {"id": "kyc_help", "title": "🆘 Get Help"},
                     ],
                     phone_number_id,
@@ -806,44 +806,61 @@ async def handle_kyc_flow(
         if _both_methods_tried(data):
             await _show_bypass_screen(sender_wa_id, session, phone_number_id)
             return
+        method = data.get("kyc_method", "BVN")
+        _other = "NIN" if method == "BVN" else "BVN"
         if not reply_id and text:
             llm_result = await call_extract(
                 user_id=sender_wa_id,
                 field_name="kyc_failed_action",
-                question_asked="Verification incomplete. Would you like to try BVN, try NIN, or get help?",
+                question_asked=(
+                    f"Verification failed. Would you like to try {method} again, "
+                    f"try {_other} instead, or get help?"
+                ),
                 user_response=text,
                 expected_format="text",
             )
             if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
                 ev = str(llm_result["extracted_value"]).lower()
-                if any(k in ev for k in ("continue", "purchase", "proceed", "payment")):
-                    reply_id = "kyc_continue_purchase"
-                elif any(k in ev for k in ("another", "different", "other", "bvn", "nin", "retry", "try again")):
+                if any(k in ev for k in ("retry", "again", "same", "re-enter", "reenter")):
+                    reply_id = "kyc_retry_same"
+                elif any(k in ev for k in ("another", "different", "other", "instead", "switch")):
                     reply_id = "kyc_try_another_id"
+                elif "bvn" in ev:
+                    reply_id = "kyc_retry_same" if method == "BVN" else "kyc_try_another_id"
+                elif "nin" in ev:
+                    reply_id = "kyc_retry_same" if method == "NIN" else "kyc_try_another_id"
                 elif any(k in ev for k in ("help", "support", "agent")):
                     reply_id = "kyc_help"
             if not reply_id:
-                _other = "NIN" if data.get("kyc_method", "BVN") == "BVN" else "BVN"
+                masked = _mask_id(data.get("kyc_id", ""))
                 await _send_buttons(
                     sender_wa_id,
-                    "🔔 *Verification Pending*\n\n"
-                    "Your BVN/NIN could not be verified automatically.\n\n"
-                    "✅ You can still continue with your policy purchase.\n\n"
-                    "ℹ️ _Verification may be required before any disruption payout is processed._",
+                    f"⚠️ *{method} Verification Failed*\n\n"
+                    f"We could not verify your *{method}*: `{masked}`\n\n"
+                    f"You may have entered an incorrect number. "
+                    f"Please try again or use your {_other} instead.",
                     [
-                        {"id": "kyc_continue_purchase", "title": "💳 Continue Purchase"},
-                        {"id": "kyc_try_another_id", "title": f"🔄 Try {_other} instead"},
+                        {"id": "kyc_retry_same", "title": f"🔄 Try {method} again"},
+                        {"id": "kyc_try_another_id", "title": f"🪪 Try {_other} instead"},
                         {"id": "kyc_help", "title": "🆘 Get Help"},
                     ],
                     phone_number_id,
                 )
                 return
-        if reply_id == "kyc_continue_purchase":
-            from app.services.payment_flow_service import start_payment_flow
-            await start_payment_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+        if reply_id == "kyc_retry_same":
+            data.pop("kyc_id", None)
+            flow["step"] = "kyc_id_input"
+            await save_session(session)
+            await _send_text(
+                sender_wa_id,
+                f"🔏 *Please re-enter your 11-digit {method}*\n\n"
+                f"_Example: 12345678901_\n\n"
+                f"🔒 _Your {method} is handled securely — only the last 3 digits will be shown for confirmation_",
+                phone_number_id,
+            )
         elif reply_id == "kyc_try_another_id":
-            _other = "NIN" if data.get("kyc_method", "BVN") == "BVN" else "BVN"
             data["kyc_method"] = _other
+            data.pop("kyc_id", None)
             flow["step"] = "kyc_id_input"
             await save_session(session)
             await _send_text(
