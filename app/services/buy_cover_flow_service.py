@@ -132,6 +132,18 @@ def _contains_emoji(s: str) -> bool:
     return False
 
 
+_NAME_STOP_WORDS = frozenset({
+    "not", "no", "yes", "ok", "okay", "i", "me", "my", "you", "your",
+    "we", "they", "it", "this", "that", "is", "are", "do", "does",
+    "need", "want", "get", "why", "what", "how", "who", "when", "which",
+    "decided", "ye", "please", "just", "can", "will", "going", "have",
+    "has", "was", "be", "been", "really", "still", "yet", "already",
+    "here", "there", "then", "now", "also", "could", "would", "should",
+    "never", "always", "maybe", "sure", "sorry", "dont", "doesn't",
+    "don't", "didn't", "cannot", "cant", "haven't", "aren't",
+})
+
+
 def _is_valid_name(value: str) -> bool:
     """Return True only if value looks like a real full name (first + surname required)."""
     v = value.strip()
@@ -148,6 +160,11 @@ def _is_valid_name(value: str) -> bool:
     parts = [p for p in v.split() if p]
     if len(parts) < 2:
         return False  # must have at least first name + surname
+    if len(parts) > 5:
+        return False  # names don't have 6+ parts — likely a sentence
+    stop_hits = sum(1 for p in parts if p.lower() in _NAME_STOP_WORDS)
+    if stop_hits >= 2:
+        return False  # 2+ stop/function words → not a real name
     return True
 
 
@@ -171,15 +188,21 @@ def _looks_like_question(text: str) -> bool:
     return False
 
 
-async def _maybe_answer_question(
+def _is_sentence_like(text: str, min_words: int = 3) -> bool:
+    """Return True if text looks like a sentence rather than a field value."""
+    t = text.lower().strip()
+    words = t.split()
+    return len(words) >= min_words and not any(c.isdigit() for c in t)
+
+
+async def _call_llm_and_reprompt(
     text: str,
     sender_wa_id: str,
     phone_number_id: str,
     reprompt_msg: str,
     current_node: str = "buy_cover_flow",
-) -> bool:
-    if not _looks_like_question(text):
-        return False
+) -> None:
+    """Unconditionally call LLM generic to handle unexpected input, then re-prompt."""
     try:
         llm_resp = await call_generic(
             user_id=sender_wa_id,
@@ -198,7 +221,20 @@ async def _maybe_answer_question(
                 await _send_text(sender_wa_id, answer, phone_number_id)
     except Exception:
         pass
-    await _send_text(sender_wa_id, reprompt_msg, phone_number_id)
+    if reprompt_msg:
+        await _send_text(sender_wa_id, reprompt_msg, phone_number_id)
+
+
+async def _maybe_answer_question(
+    text: str,
+    sender_wa_id: str,
+    phone_number_id: str,
+    reprompt_msg: str,
+    current_node: str = "buy_cover_flow",
+) -> bool:
+    if not _looks_like_question(text):
+        return False
+    await _call_llm_and_reprompt(text, sender_wa_id, phone_number_id, reprompt_msg, current_node)
     return True
 
 
@@ -1560,6 +1596,14 @@ async def handle_buy_cover_flow(
             if not text or not any(c.isalpha() for c in text):
                 await _send_text(sender_wa_id, "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Yusuf Abdullahi_", phone_number_id)
                 return
+            # Multi-word sentence that is not a valid name → call LLM generic to respond
+            if text and _is_sentence_like(text, min_words=2) and not any(c.isdigit() for c in text):
+                await _call_llm_and_reprompt(
+                    text, sender_wa_id, phone_number_id,
+                    "👤 Please enter your *full name* (first name and surname) as it appears on your ticket.\n\n_Example: Yusuf Abdullahi_",
+                    current_node="buy_cover_name",
+                )
+                return
             llm_result = await call_extract(
                 user_id=sender_wa_id,
                 field_name="passenger_name",
@@ -1975,11 +2019,12 @@ async def handle_buy_cover_flow(
 
     # ── Email ─────────────────────────────────────────────────────────────────
     elif step == "buy_cover_email":
-        if text and await _maybe_answer_question(
-            text, sender_wa_id, phone_number_id,
-            "📧 Please enter your *email address* so we can send your policy documents.\n\n_Example: yusuf@email.com_",
-            current_node="buy_cover_email",
-        ):
+        if text and (_looks_like_question(text) or _is_sentence_like(text, min_words=3)):
+            await _call_llm_and_reprompt(
+                text, sender_wa_id, phone_number_id,
+                "📧 Please enter your *email address* so we can send your policy documents.\n\n_Example: yusuf@email.com_",
+                current_node="buy_cover_email",
+            )
             return
         if not text or not _is_valid_email(text):
             await _send_text(
@@ -2022,11 +2067,29 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
         else:
+            # Unexpected input → call LLM to respond, then re-prompt with button
+            if text:
+                try:
+                    llm_resp = await call_generic(
+                        user_id=sender_wa_id,
+                        phone_number=sender_wa_id,
+                        message=text,
+                        user_name="",
+                        current_node="buy_cover_trip_type",
+                    )
+                    if llm_resp and isinstance(llm_resp.get("data"), dict):
+                        answer = (
+                            llm_resp["data"].get("response")
+                            or llm_resp["data"].get("message")
+                            or ""
+                        )
+                        if answer:
+                            await _send_text(sender_wa_id, answer, phone_number_id)
+                except Exception:
+                    pass
             await _send_buttons(
                 sender_wa_id,
-                "❌ *Invalid selection.*\n\n"
-                "Only *One-way* trips are available at this time.\n\n"
-                "Please tap the button below to continue:",
+                "Only *One-way* trips are available at this time.\n\nPlease tap the button below to continue:",
                 [
                     {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
                 ],
@@ -2035,11 +2098,12 @@ async def handle_buy_cover_flow(
 
     # ── Booking reference ─────────────────────────────────────────────────────
     elif step == "buy_cover_booking_ref":
-        if text and await _maybe_answer_question(
-            text, sender_wa_id, phone_number_id,
-            "🎫 Please enter your *booking reference* — a short alphanumeric code from your airline confirmation email.\n\n_Examples: AB1XY2, 2990FA62_",
-            current_node="buy_cover_booking_ref",
-        ):
+        if text and (_looks_like_question(text) or _is_sentence_like(text, min_words=3)):
+            await _call_llm_and_reprompt(
+                text, sender_wa_id, phone_number_id,
+                "🎫 Please enter your *booking reference* — a short alphanumeric code from your airline confirmation email.\n\n_Examples: AB1XY2, 2990FA62_",
+                current_node="buy_cover_booking_ref",
+            )
             return
         if not text or not _is_valid_booking_ref(text):
             await _send_text(

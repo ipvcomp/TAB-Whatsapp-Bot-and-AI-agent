@@ -425,7 +425,7 @@ async def handle_kyc_flow(
                 "why ", "what ", "how ", "who ", "is this ", "do you ",
                 "why do", "what is", "tell me", "explain ",
             ))
-            or (len(_kyc_q.split()) > 5 and not any(c.isdigit() for c in _kyc_q))
+            or (len(_kyc_q.split()) >= 3 and not any(c.isdigit() for c in _kyc_q))
         )
         if _is_q:
             try:
