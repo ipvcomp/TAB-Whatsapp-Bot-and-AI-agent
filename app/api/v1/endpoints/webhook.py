@@ -298,6 +298,7 @@ async def _process_change(entry_id: str, change):
                         "boarding", "pass", "submit", "upload",
                         "support", "help", "assist", "question", "enquiry",
                         "kharidna", "chahiye", "bima", "ticket",
+                        "draft", "existing", "saved", "check", "view", "status",
                     }
                     _has_intent_kw = any(
                         kw in message.text.body.lower() for kw in _INTENT_TRIGGER_WORDS
@@ -307,7 +308,9 @@ async def _process_change(entry_id: str, change):
                             user_id=sender_wa_id,
                             field_name="menu_intent",
                             question_asked=(
-                                "Main menu options: 'buy insurance / purchase policy / travel cover', "
+                                "Main menu options: "
+                                "'check draft policy / view existing policy / policy status / saved policy / is there a policy', "
+                                "'buy insurance / purchase new policy / travel cover', "
                                 "'submit boarding pass / upload boarding pass', or 'get support / help'."
                             ),
                             user_response=message.text.body,
@@ -316,7 +319,9 @@ async def _process_change(entry_id: str, change):
                         if _wakeup_llm and _wakeup_llm.get("is_valid") and _wakeup_llm.get("extracted_value"):
                             _wk_ev = str(_wakeup_llm["extracted_value"]).lower()
                             _wk_intent = None
-                            if any(k in _wk_ev for k in ("buy", "purchase", "cover", "policy", "insurance", "travel")):
+                            if any(k in _wk_ev for k in ("draft", "existing", "check", "view", "saved", "status")):
+                                _wk_intent = "check_policy"
+                            elif any(k in _wk_ev for k in ("buy", "purchase", "cover", "insurance", "travel")):
                                 _wk_intent = "welcome_purchase_policy"
                             elif any(k in _wk_ev for k in ("boarding", "pass", "submit", "upload")):
                                 _wk_intent = "welcome_submit_boarding"
