@@ -36,3 +36,9 @@ id = "VqpTb9bE7iKobAOkxRx2y"
 uri = "file://TravelAssist_API_Error_Mapping.docx"
 type = "word_document"
 title = "Document 3 — API Error Response Mapping"
+
+[[outputs]]
+id = "87N7crPgMz3lVfIYER61s"
+uri = "file://WhatsApp_Flow_User_Intent_Definitions.docx"
+type = "word_document"
+title = "WhatsApp Flow — User Intent Definitions (Buy Cover)"
