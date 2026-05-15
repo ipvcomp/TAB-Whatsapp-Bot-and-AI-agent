@@ -2703,41 +2703,18 @@ async def handle_buy_cover_flow(
             except (ValueError, IndexError):
                 pass
         if not selected_q:
-            # Re-show the cover list with a helpful prompt
             quotes = session.get("api_data", {}).get("quotes") or []
-            rows = []
-            for i, q in enumerate(quotes[:8]):
-                q_name = str(q.get("name") or q.get("productName") or "Cover option")[
-                    :24
-                ]
-                q_price = q.get("price") or q.get("premiumAmount") or 0
-                trip = q.get("tripType") or q.get("travelType") or ""
-                insurer = (
-                    q.get("insurer") or q.get("provider") or q.get("providerName") or ""
-                )
-                coverage = q.get("coverageTypes") or []
-                price_str = f"💰 ₦{float(q_price):,.0f}"
-                trip_str = f"⏱️ {trip}" if trip else ""
-                insurer_str = f"🏢 {insurer}" if insurer else ""
-                cover_count = f"✅ {len(coverage)} covers" if coverage else ""
-                desc = "  •  ".join(
-                    filter(None, [price_str, trip_str or insurer_str, cover_count])
-                )
-                rows.append(
-                    {"id": f"cov_{i}", "title": q_name, "description": desc[:72]}
-                )
-            if rows:
-                await _send_list(
+            if quotes:
+                await _send_cover_page(
                     sender_wa_id,
-                    (
-                        "⚠️ *Invalid selection*\n\n"
-                        "Please tap *Select cover* below to choose a cover from the list, "
-                        "or use the utility options to go back or return to the main menu."
-                    ),
-                    "Select cover",
-                    [{"title": "🛡️ Available Covers", "rows": rows}],
+                    quotes,
+                    0,
                     phone_number_id,
-                    header="🛡️ Select from available cover(s)",
+                    intro_body=(
+                        "❌ *Invalid selection*\n\n"
+                        "Please tap *Select cover* below to pick your cover from the list.\n\n"
+                        "_You can also use:  0 Back  •  9 Help  •  99 Cancel_"
+                    ),
                 )
             else:
                 await _send_buttons(
