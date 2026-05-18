@@ -3310,7 +3310,7 @@ async def handle_buy_cover_flow(
                 {
                     "title": "Options",
                     "rows": [
-                        {"id": "next_kyc", "title": "🪪 Continue to KYC"},
+                        {"id": "next_kyc", "title": "🛒 Buy Policy"},
                         {"id": "next_terms", "title": "📄 View Policy Terms"},
                         {"id": "next_ask", "title": "❓ Ask a Question"},
                         {"id": "next_cancel", "title": "❌ Cancel"},
@@ -3399,7 +3399,7 @@ async def handle_buy_cover_flow(
                 sender_wa_id,
                 "What would you like to do next?",
                 [
-                    {"id": "next_kyc", "title": "🪪 Continue to KYC"},
+                    {"id": "next_kyc", "title": "🛒 Buy Policy"},
                     {"id": "next_ask", "title": "❓ Ask a Question"},
                     {"id": "next_cancel", "title": "❌ Cancel"},
                 ],
@@ -3432,7 +3432,7 @@ async def handle_buy_cover_flow(
                     {
                         "title": "Options",
                         "rows": [
-                            {"id": "next_kyc", "title": "🪪 Continue to KYC"},
+                            {"id": "next_kyc", "title": "🛒 Buy Policy"},
                             {"id": "next_terms", "title": "📄 View Policy Terms"},
                             {"id": "next_ask", "title": "❓ Ask a Question"},
                             {"id": "next_cancel", "title": "❌ Cancel"},
@@ -3479,9 +3479,9 @@ async def handle_buy_cover_flow(
             sender_wa_id,
             answer,
             [
-                {"id": "next_kyc", "title": "1. Continue to KYC"},
-                {"id": "next_ask", "title": "2. Ask another"},
-                {"id": "next_cancel", "title": "3. Cancel"},
+                {"id": "next_kyc", "title": "🛒 Buy Policy"},
+                {"id": "next_ask", "title": "❓ Ask another"},
+                {"id": "next_cancel", "title": "❌ Cancel"},
             ],
             phone_number_id,
         )
@@ -3507,9 +3507,9 @@ async def handle_buy_cover_flow(
                 sender_wa_id,
                 "What would you like to do next?",
                 [
-                    {"id": "next_kyc", "title": "1. Continue to KYC"},
-                    {"id": "next_ask", "title": "2. Ask a question"},
-                    {"id": "next_cancel", "title": "3. Cancel"},
+                    {"id": "next_kyc", "title": "🛒 Buy Policy"},
+                    {"id": "next_ask", "title": "❓ Ask a question"},
+                    {"id": "next_cancel", "title": "❌ Cancel"},
                 ],
                 phone_number_id,
             )
@@ -3743,7 +3743,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             wa_id,
             "What would you like to do next?",
             [
-                {"id": "next_kyc", "title": "🪪 Continue to KYC"},
+                {"id": "next_kyc", "title": "🛒 Buy Policy"},
                 {"id": "next_terms", "title": "📄 View Policy Terms"},
                 {"id": "next_cancel", "title": "❌ Cancel"},
             ],
