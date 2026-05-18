@@ -532,7 +532,7 @@ async def handle_payment_flow(
             flow["step"] = "pay_acct_number"
             await save_session(session)
             await _send_text(sender_wa_id,
-                "🏦 *Bank Transfer*\n\nPlease enter your 10-digit account number for future payouts:\n\n"
+                "🏦 *Bank Transfer*\n\nPlease enter your 10-digit account number:\n\n"
                 "_Example: 0123456789_",
                 phone_number_id)
         elif reply_id == "pay_wallet_payout":
@@ -1251,7 +1251,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
     elif prev == "pay_acct_number":
         await _send_text(
             wa_id,
-            "🏦 *Bank Transfer*\n\nPlease enter your 10-digit account number for future payouts:\n\n"
+            "🏦 *Bank Transfer*\n\nPlease enter your 10-digit account number:\n\n"
             "_Example: 0123456789_",
             phone_number_id,
         )

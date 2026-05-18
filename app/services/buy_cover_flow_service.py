@@ -2558,7 +2558,7 @@ async def handle_buy_cover_flow(
         await save_session(session)
         await _send_text(
             sender_wa_id,
-            "*✈️ What airport are you flying from?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, Mur, NBO_",
+            "*✈️ What airport are you flying from?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, ABV, KAD_",
             phone_number_id,
         )
 
@@ -2567,7 +2567,7 @@ async def handle_buy_cover_flow(
         if reply_id == "dep_search_again":
             await _send_text(
                 sender_wa_id,
-                "*✈️ What airport are you flying from?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, Mur, NBO_",
+                "*✈️ What airport are you flying from?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, ABV, KAD_",
                 phone_number_id,
             )
             return
@@ -2613,7 +2613,7 @@ async def handle_buy_cover_flow(
         else:
             await _send_text(
                 sender_wa_id,
-                "*✈️ What airport are you flying from?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, Mur, NBO_",
+                "*✈️ What airport are you flying from?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, ABV, KAD_",
                 phone_number_id,
             )
             return
@@ -2928,7 +2928,7 @@ async def handle_buy_cover_flow(
             "buy_cover_depart_time": "*⏰ Please enter your updated departure time*\n\n"
             "_Example: 13:40 · 1:40 AM · 1:40 PM_",
             "buy_cover_depart_airport_pick": "*🛫 Type at least 3 characters to search for your departure airport*\n\n"
-            "_Example: LOS, Mur, ABV_",
+            "_Example: LOS, ABV, KAD_",
             "buy_cover_arrive_time": "*⏰ Please enter your updated arrival time*\n\n"
             "_Example: 15:00 · 3:00 AM · 3:00 PM_",
             "buy_cover_arrive_airport_pick": "*🛬 Type at least 3 characters to search for your arrival airport*\n\n"
@@ -3680,7 +3680,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             wa_id,
             "*✈️ What airport are you flying from?*\n\n"
             "Type at least 3 characters of the airport name or IATA code to search.\n\n"
-            "_Example: LOS, Mur, NBO_",
+            "_Example: LOS, ABV, KAD_",
             phone_number_id,
         )
 
