@@ -2079,31 +2079,7 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
         else:
-            # Unexpected input → call LLM to respond, then re-prompt with button
-            if text:
-                try:
-                    llm_resp = await call_generic(
-                        user_id=sender_wa_id,
-                        phone_number=sender_wa_id,
-                        message=text,
-                        user_name="",
-                        current_node="buy_cover_trip_type",
-                    )
-                    if llm_resp:
-                        _db = llm_resp.get("data") if isinstance(llm_resp.get("data"), dict) else {}
-                        answer = (
-                            llm_resp.get("response")
-                            or _db.get("response")
-                            or _db.get("message")
-                            or ""
-                        )
-                        logger.info(f"[LLM_GENERIC] node=buy_cover_trip_type user={sender_wa_id} input={text!r} answer={answer!r}")
-                        if answer:
-                            await _send_text(sender_wa_id, answer, phone_number_id)
-                    else:
-                        logger.warning(f"[LLM_GENERIC] node=buy_cover_trip_type user={sender_wa_id} input={text!r} → no response")
-                except Exception as exc:
-                    logger.error(f"[LLM_GENERIC] node=buy_cover_trip_type user={sender_wa_id} error: {exc}")
+            # Invalid input — skip LLM, directly re-prompt with the only valid option
             await _send_buttons(
                 sender_wa_id,
                 "Only *One-way* trips are available at this time.\n\nPlease tap the button below to continue:",
@@ -3136,7 +3112,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         "buy_cover_other_name": "buy_cover_name",
         "buy_cover_email": None,
         "buy_cover_trip_type": "buy_cover_email",
-        "buy_cover_booking_ref": "buy_cover_email",
+        "buy_cover_booking_ref": "buy_cover_trip_type",
         "buy_cover_flight_num": "buy_cover_booking_ref",
         "buy_cover_date": "buy_cover_flight_num",
         "buy_cover_depart_time": "buy_cover_date",
