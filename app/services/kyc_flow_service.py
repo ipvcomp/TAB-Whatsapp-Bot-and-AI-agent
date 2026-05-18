@@ -110,7 +110,9 @@ async def _send_list(
     )
 
 
-async def _show_bypass_screen(wa_id: str, session: dict, phone_number_id: Optional[str]):
+async def _show_bypass_screen(
+    wa_id: str, session: dict, phone_number_id: Optional[str]
+):
     """Show the 'both methods failed' bypass screen — user can still continue to payment."""
     flow = session.get("temp_data", {}).get(KYC_FLOW_KEY, {})
     flow["step"] = "kyc_both_failed"
@@ -124,9 +126,9 @@ async def _show_bypass_screen(wa_id: str, session: dict, phone_number_id: Option
         "This will help avoid delays to any future payout.\n\n"
         "What would you like to do?",
         [
-            {"id": "kyc_bypass_pay",    "title": "💳 Continue to pay"},
+            {"id": "kyc_bypass_pay", "title": "💳 Continue to pay"},
             {"id": "kyc_bypass_review", "title": "📋 Review details"},
-            {"id": "kyc_bypass_menu",   "title": "🏠 Main menu"},
+            {"id": "kyc_bypass_menu", "title": "🏠 Main menu"},
         ],
         phone_number_id,
     )
@@ -207,12 +209,24 @@ async def start_kyc_flow(
     # Fallback to hardcoded NG types if the API is unavailable
     if not supported_types:
         supported_types = [
-            {"countryCode": "NG", "countryName": "Nigeria", "type": "NIN",
-             "displayName": "National Identification Number (NIN)",
-             "formatRegex": r"^\d{11}$", "minLength": 11, "maxLength": 11},
-            {"countryCode": "NG", "countryName": "Nigeria", "type": "BVN",
-             "displayName": "Bank Verification Number (BVN)",
-             "formatRegex": r"^\d{11}$", "minLength": 11, "maxLength": 11},
+            {
+                "countryCode": "NG",
+                "countryName": "Nigeria",
+                "type": "NIN",
+                "displayName": "National Identification Number (NIN)",
+                "formatRegex": r"^\d{11}$",
+                "minLength": 11,
+                "maxLength": 11,
+            },
+            {
+                "countryCode": "NG",
+                "countryName": "Nigeria",
+                "type": "BVN",
+                "displayName": "Bank Verification Number (BVN)",
+                "formatRegex": r"^\d{11}$",
+                "minLength": 11,
+                "maxLength": 11,
+            },
         ]
 
     # Store in session so the handler can use them without re-fetching
@@ -233,7 +247,13 @@ async def start_kyc_flow(
         }
         for t in supported_types
     ]
-    rows.append({"id": "kyc_help", "title": "🆘 Help", "description": "Learn more about verification"})
+    rows.append(
+        {
+            "id": "kyc_help",
+            "title": "🆘 Help",
+            "description": "Learn more about verification",
+        }
+    )
 
     await _send_list(
         wa_id,
@@ -301,7 +321,10 @@ async def handle_kyc_flow(
                         reply_id = f"kyc_type_{t['countryCode']}_{t['type']}"
                         break
         if not reply_id and text:
-            type_names = ", ".join(f"{t['type']} ({t['countryName']})" for t in supported) or "NIN (Nigeria), BVN (Nigeria)"
+            type_names = (
+                ", ".join(f"{t['type']} ({t['countryName']})" for t in supported)
+                or "NIN (Nigeria), BVN (Nigeria)"
+            )
             llm_result = await call_extract(
                 user_id=sender_wa_id,
                 field_name="kyc_method_choice",
@@ -309,7 +332,11 @@ async def handle_kyc_flow(
                 user_response=text,
                 expected_format="text",
             )
-            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+            if (
+                llm_result
+                and llm_result.get("is_valid")
+                and llm_result.get("extracted_value")
+            ):
                 ev = str(llm_result["extracted_value"]).lower()
                 matched_llm = None
                 for t in supported:
@@ -317,7 +344,9 @@ async def handle_kyc_flow(
                         matched_llm = t
                         break
                 if matched_llm:
-                    reply_id = f"kyc_type_{matched_llm['countryCode']}_{matched_llm['type']}"
+                    reply_id = (
+                        f"kyc_type_{matched_llm['countryCode']}_{matched_llm['type']}"
+                    )
                 elif any(k in ev for k in ("help", "support", "assist", "question")):
                     reply_id = "kyc_help"
             if not reply_id:
@@ -365,9 +394,30 @@ async def handle_kyc_flow(
     elif step == "kyc_consent":
         if not reply_id and text:
             _t = text.strip().lower()
-            if _t in ("1", "yes", "ok", "continue", "proceed", "agree", "sure", "accept", "consent", "yep", "yeah"):
+            if _t in (
+                "1",
+                "yes",
+                "ok",
+                "continue",
+                "proceed",
+                "agree",
+                "sure",
+                "accept",
+                "consent",
+                "yep",
+                "yeah",
+            ):
                 reply_id = "kyc_consent_yes"
-            elif _t in ("2", "no", "back", "cancel", "go back", "decline", "refuse", "nope"):
+            elif _t in (
+                "2",
+                "no",
+                "back",
+                "cancel",
+                "go back",
+                "decline",
+                "refuse",
+                "nope",
+            ):
                 reply_id = "kyc_consent_no"
         if not reply_id and text:
             llm_result = await call_extract(
@@ -377,11 +427,30 @@ async def handle_kyc_flow(
                 user_response=text,
                 expected_format="text",
             )
-            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+            if (
+                llm_result
+                and llm_result.get("is_valid")
+                and llm_result.get("extracted_value")
+            ):
                 ev = str(llm_result["extracted_value"]).lower()
-                if any(k in ev for k in ("yes", "agree", "ok", "continue", "proceed", "consent", "sure", "accept")):
+                if any(
+                    k in ev
+                    for k in (
+                        "yes",
+                        "agree",
+                        "ok",
+                        "continue",
+                        "proceed",
+                        "consent",
+                        "sure",
+                        "accept",
+                    )
+                ):
                     reply_id = "kyc_consent_yes"
-                elif any(k in ev for k in ("no", "back", "cancel", "go back", "decline", "refuse")):
+                elif any(
+                    k in ev
+                    for k in ("no", "back", "cancel", "go back", "decline", "refuse")
+                ):
                     reply_id = "kyc_consent_no"
             if not reply_id:
                 method = data.get("kyc_method", "BVN")
@@ -421,28 +490,53 @@ async def handle_kyc_flow(
         _kyc_q = text.lower().strip()
         _is_q = (
             "?" in _kyc_q
-            or any(_kyc_q.startswith(s) for s in (
-                "why ", "what ", "how ", "who ", "is this ", "do you ",
-                "why do", "what is", "tell me", "explain ",
-            ))
+            or any(
+                _kyc_q.startswith(s)
+                for s in (
+                    "why ",
+                    "what ",
+                    "how ",
+                    "who ",
+                    "is this ",
+                    "do you ",
+                    "why do",
+                    "what is",
+                    "tell me",
+                    "explain ",
+                )
+            )
             or (len(_kyc_q.split()) >= 3 and not any(c.isdigit() for c in _kyc_q))
         )
         if _is_q:
             try:
                 _lr = await call_generic(
-                    user_id=sender_wa_id, phone_number=sender_wa_id,
-                    message=text, user_name="", current_node="kyc_id_input",
+                    user_id=sender_wa_id,
+                    phone_number=sender_wa_id,
+                    message=text,
+                    user_name="",
+                    current_node="kyc_id_input",
                 )
                 if _lr:
                     _db = _lr.get("data") if isinstance(_lr.get("data"), dict) else {}
-                    _ans = _lr.get("response") or _db.get("response") or _db.get("message") or ""
-                    logger.info(f"[LLM_GENERIC] node=kyc_id_input user={sender_wa_id} input={text!r} answer={_ans!r}")
+                    _ans = (
+                        _lr.get("response")
+                        or _db.get("response")
+                        or _db.get("message")
+                        or ""
+                    )
+                    logger.info(
+                        f"[LLM_GENERIC] node=kyc_id_input user={sender_wa_id} input={text!r} answer={_ans!r}"
+                    )
                     if _ans:
                         await _send_text(sender_wa_id, _ans, phone_number_id)
                 else:
-                    logger.warning(f"[LLM_GENERIC] node=kyc_id_input user={sender_wa_id} input={text!r} → no response")
+                    logger.warning(
+                        f"[LLM_GENERIC] node=kyc_id_input user={sender_wa_id} input={text!r} → no response"
+                    )
             except Exception as _exc:
-                logger.error(f"[LLM_GENERIC] node=kyc_id_input user={sender_wa_id} error: {_exc}")
+                logger.error(
+                    f"[LLM_GENERIC] node=kyc_id_input user={sender_wa_id} error: {_exc}"
+                )
             method = data.get("kyc_method", "BVN")
             await _send_text(
                 sender_wa_id,
@@ -471,7 +565,11 @@ async def handle_kyc_flow(
             )
             return
         if not (min_len <= len(id_number) <= max_len):
-            length_hint = f"{min_len} digits" if min_len == max_len else f"{min_len}–{max_len} digits"
+            length_hint = (
+                f"{min_len} digits"
+                if min_len == max_len
+                else f"{min_len}–{max_len} digits"
+            )
             await _send_text(
                 sender_wa_id,
                 f"⚠️ Your *{method}* must be *{length_hint}*. You entered {len(id_number)} digit(s).\n\n"
@@ -626,8 +724,14 @@ async def handle_kyc_flow(
                     f"Please try again or use your {_other} instead.",
                     [
                         {"id": "kyc_retry_same", "title": f"🔄 Try {method} again"},
-                        {"id": "kyc_try_another_id", "title": f"🪪 Try {_other} instead"},
-                        {"id": "kyc_continue_purchase", "title": "💳 Continue Purchase"},
+                        {
+                            "id": "kyc_try_another_id",
+                            "title": f"🪪 Try {_other} instead",
+                        },
+                        {
+                            "id": "kyc_continue_purchase",
+                            "title": "💳 Continue Purchase",
+                        },
                     ],
                     phone_number_id,
                 )
@@ -667,8 +771,14 @@ async def handle_kyc_flow(
                     f"Please try again or use your {_other} instead.",
                     [
                         {"id": "kyc_retry_same", "title": f"🔄 Try {method} again"},
-                        {"id": "kyc_try_another_id", "title": f"🪪 Try {_other} instead"},
-                        {"id": "kyc_continue_purchase", "title": "💳 Continue Purchase"},
+                        {
+                            "id": "kyc_try_another_id",
+                            "title": f"🪪 Try {_other} instead",
+                        },
+                        {
+                            "id": "kyc_continue_purchase",
+                            "title": "💳 Continue Purchase",
+                        },
                     ],
                     phone_number_id,
                 )
@@ -748,7 +858,7 @@ async def handle_kyc_flow(
                     "Please try again or request a new OTP:",
                     [
                         {"id": "kyc_otp_resend", "title": "📲 Resend OTP"},
-                        {"id": "kyc_help",       "title": "🆘 Get help"},
+                        {"id": "kyc_help", "title": "🆘 Get help"},
                     ],
                     phone_number_id,
                 )
@@ -763,9 +873,16 @@ async def handle_kyc_flow(
                 user_response=text,
                 expected_format="text",
             )
-            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+            if (
+                llm_result
+                and llm_result.get("is_valid")
+                and llm_result.get("extracted_value")
+            ):
                 ev = str(llm_result["extracted_value"]).lower()
-                if any(k in ev for k in ("pay", "payment", "continue", "proceed", "activate")):
+                if any(
+                    k in ev
+                    for k in ("pay", "payment", "continue", "proceed", "activate")
+                ):
                     reply_id = "kyc_pay"
                 elif any(k in ev for k in ("review", "trip", "details", "summary")):
                     reply_id = "kyc_review"
@@ -851,18 +968,34 @@ async def handle_kyc_flow(
                 user_response=text,
                 expected_format="text",
             )
-            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+            if (
+                llm_result
+                and llm_result.get("is_valid")
+                and llm_result.get("extracted_value")
+            ):
                 ev = str(llm_result["extracted_value"]).lower()
-                if any(k in ev for k in ("continue", "purchase", "proceed", "payment", "skip")):
+                if any(
+                    k in ev
+                    for k in ("continue", "purchase", "proceed", "payment", "skip")
+                ):
                     reply_id = "kyc_continue_purchase"
-                elif any(k in ev for k in ("retry", "again", "same", "re-enter", "reenter")):
+                elif any(
+                    k in ev for k in ("retry", "again", "same", "re-enter", "reenter")
+                ):
                     reply_id = "kyc_retry_same"
-                elif any(k in ev for k in ("another", "different", "other", "instead", "switch")):
+                elif any(
+                    k in ev
+                    for k in ("another", "different", "other", "instead", "switch")
+                ):
                     reply_id = "kyc_try_another_id"
                 elif "bvn" in ev:
-                    reply_id = "kyc_retry_same" if method == "BVN" else "kyc_try_another_id"
+                    reply_id = (
+                        "kyc_retry_same" if method == "BVN" else "kyc_try_another_id"
+                    )
                 elif "nin" in ev:
-                    reply_id = "kyc_retry_same" if method == "NIN" else "kyc_try_another_id"
+                    reply_id = (
+                        "kyc_retry_same" if method == "NIN" else "kyc_try_another_id"
+                    )
                 elif any(k in ev for k in ("help", "support", "agent")):
                     reply_id = "kyc_help"
             if not reply_id:
@@ -875,15 +1008,24 @@ async def handle_kyc_flow(
                     f"Please try again or use your {_other} instead.",
                     [
                         {"id": "kyc_retry_same", "title": f"🔄 Try {method} again"},
-                        {"id": "kyc_try_another_id", "title": f"🪪 Try {_other} instead"},
-                        {"id": "kyc_continue_purchase", "title": "💳 Continue Purchase"},
+                        {
+                            "id": "kyc_try_another_id",
+                            "title": f"🪪 Try {_other} instead",
+                        },
+                        {
+                            "id": "kyc_continue_purchase",
+                            "title": "💳 Continue Purchase",
+                        },
                     ],
                     phone_number_id,
                 )
                 return
         if reply_id == "kyc_continue_purchase":
             from app.services.payment_flow_service import start_payment_flow
-            await start_payment_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+
+            await start_payment_flow(
+                wa_id=sender_wa_id, phone_number_id=phone_number_id
+            )
         elif reply_id == "kyc_retry_same":
             data.pop("kyc_id", None)
             flow["step"] = "kyc_id_input"
@@ -968,7 +1110,11 @@ async def handle_kyc_flow(
                 user_response=text,
                 expected_format="text",
             )
-            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+            if (
+                llm_result
+                and llm_result.get("is_valid")
+                and llm_result.get("extracted_value")
+            ):
                 ev = str(llm_result["extracted_value"]).lower()
                 if any(k in ev for k in ("pay", "payment", "continue", "proceed")):
                     reply_id = "kyc_bypass_pay"
@@ -988,7 +1134,10 @@ async def handle_kyc_flow(
             flow["step"] = "kyc_verified"
             await save_session(session)
             from app.services.payment_flow_service import start_payment_flow
-            await start_payment_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+
+            await start_payment_flow(
+                wa_id=sender_wa_id, phone_number_id=phone_number_id
+            )
 
         elif reply_id == "kyc_bypass_review":
             # Reset KYC so it restarts fresh after the user edits their details
@@ -1000,13 +1149,17 @@ async def handle_kyc_flow(
             await save_session(session)
             # Take user to the buy_cover trip summary with Confirm / Edit options
             from app.services.buy_cover_flow_service import _show_trip_summary
-            await _show_trip_summary(sender_wa_id, bc_data, bc_flow, session, phone_number_id)
+
+            await _show_trip_summary(
+                sender_wa_id, bc_data, bc_flow, session, phone_number_id
+            )
 
         elif reply_id == "kyc_bypass_menu":
             session["temp_data"][KYC_FLOW_KEY] = {}
             session["temp_data"][BUY_COVER_FLOW_KEY] = {}
             await save_session(session)
             from app.services.auto_reply_service import send_main_menu
+
             await send_main_menu(to=sender_wa_id, phone_number_id=phone_number_id)
 
         elif reply_id == "kyc_bypass_help":
@@ -1032,10 +1185,10 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
     data = flow.get("data", {})
 
     _PREV = {
-        "kyc_consent":     "kyc_intro",
-        "kyc_id_input":    "kyc_consent",
-        "kyc_otp_input":   "kyc_id_input",
-        "kyc_failed":      "kyc_id_input",
+        "kyc_consent": "kyc_intro",
+        "kyc_id_input": "kyc_consent",
+        "kyc_otp_input": "kyc_id_input",
+        "kyc_failed": "kyc_id_input",
         "kyc_both_failed": "kyc_intro",
     }
 
