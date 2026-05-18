@@ -298,13 +298,16 @@ def _build_trip_summary_text(data: dict) -> str:
 
     arrive_date_raw = data.get("arrive_date", "")
     arrive_date_disp = _fmt_date(arrive_date_raw) if arrive_date_raw else ""
-    arrive_date_line = f"Arr Date\t\t*{arrive_date_disp}*\n" if arrive_date_disp else ""
+    arrive_date_line = f"Arr Date    \t*{arrive_date_disp}*\n" if arrive_date_disp else ""
     dep_date_disp = _fmt_date(data.get("date", ""))
+    booking_ref = data.get("booking_ref", "")
+    booking_ref_line = f"Booking Ref\t\t*{booking_ref}*\n" if booking_ref else ""
     return (
         "*✈️ YOUR TRIP*\n\n"
         f"Airline\t\t\t*{data.get('airline', '')}*\n"
         f"Route\t\t\t*{dep} → {arr}*\n"
         f"Flight\t\t\t*{data.get('flight_num', '')}*\n"
+        f"{booking_ref_line}"
         f"Dep Date\t\t*{dep_date_disp}*\n"
         f"{arrive_date_line}"
         f"Departs\t\t\t*{data.get('depart_time', '')}*\n"
@@ -2363,6 +2366,25 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
+        if dep_date:
+            try:
+                dep_dt = datetime.strptime(dep_date, "%Y-%m-%d")
+                arr_dt = datetime.strptime(iso_arr_date, "%Y-%m-%d")
+                if (arr_dt - dep_dt).days > 365:
+                    dep_date_fmt = dep_dt.strftime("%d %B %Y")
+                    await _send_text(
+                        sender_wa_id,
+                        (
+                            f"⚠️ Arrival date seems too far from your departure date\n\n"
+                            f"Your flight departs on *{dep_date_fmt}* — "
+                            f"please enter an arrival date within one year of that\n\n"
+                            "_Example: 12 April 2026_"
+                        ),
+                        phone_number_id,
+                    )
+                    return
+            except ValueError:
+                pass
         data["arrive_date"] = iso_arr_date
         if data.pop("_edit_mode", False):
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
