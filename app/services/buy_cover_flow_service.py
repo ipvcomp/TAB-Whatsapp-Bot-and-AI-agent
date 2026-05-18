@@ -1283,11 +1283,6 @@ async def handle_buy_cover_flow(
             await save_session(session)
 
             if state in ("AWAITING_KYC", "DETAILS_COLLECTED"):
-                await _send_text(
-                    sender_wa_id,
-                    "⏳ *Fetching available covers for your trip...*\n_Please wait a moment_",
-                    phone_number_id,
-                )
                 quotes = None
                 try:
                     quotes = await ipurvey_service.fetch_quotes(pid)
@@ -2636,13 +2631,6 @@ async def handle_buy_cover_flow(
         if reply_id != "summary_confirm":
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
             return
-
-        await send_text_message(
-            to=sender_wa_id,
-            body="⏳ *Fetching available covers for your trip...*\n_Please wait a moment_",
-            phone_number_id=phone_number_id,
-            source="buy_cover_flow",
-        )
 
         policy_id = session.get("api_data", {}).get("policy_id")
         quotes = None
