@@ -42,25 +42,21 @@ def _parse_date_to_iso(date_str: str) -> Optional[str]:
 def _parse_time_to_hhmm(time_str: str) -> Optional[str]:
     """Parse user time input → 24-h HH:MM.  Returns None if unrecognised.
 
-    Accepted formats:
+    Accepted formats (colon separator only):
       - 24h colon:  13:40, 01:40
       - 12h colon + AM/PM:  1:40 PM, 1:40PM, 12:00 am
-      - 12h dot + AM/PM:  1.40 PM, 13.40 pm  (dot only allowed WITH am/pm)
 
-    Rejected:
-      - Dot without AM/PM: 11.00, 1.40  (ambiguous — AM or PM?)
+    Rejected (dot separator always invalid — avoids "1.40 Am", "11.00", "13.40"):
+      - Any input containing a dot: 1.40 AM, 1.40 PM, 11.00, 13.40
     The API strictly requires HH:MM with no am/pm suffix.
     """
     ts = time_str.strip()
 
-    # Dot separator is only allowed when AM/PM is present (avoids "11.00" ambiguity)
-    has_dot = "." in ts
-    has_ampm_suffix = bool(re.search(r"[AaPp][Mm]\s*$", ts))
-    if has_dot and not has_ampm_suffix:
+    # Dot separator is never allowed (strict colon-only policy)
+    if "." in ts:
         return None
 
-    # Normalize dot → colon: "1.40 PM" → "1:40 PM"
-    normalized = ts.replace(".", ":")
+    normalized = ts
 
     # Strip any trailing am/pm to get the bare H:MM part
     stripped = re.sub(r"\s*[AaPp][Mm]\s*$", "", normalized).strip()
@@ -79,7 +75,7 @@ def _parse_time_to_hhmm(time_str: str) -> Optional[str]:
                 return None
             # Hour ≤ 12 with am/pm → fall through to 12h strptime below
 
-    # 12-hour format: "1:40 PM", "1:40PM", "1.40 PM", "12:00 am"
+    # 12-hour format (colon only): "1:40 PM", "1:40PM", "12:00 am"
     # Insert space before am/pm if missing: "1:40PM" → "1:40 PM"
     normalized = re.sub(r"([AaPp][Mm])$", r" \1", normalized).strip()
     for fmt in ["%I:%M %p", "%I %p"]:
@@ -2501,22 +2497,6 @@ async def handle_buy_cover_flow(
     # ── Departure time ────────────────────────────────────────────────────────
     elif step == "buy_cover_depart_time":
         parsed_dep_time = _parse_time_to_hhmm(text or "")
-        if not parsed_dep_time and text:
-            llm_result = await call_extract(
-                user_id=sender_wa_id,
-                field_name="departure_time",
-                question_asked="What time is your flight scheduled to depart? Please provide in HH:MM or H:MM AM/PM format.",
-                user_response=text,
-                expected_format="time",
-            )
-            if (
-                llm_result
-                and llm_result.get("is_valid")
-                and llm_result.get("extracted_value")
-            ):
-                parsed_dep_time = _parse_time_to_hhmm(
-                    str(llm_result["extracted_value"])
-                )
         if not parsed_dep_time:
             await _send_text(
                 sender_wa_id,
@@ -2740,22 +2720,6 @@ async def handle_buy_cover_flow(
             )
             return
         parsed_arr_time = _parse_time_to_hhmm(text or "")
-        if not parsed_arr_time and text:
-            llm_result = await call_extract(
-                user_id=sender_wa_id,
-                field_name="arrival_time",
-                question_asked="What time is your flight scheduled to arrive? Please provide in HH:MM or H:MM AM/PM format.",
-                user_response=text,
-                expected_format="time",
-            )
-            if (
-                llm_result
-                and llm_result.get("is_valid")
-                and llm_result.get("extracted_value")
-            ):
-                parsed_arr_time = _parse_time_to_hhmm(
-                    str(llm_result["extracted_value"])
-                )
         if not parsed_arr_time:
             await _send_text(
                 sender_wa_id,
