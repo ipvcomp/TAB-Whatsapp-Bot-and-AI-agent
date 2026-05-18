@@ -2370,14 +2370,14 @@ async def handle_buy_cover_flow(
             try:
                 dep_dt = datetime.strptime(dep_date, "%Y-%m-%d")
                 arr_dt = datetime.strptime(iso_arr_date, "%Y-%m-%d")
-                if (arr_dt - dep_dt).days > 365:
+                if (arr_dt - dep_dt).days > 90:
                     dep_date_fmt = dep_dt.strftime("%d %B %Y")
                     await _send_text(
                         sender_wa_id,
                         (
                             f"⚠️ Arrival date seems too far from your departure date\n\n"
                             f"Your flight departs on *{dep_date_fmt}* — "
-                            f"please enter an arrival date within one year of that\n\n"
+                            f"please enter an arrival date within 90 days of that\n\n"
                             "_Example: 12 April 2026_"
                         ),
                         phone_number_id,
