@@ -991,31 +991,16 @@ async def handle_kyc_flow(
             await start_payment_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
 
         elif reply_id == "kyc_bypass_review":
-            bc_data = (
-                session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
-            )
-            travelers = bc_data.get("travelers", [])
-            traveler_lines = (
-                "\n".join(f"  {i + 1} — {n}" for i, n in enumerate(travelers))
-                if travelers
-                else f"  1 — {bc_data.get('name', '—')}"
-            )
-            dep = bc_data.get("depart_airport", "").split("—")[0].strip() or "—"
-            arr = bc_data.get("arrive_airport", "").split("—")[0].strip() or "—"
-            summary = (
-                "📋 *Trip Summary*\n\n"
-                f"✈️ YOUR TRIP\n"
-                f"Airline: {bc_data.get('airline', '—')}\n"
-                f"Route: {dep} → {arr}\n"
-                f"Flight: {bc_data.get('flight_num', '—')}\n"
-                f"Date: {bc_data.get('date', '—')}\n"
-                f"Departs: {bc_data.get('depart_time', '—')}\n"
-                f"Arrives: {bc_data.get('arrive_time', '—')}\n\n"
-                f"👥 TRAVELLERS\n{traveler_lines}\n\n"
-                f"🛡️ Cover: {bc_data.get('cover', '—')}"
-            )
-            await _send_text(sender_wa_id, summary, phone_number_id)
-            await _show_bypass_screen(sender_wa_id, session, phone_number_id)
+            # Reset KYC so it restarts fresh after the user edits their details
+            session["temp_data"][KYC_FLOW_KEY] = {}
+            # Re-activate the buy_cover flow so subsequent messages route there
+            bc_flow = session["temp_data"].setdefault(BUY_COVER_FLOW_KEY, {})
+            bc_flow["active"] = True
+            bc_data = bc_flow.get("data", {})
+            await save_session(session)
+            # Take user to the buy_cover trip summary with Confirm / Edit options
+            from app.services.buy_cover_flow_service import _show_trip_summary
+            await _show_trip_summary(sender_wa_id, bc_data, bc_flow, session, phone_number_id)
 
         elif reply_id == "kyc_bypass_menu":
             session["temp_data"][KYC_FLOW_KEY] = {}
