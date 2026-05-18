@@ -42,11 +42,24 @@ def _parse_date_to_iso(date_str: str) -> Optional[str]:
 def _parse_time_to_hhmm(time_str: str) -> Optional[str]:
     """Parse user time input → 24-h HH:MM.  Returns None if unrecognised.
 
-    Handles: 13:40 / 1:40 / 1:40 PM / 1:40PM / 1.40 PM / 13:40 pm / 13.40 pm
+    Accepted formats:
+      - 24h colon:  13:40, 01:40
+      - 12h colon + AM/PM:  1:40 PM, 1:40PM, 12:00 am
+      - 12h dot + AM/PM:  1.40 PM, 13.40 pm  (dot only allowed WITH am/pm)
+
+    Rejected:
+      - Dot without AM/PM: 11.00, 1.40  (ambiguous — AM or PM?)
     The API strictly requires HH:MM with no am/pm suffix.
     """
     ts = time_str.strip()
-    # Normalize dot → colon: "13.40 pm" → "13:40 pm", "1.40 PM" → "1:40 PM"
+
+    # Dot separator is only allowed when AM/PM is present (avoids "11.00" ambiguity)
+    has_dot = "." in ts
+    has_ampm_suffix = bool(re.search(r"[AaPp][Mm]\s*$", ts))
+    if has_dot and not has_ampm_suffix:
+        return None
+
+    # Normalize dot → colon: "1.40 PM" → "1:40 PM"
     normalized = ts.replace(".", ":")
 
     # Strip any trailing am/pm to get the bare H:MM part
@@ -58,8 +71,8 @@ def _parse_time_to_hhmm(time_str: str) -> Optional[str]:
         h_int, m_int = int(h), int(m)
         if 0 <= m_int <= 59:
             # Hour > 12 with am/pm = user wrote 24h clock + redundant pm suffix
-            # e.g. "13:40 pm", "13.40 pm" → 13:40
-            # No am/pm at all = plain 24h input: "13:40", "13.40"
+            # e.g. "13:40 pm" → 13:40
+            # No am/pm at all = plain 24h input: "13:40"
             if not had_ampm or h_int > 12:
                 if 0 <= h_int <= 23:
                     return f"{h_int:02d}:{m_int:02d}"
@@ -2481,7 +2494,7 @@ async def handle_buy_cover_flow(
         await save_session(session)
         await _send_text(
             sender_wa_id,
-            "*⏰ What time is your flight scheduled to depart?*\n\n_Example: 13:40, 1:40 PM_",
+            "*⏰ What time is your flight scheduled to depart?*\n\n_Example: 13:40 · 1:40 AM · 1:40 PM_",
             phone_number_id,
         )
 
@@ -2507,7 +2520,13 @@ async def handle_buy_cover_flow(
         if not parsed_dep_time:
             await _send_text(
                 sender_wa_id,
-                ("⏰ Please enter a valid departure time\n\n_Example: 13:40, 1:40 PM_"),
+                (
+                    "⏰ Please enter a valid departure time.\n\n"
+                    "Use one of these formats:\n"
+                    "• *13:40* — 24-hour format\n"
+                    "• *1:40 AM* — morning (12-hour)\n"
+                    "• *1:40 PM* — afternoon/evening (12-hour)"
+                ),
                 phone_number_id,
             )
             return
@@ -2527,7 +2546,7 @@ async def handle_buy_cover_flow(
                     f"⚠️ Departure time must be *before* arrival time\n\n"
                     f"Your flight arrives at *{arr_time}* on the same day — "
                     f"please enter a departure time earlier than that\n\n"
-                    "_Example: 13:40, 1:40 PM_"
+                    "_Example: 13:40 · 1:40 AM · 1:40 PM_"
                 ),
                 phone_number_id,
             )
@@ -2697,7 +2716,7 @@ async def handle_buy_cover_flow(
         await save_session(session)
         await _send_text(
             sender_wa_id,
-            "*⏰ What time is your flight scheduled to arrive?*\n\n_Example: 15:00, 3:00 PM_",
+            "*⏰ What time is your flight scheduled to arrive?*\n\n_Example: 15:00 · 3:00 AM · 3:00 PM_",
             phone_number_id,
         )
 
@@ -2716,7 +2735,7 @@ async def handle_buy_cover_flow(
         if reply_id == "arr_time_retry":
             await _send_text(
                 sender_wa_id,
-                "*⏰ What time is your flight scheduled to arrive?*\n\n_Example: 15:00, 3:00 PM_",
+                "*⏰ What time is your flight scheduled to arrive?*\n\n_Example: 15:00 · 3:00 AM · 3:00 PM_",
                 phone_number_id,
             )
             return
@@ -2740,7 +2759,13 @@ async def handle_buy_cover_flow(
         if not parsed_arr_time:
             await _send_text(
                 sender_wa_id,
-                ("⏰ Please enter a valid arrival time\n\n_Example: 15:00, 3:00 PM_"),
+                (
+                    "⏰ Please enter a valid arrival time.\n\n"
+                    "Use one of these formats:\n"
+                    "• *15:00* — 24-hour format\n"
+                    "• *3:00 AM* — morning (12-hour)\n"
+                    "• *3:00 PM* — afternoon/evening (12-hour)"
+                ),
                 phone_number_id,
             )
             return
@@ -2755,7 +2780,7 @@ async def handle_buy_cover_flow(
                     f"Your flight departs at *{dep_time}* — "
                     f"please enter an arrival time later than that, or if this is an "
                     f"overnight flight tap *Change Arrival Date* to set the correct date first.\n\n"
-                    "_Example: 15:00, 3:00 PM_"
+                    "_Example: 15:00 · 3:00 AM · 3:00 PM_"
                 ),
                 [
                     {"id": "arr_time_change_date", "title": "🗓️ Change Arrival Date"},
@@ -2907,11 +2932,11 @@ async def handle_buy_cover_flow(
             "buy_cover_arrive_date": "*📅 Please enter your updated arrival date*\n\n"
             "_Example: 12 April 2026, 12/04/2026_",
             "buy_cover_depart_time": "*⏰ Please enter your updated departure time*\n\n"
-            "_Example: 13:40, 1:40 PM_",
+            "_Example: 13:40 · 1:40 AM · 1:40 PM_",
             "buy_cover_depart_airport_pick": "*🛫 Type at least 3 characters to search for your departure airport*\n\n"
             "_Example: LOS, Mur, ABV_",
             "buy_cover_arrive_time": "*⏰ Please enter your updated arrival time*\n\n"
-            "_Example: 15:00, 3:00 PM_",
+            "_Example: 15:00 · 3:00 AM · 3:00 PM_",
             "buy_cover_arrive_airport_pick": "*🛬 Type at least 3 characters to search for your arrival airport*\n\n"
             "_Example: ABV, LOS, KAN_",
             "buy_cover_airline": "*✈️ Please enter your updated airline name*\n\n"
@@ -3652,7 +3677,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         await _send_text(
             wa_id,
             "*⏰ What time is your flight scheduled to depart?*\n"
-            "Example: 13:40, 1:40 PM",
+            "Example: 13:40 · 1:40 AM · 1:40 PM",
             phone_number_id,
         )
 
