@@ -92,12 +92,15 @@ def _is_valid_flight_number(fn: str) -> bool:
 
 def _is_valid_booking_ref(ref: str) -> bool:
     """Booking reference: 4–20 alphanumeric chars (letters, digits, hyphens, underscores).
-    Rejects plain sentences or freetext (spaces → invalid unless very short)."""
+    Must contain at least one letter (rejects all-digit/all-special inputs like 0000).
+    Rejects plain sentences or freetext (spaces → invalid)."""
     cleaned = ref.strip().upper()
-    # Reject if it contains spaces longer than 1 char gap (i.e. full sentences)
     if " " in cleaned:
         return False
-    return bool(re.match(r"^[A-Z0-9][A-Z0-9_\-]{3,19}$", cleaned))
+    if not re.match(r"^[A-Z0-9][A-Z0-9_\-]{3,19}$", cleaned):
+        return False
+    # Must contain at least one letter
+    return bool(re.search(r"[A-Z]", cleaned))
 
 
 def _is_valid_email(email: str) -> bool:
@@ -132,16 +135,75 @@ def _contains_emoji(s: str) -> bool:
     return False
 
 
-_NAME_STOP_WORDS = frozenset({
-    "not", "no", "yes", "ok", "okay", "i", "me", "my", "you", "your",
-    "we", "they", "it", "this", "that", "is", "are", "do", "does",
-    "need", "want", "get", "why", "what", "how", "who", "when", "which",
-    "decided", "ye", "please", "just", "can", "will", "going", "have",
-    "has", "was", "be", "been", "really", "still", "yet", "already",
-    "here", "there", "then", "now", "also", "could", "would", "should",
-    "never", "always", "maybe", "sure", "sorry", "dont", "doesn't",
-    "don't", "didn't", "cannot", "cant", "haven't", "aren't",
-})
+_NAME_STOP_WORDS = frozenset(
+    {
+        "not",
+        "no",
+        "yes",
+        "ok",
+        "okay",
+        "i",
+        "me",
+        "my",
+        "you",
+        "your",
+        "we",
+        "they",
+        "it",
+        "this",
+        "that",
+        "is",
+        "are",
+        "do",
+        "does",
+        "need",
+        "want",
+        "get",
+        "why",
+        "what",
+        "how",
+        "who",
+        "when",
+        "which",
+        "decided",
+        "ye",
+        "please",
+        "just",
+        "can",
+        "will",
+        "going",
+        "have",
+        "has",
+        "was",
+        "be",
+        "been",
+        "really",
+        "still",
+        "yet",
+        "already",
+        "here",
+        "there",
+        "then",
+        "now",
+        "also",
+        "could",
+        "would",
+        "should",
+        "never",
+        "always",
+        "maybe",
+        "sure",
+        "sorry",
+        "dont",
+        "doesn't",
+        "don't",
+        "didn't",
+        "cannot",
+        "cant",
+        "haven't",
+        "aren't",
+    }
+)
 
 
 def _is_valid_name(value: str) -> bool:
@@ -169,11 +231,30 @@ def _is_valid_name(value: str) -> bool:
 
 
 _QUESTION_STARTERS = (
-    "why ", "what ", "how ", "who ", "when ", "where ", "which ",
-    "do you ", "does the ", "is this ", "will you ", "can you ",
-    "please explain", "tell me ", "explain ", "i don't", "i dont",
-    "why do", "why does", "what is", "what are", "what does",
+    "why ",
+    "what ",
+    "how ",
+    "who ",
+    "when ",
+    "where ",
+    "which ",
+    "do you ",
+    "does the ",
+    "is this ",
+    "will you ",
+    "can you ",
+    "please explain",
+    "tell me ",
+    "explain ",
+    "i don't",
+    "i dont",
+    "why do",
+    "why does",
+    "what is",
+    "what are",
+    "what does",
 )
+
 
 def _looks_like_question(text: str) -> bool:
     t = text.lower().strip()
@@ -213,7 +294,9 @@ async def _call_llm_and_reprompt(
         )
         if llm_resp:
             # API may return response at root level OR inside data{}
-            data_block = llm_resp.get("data") if isinstance(llm_resp.get("data"), dict) else {}
+            data_block = (
+                llm_resp.get("data") if isinstance(llm_resp.get("data"), dict) else {}
+            )
             answer = (
                 llm_resp.get("response")
                 or data_block.get("response")
@@ -232,7 +315,9 @@ async def _call_llm_and_reprompt(
                 f"input={text!r} → no response from LLM"
             )
     except Exception as exc:
-        logger.error(f"[LLM_GENERIC] node={current_node} user={sender_wa_id} error: {exc}")
+        logger.error(
+            f"[LLM_GENERIC] node={current_node} user={sender_wa_id} error: {exc}"
+        )
     if reprompt_msg:
         await _send_text(sender_wa_id, reprompt_msg, phone_number_id)
 
@@ -246,7 +331,9 @@ async def _maybe_answer_question(
 ) -> bool:
     if not _looks_like_question(text):
         return False
-    await _call_llm_and_reprompt(text, sender_wa_id, phone_number_id, reprompt_msg, current_node)
+    await _call_llm_and_reprompt(
+        text, sender_wa_id, phone_number_id, reprompt_msg, current_node
+    )
     return True
 
 
@@ -290,6 +377,7 @@ def _build_trip_summary_text(data: dict) -> str:
         if travelers
         else f"1 — {data.get('name', '')}"
     )
+
     def _fmt_date(iso: str) -> str:
         try:
             return datetime.strptime(iso, "%Y-%m-%d").strftime("%d-%m-%Y")
@@ -298,7 +386,7 @@ def _build_trip_summary_text(data: dict) -> str:
 
     arrive_date_raw = data.get("arrive_date", "")
     arrive_date_disp = _fmt_date(arrive_date_raw) if arrive_date_raw else ""
-    arrive_date_line = f"Arr Date    \t*{arrive_date_disp}*\n" if arrive_date_disp else ""
+    arrive_date_line = f"Arr Date\t\t*{arrive_date_disp}*\n" if arrive_date_disp else ""
     dep_date_disp = _fmt_date(data.get("date", ""))
     booking_ref = data.get("booking_ref", "")
     booking_ref_line = f"Booking Ref\t\t*{booking_ref}*\n" if booking_ref else ""
@@ -687,7 +775,9 @@ async def _send_list(
     )
 
 
-_COVER_PAGE_SIZE = 9  # 9 products + optional "More covers" row = max 10 (WhatsApp limit)
+_COVER_PAGE_SIZE = (
+    9  # 9 products + optional "More covers" row = max 10 (WhatsApp limit)
+)
 
 
 def _make_cover_title(name: str) -> str:
@@ -725,16 +815,22 @@ async def _send_cover_page(
         insurer_str = f"🏢 {insurer}" if insurer else ""
         cover_count = f"✅ {len(coverage)} covers" if coverage else ""
         name_prefix = f"{full_name}  •  " if len(full_name) > len(title) else ""
-        desc = name_prefix + "  •  ".join(filter(None, [price_str, insurer_str, cover_count]))
-        rows.append({"id": f"cov_{start + i}", "title": title, "description": desc[:72]})
+        desc = name_prefix + "  •  ".join(
+            filter(None, [price_str, insurer_str, cover_count])
+        )
+        rows.append(
+            {"id": f"cov_{start + i}", "title": title, "description": desc[:72]}
+        )
 
     remaining = len(quotes) - end
     if remaining > 0:
-        rows.append({
-            "id": f"more_covers_{page + 1}",
-            "title": "➡️ More covers...",
-            "description": f"View {remaining} more option(s)",
-        })
+        rows.append(
+            {
+                "id": f"more_covers_{page + 1}",
+                "title": "➡️ More covers...",
+                "description": f"View {remaining} more option(s)",
+            }
+        )
 
     if intro_body:
         body = intro_body
@@ -1387,9 +1483,32 @@ async def handle_buy_cover_flow(
     elif step == "buy_cover_who":
         if not reply_id and text:
             _t = text.strip().lower()
-            if _t in ("1", "just me", "just_me", "me", "solo", "alone", "single", "one", "only me", "myself", "me only"):
+            if _t in (
+                "1",
+                "just me",
+                "just_me",
+                "me",
+                "solo",
+                "alone",
+                "single",
+                "one",
+                "only me",
+                "myself",
+                "me only",
+            ):
                 reply_id = "cover_just_me"
-            elif _t in ("2", "others", "me and others", "group", "family", "friends", "more", "multiple", "me_and", "we"):
+            elif _t in (
+                "2",
+                "others",
+                "me and others",
+                "group",
+                "family",
+                "friends",
+                "more",
+                "multiple",
+                "me_and",
+                "we",
+            ):
                 reply_id = "cover_others"
         if not reply_id and text:
             llm_result = await call_extract(
@@ -1399,11 +1518,39 @@ async def handle_buy_cover_flow(
                 user_response=text,
                 expected_format="text",
             )
-            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+            if (
+                llm_result
+                and llm_result.get("is_valid")
+                and llm_result.get("extracted_value")
+            ):
                 ev = str(llm_result["extracted_value"]).lower()
-                if any(k in ev for k in ("just me", "only me", "myself", "just_me", "solo", "alone", "single", "one person")):
+                if any(
+                    k in ev
+                    for k in (
+                        "just me",
+                        "only me",
+                        "myself",
+                        "just_me",
+                        "solo",
+                        "alone",
+                        "single",
+                        "one person",
+                    )
+                ):
                     reply_id = "cover_just_me"
-                elif any(k in ev for k in ("others", "group", "family", "friends", "more", "multiple", "me and", "me_and")):
+                elif any(
+                    k in ev
+                    for k in (
+                        "others",
+                        "group",
+                        "family",
+                        "friends",
+                        "more",
+                        "multiple",
+                        "me and",
+                        "me_and",
+                    )
+                ):
                     reply_id = "cover_others"
             if not reply_id:
                 await _send_buttons(
@@ -1591,25 +1738,45 @@ async def handle_buy_cover_flow(
     # ── Name ──────────────────────────────────────────────────────────────────
     elif step == "buy_cover_name":
         if text and await _maybe_answer_question(
-            text, sender_wa_id, phone_number_id,
+            text,
+            sender_wa_id,
+            phone_number_id,
             "👤 Please enter your *full name* (first name and surname) as it appears on your ticket.\n\n_Example: Yusuf Abdullahi_",
             current_node="buy_cover_name",
         ):
             return
         if not text or not _is_valid_name(text):
             if text and "@" in text:
-                await _send_text(sender_wa_id, "⚠️ That looks like an email address — please enter your *name* instead.\n\n_Example: Yusuf Abdullahi_", phone_number_id)
+                await _send_text(
+                    sender_wa_id,
+                    "⚠️ That looks like an email address — please enter your *name* instead.\n\n_Example: Yusuf Abdullahi_",
+                    phone_number_id,
+                )
                 return
             if _contains_emoji(text or ""):
-                await _send_text(sender_wa_id, "⚠️ Name cannot contain emojis. Please enter your *full name*.\n\n_Example: Yusuf Abdullahi_", phone_number_id)
+                await _send_text(
+                    sender_wa_id,
+                    "⚠️ Name cannot contain emojis. Please enter your *full name*.\n\n_Example: Yusuf Abdullahi_",
+                    phone_number_id,
+                )
                 return
             if not text or not any(c.isalpha() for c in text):
-                await _send_text(sender_wa_id, "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Yusuf Abdullahi_", phone_number_id)
+                await _send_text(
+                    sender_wa_id,
+                    "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Yusuf Abdullahi_",
+                    phone_number_id,
+                )
                 return
             # Multi-word sentence that is not a valid name → call LLM generic to respond
-            if text and _is_sentence_like(text, min_words=2) and not any(c.isdigit() for c in text):
+            if (
+                text
+                and _is_sentence_like(text, min_words=2)
+                and not any(c.isdigit() for c in text)
+            ):
                 await _call_llm_and_reprompt(
-                    text, sender_wa_id, phone_number_id,
+                    text,
+                    sender_wa_id,
+                    phone_number_id,
                     "👤 Please enter your *full name* (first name and surname) as it appears on your ticket.\n\n_Example: Yusuf Abdullahi_",
                     current_node="buy_cover_name",
                 )
@@ -1621,7 +1788,11 @@ async def handle_buy_cover_flow(
                 user_response=text,
                 expected_format="full_name",
             )
-            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+            if (
+                llm_result
+                and llm_result.get("is_valid")
+                and llm_result.get("extracted_value")
+            ):
                 extracted_name = str(llm_result["extracted_value"]).strip()
                 if _is_valid_name(extracted_name):
                     data["_pending_name"] = extracted_name
@@ -1632,13 +1803,20 @@ async def handle_buy_cover_flow(
                         sender_wa_id,
                         f"Did you mean: *{extracted_name}*?",
                         [
-                            {"id": "name_confirm_yes", "title": "✅ Yes, that's correct"},
+                            {
+                                "id": "name_confirm_yes",
+                                "title": "✅ Yes, that's correct",
+                            },
                             {"id": "name_confirm_no", "title": "✏️ Re-enter name"},
                         ],
                         phone_number_id,
                     )
                     return
-            await _send_text(sender_wa_id, "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Yusuf Abdullahi_", phone_number_id)
+            await _send_text(
+                sender_wa_id,
+                "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Yusuf Abdullahi_",
+                phone_number_id,
+            )
             return
         policy_id = session.get("api_data", {}).get("policy_id")
         existing_pid = session.get("api_data", {}).get("passenger_id")
@@ -1768,29 +1946,51 @@ async def handle_buy_cover_flow(
                     current_travelers_c = data.get("travelers", [])
                     pax_idx_c = len(current_travelers_c)
                     pax_ids_c = session.get("api_data", {}).get("passenger_ids", [])
-                    existing_other_pid_c = pax_ids_c[pax_idx_c] if pax_idx_c < len(pax_ids_c) else None
+                    existing_other_pid_c = (
+                        pax_ids_c[pax_idx_c] if pax_idx_c < len(pax_ids_c) else None
+                    )
                     try:
                         if existing_other_pid_c:
                             ok_c = await ipurvey_service.update_passenger(
-                                policy_id, existing_other_pid_c, fn, ln, is_primary=False
+                                policy_id,
+                                existing_other_pid_c,
+                                fn,
+                                ln,
+                                is_primary=False,
                             )
                             if not ok_c:
                                 flow["step"] = "buy_cover_other_name"
                                 await save_session(session)
-                                await _send_text(sender_wa_id, "⚠️ We couldn't save this traveler's name — please enter their *full name*.\n\n_Example: Amina Bello_", phone_number_id)
+                                await _send_text(
+                                    sender_wa_id,
+                                    "⚠️ We couldn't save this traveler's name — please enter their *full name*.\n\n_Example: Amina Bello_",
+                                    phone_number_id,
+                                )
                                 return
                         else:
-                            result = await ipurvey_service.add_passenger(policy_id, fn, ln, is_primary=False)
+                            result = await ipurvey_service.add_passenger(
+                                policy_id, fn, ln, is_primary=False
+                            )
                             if result is None:
                                 flow["step"] = "buy_cover_other_name"
                                 await save_session(session)
-                                await _send_text(sender_wa_id, "⚠️ We couldn't save this traveler's name — please enter their *full name*.\n\n_Example: Amina Bello_", phone_number_id)
+                                await _send_text(
+                                    sender_wa_id,
+                                    "⚠️ We couldn't save this traveler's name — please enter their *full name*.\n\n_Example: Amina Bello_",
+                                    phone_number_id,
+                                )
                                 return
                     except Exception as exc:
-                        logger.error(f"[BUY_COVER] name_confirm add/update_passenger (other) failed: {exc}")
+                        logger.error(
+                            f"[BUY_COVER] name_confirm add/update_passenger (other) failed: {exc}"
+                        )
                         flow["step"] = "buy_cover_other_name"
                         await save_session(session)
-                        await _send_text(sender_wa_id, "⚠️ We couldn't save this traveler's name — please enter their *full name*.\n\n_Example: Amina Bello_", phone_number_id)
+                        await _send_text(
+                            sender_wa_id,
+                            "⚠️ We couldn't save this traveler's name — please enter their *full name*.\n\n_Example: Amina Bello_",
+                            phone_number_id,
+                        )
                         return
                 travelers = data.get("travelers", [])
                 travelers.append(name_to_use)
@@ -1802,18 +2002,33 @@ async def handle_buy_cover_flow(
                     total = others_count + 1
                     flow["step"] = "buy_cover_other_name"
                     await save_session(session)
-                    await _send_text(sender_wa_id, f"👤 *Traveller {next_num} of {total}*\nEnter first name and surname as it appears on their ticket.\n\n_Example: Amina Bello_", phone_number_id)
+                    await _send_text(
+                        sender_wa_id,
+                        f"👤 *Traveller {next_num} of {total}*\nEnter first name and surname as it appears on their ticket.\n\n_Example: Amina Bello_",
+                        phone_number_id,
+                    )
                 else:
                     flow["step"] = "buy_cover_email"
                     await save_session(session)
                     summary_lines = []
                     for i, n in enumerate(travelers):
                         if i == 0:
-                            summary_lines.append(f"{i + 1}. {n}  👤👑 _(Main passenger)_")
+                            summary_lines.append(
+                                f"{i + 1}. {n}  👤👑 _(Main passenger)_"
+                            )
                         else:
                             summary_lines.append(f"{i + 1}. {n}  👤")
-                    await _send_text(sender_wa_id, f"✅ *All traveller names added*\n\n" + "\n".join(summary_lines), phone_number_id)
-                    await _send_text(sender_wa_id, "*📧 Please enter your email address*\nSo we can send your policy documents\n\n_Example: yusuf@email.com_", phone_number_id)
+                    await _send_text(
+                        sender_wa_id,
+                        f"✅ *All traveller names added*\n\n"
+                        + "\n".join(summary_lines),
+                        phone_number_id,
+                    )
+                    await _send_text(
+                        sender_wa_id,
+                        "*📧 Please enter your email address*\nSo we can send your policy documents\n\n_Example: yusuf@email.com_",
+                        phone_number_id,
+                    )
             else:
                 policy_id = session.get("api_data", {}).get("policy_id")
                 existing_pid = session.get("api_data", {}).get("passenger_id")
@@ -1821,30 +2036,52 @@ async def handle_buy_cover_flow(
                     fn, ln = _split_name(name_to_use)
                     try:
                         if existing_pid:
-                            ok = await ipurvey_service.update_passenger(policy_id, existing_pid, fn, ln, is_primary=True)
+                            ok = await ipurvey_service.update_passenger(
+                                policy_id, existing_pid, fn, ln, is_primary=True
+                            )
                             if not ok:
                                 flow["step"] = "buy_cover_name"
                                 await save_session(session)
-                                await _send_text(sender_wa_id, "⚠️ We couldn't update your name — please try again.\n\n_Example: Yusuf Abdullahi_", phone_number_id)
+                                await _send_text(
+                                    sender_wa_id,
+                                    "⚠️ We couldn't update your name — please try again.\n\n_Example: Yusuf Abdullahi_",
+                                    phone_number_id,
+                                )
                                 return
                         else:
-                            result = await ipurvey_service.add_passenger(policy_id, fn, ln, is_primary=True)
+                            result = await ipurvey_service.add_passenger(
+                                policy_id, fn, ln, is_primary=True
+                            )
                             if result is None:
                                 flow["step"] = "buy_cover_name"
                                 await save_session(session)
-                                await _send_text(sender_wa_id, "⚠️ We couldn't save your name — please enter your *full name*.\n\n_Example: Yusuf Abdullahi_", phone_number_id)
+                                await _send_text(
+                                    sender_wa_id,
+                                    "⚠️ We couldn't save your name — please enter your *full name*.\n\n_Example: Yusuf Abdullahi_",
+                                    phone_number_id,
+                                )
                                 return
                             if result and result.get("passengerId"):
-                                session.setdefault("api_data", {})["passenger_id"] = result["passengerId"]
+                                session.setdefault("api_data", {})["passenger_id"] = (
+                                    result["passengerId"]
+                                )
                     except Exception as exc:
-                        logger.error(f"[BUY_COVER] name_confirm add/update_passenger failed: {exc}")
+                        logger.error(
+                            f"[BUY_COVER] name_confirm add/update_passenger failed: {exc}"
+                        )
                         flow["step"] = "buy_cover_name"
                         await save_session(session)
-                        await _send_text(sender_wa_id, "⚠️ We couldn't save your name — please enter your *full name*.\n\n_Example: Yusuf Abdullahi_", phone_number_id)
+                        await _send_text(
+                            sender_wa_id,
+                            "⚠️ We couldn't save your name — please enter your *full name*.\n\n_Example: Yusuf Abdullahi_",
+                            phone_number_id,
+                        )
                         return
                 data["name"] = name_to_use
                 if data.pop("_edit_mode", False):
-                    await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
+                    await _show_trip_summary(
+                        sender_wa_id, data, flow, session, phone_number_id
+                    )
                     return
                 if data.get("who") == "me_and_others":
                     travelers = data.get("travelers", [])
@@ -1854,17 +2091,29 @@ async def handle_buy_cover_flow(
                     if others_count == 0:
                         flow["step"] = "buy_cover_email"
                         await save_session(session)
-                        await _send_text(sender_wa_id, "*📧 Please enter your email address*\nSo we can send your policy documents\n\n_Example: yusuf@email.com_", phone_number_id)
+                        await _send_text(
+                            sender_wa_id,
+                            "*📧 Please enter your email address*\nSo we can send your policy documents\n\n_Example: yusuf@email.com_",
+                            phone_number_id,
+                        )
                     else:
                         data["others_collected"] = 0
                         flow["step"] = "buy_cover_other_name"
                         await save_session(session)
                         total = others_count + 1
-                        await _send_text(sender_wa_id, f"👤 *Traveller 2 of {total}*\nEnter first name and surname as it appears on their ticket.\n\n_Example: Amina Bello_", phone_number_id)
+                        await _send_text(
+                            sender_wa_id,
+                            f"👤 *Traveller 2 of {total}*\nEnter first name and surname as it appears on their ticket.\n\n_Example: Amina Bello_",
+                            phone_number_id,
+                        )
                 else:
                     flow["step"] = "buy_cover_email"
                     await save_session(session)
-                    await _send_text(sender_wa_id, "*📧 Please enter your email address*\nSo we can send your policy documents\n\n_Example: yusuf@email.com_", phone_number_id)
+                    await _send_text(
+                        sender_wa_id,
+                        "*📧 Please enter your email address*\nSo we can send your policy documents\n\n_Example: yusuf@email.com_",
+                        phone_number_id,
+                    )
         else:
             data.pop("_pending_name", None)
             data.pop("_name_confirm_for", None)
@@ -1875,23 +2124,43 @@ async def handle_buy_cover_flow(
                 total = others_count + 1
                 next_num = collected + 2
                 await save_session(session)
-                await _send_text(sender_wa_id, f"👤 *Traveller {next_num} of {total}*\nEnter first name and surname as it appears on their ticket.\n\n_Example: Amina Bello_", phone_number_id)
+                await _send_text(
+                    sender_wa_id,
+                    f"👤 *Traveller {next_num} of {total}*\nEnter first name and surname as it appears on their ticket.\n\n_Example: Amina Bello_",
+                    phone_number_id,
+                )
             else:
                 flow["step"] = "buy_cover_name"
                 await save_session(session)
-                await _send_text(sender_wa_id, "👤 *Please enter your full name*\nEnter first name and surname as it appears on the ticket.\n\n_Example: Yusuf Abdullahi_", phone_number_id)
+                await _send_text(
+                    sender_wa_id,
+                    "👤 *Please enter your full name*\nEnter first name and surname as it appears on the ticket.\n\n_Example: Yusuf Abdullahi_",
+                    phone_number_id,
+                )
 
     # ── Additional traveler names ──────────────────────────────────────────────
     elif step == "buy_cover_other_name":
         if not text or not _is_valid_name(text):
             if text and "@" in text:
-                await _send_text(sender_wa_id, "⚠️ That looks like an email address — please enter the traveler's *name* instead.\n\n_Example: Amina Bello_", phone_number_id)
+                await _send_text(
+                    sender_wa_id,
+                    "⚠️ That looks like an email address — please enter the traveler's *name* instead.\n\n_Example: Amina Bello_",
+                    phone_number_id,
+                )
                 return
             if _contains_emoji(text or ""):
-                await _send_text(sender_wa_id, "⚠️ Name cannot contain emojis. Please enter the traveler's *full name*.\n\n_Example: Amina Bello_", phone_number_id)
+                await _send_text(
+                    sender_wa_id,
+                    "⚠️ Name cannot contain emojis. Please enter the traveler's *full name*.\n\n_Example: Amina Bello_",
+                    phone_number_id,
+                )
                 return
             if not text or not any(c.isalpha() for c in text):
-                await _send_text(sender_wa_id, "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Amina Bello_", phone_number_id)
+                await _send_text(
+                    sender_wa_id,
+                    "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Amina Bello_",
+                    phone_number_id,
+                )
                 return
             llm_result = await call_extract(
                 user_id=sender_wa_id,
@@ -1900,7 +2169,11 @@ async def handle_buy_cover_flow(
                 user_response=text,
                 expected_format="full_name",
             )
-            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+            if (
+                llm_result
+                and llm_result.get("is_valid")
+                and llm_result.get("extracted_value")
+            ):
                 extracted_name = str(llm_result["extracted_value"]).strip()
                 if _is_valid_name(extracted_name):
                     data["_pending_name"] = extracted_name
@@ -1911,13 +2184,20 @@ async def handle_buy_cover_flow(
                         sender_wa_id,
                         f"Did you mean: *{extracted_name}*?",
                         [
-                            {"id": "name_confirm_yes", "title": "✅ Yes, that's correct"},
+                            {
+                                "id": "name_confirm_yes",
+                                "title": "✅ Yes, that's correct",
+                            },
                             {"id": "name_confirm_no", "title": "✏️ Re-enter name"},
                         ],
                         phone_number_id,
                     )
                     return
-            await _send_text(sender_wa_id, "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Amina Bello_", phone_number_id)
+            await _send_text(
+                sender_wa_id,
+                "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Amina Bello_",
+                phone_number_id,
+            )
             return
         policy_id = session.get("api_data", {}).get("policy_id")
         if policy_id:
@@ -1973,7 +2253,9 @@ async def handle_buy_cover_flow(
                         )
                         return
             except Exception as exc:
-                logger.error(f"[BUY_COVER] add/update_passenger (additional) failed: {exc}")
+                logger.error(
+                    f"[BUY_COVER] add/update_passenger (additional) failed: {exc}"
+                )
                 await _send_text(
                     sender_wa_id,
                     (
@@ -2029,9 +2311,13 @@ async def handle_buy_cover_flow(
 
     # ── Email ─────────────────────────────────────────────────────────────────
     elif step == "buy_cover_email":
-        if text and (_looks_like_question(text) or _is_sentence_like(text, min_words=3)):
+        if text and (
+            _looks_like_question(text) or _is_sentence_like(text, min_words=3)
+        ):
             await _call_llm_and_reprompt(
-                text, sender_wa_id, phone_number_id,
+                text,
+                sender_wa_id,
+                phone_number_id,
                 "📧 Please enter your *email address* so we can send your policy documents.\n\n_Example: yusuf@email.com_",
                 current_node="buy_cover_email",
             )
@@ -2089,9 +2375,13 @@ async def handle_buy_cover_flow(
 
     # ── Booking reference ─────────────────────────────────────────────────────
     elif step == "buy_cover_booking_ref":
-        if text and (_looks_like_question(text) or _is_sentence_like(text, min_words=3)):
+        if text and (
+            _looks_like_question(text) or _is_sentence_like(text, min_words=3)
+        ):
             await _call_llm_and_reprompt(
-                text, sender_wa_id, phone_number_id,
+                text,
+                sender_wa_id,
+                phone_number_id,
                 "🎫 Please enter your *booking reference* — a short alphanumeric code from your airline confirmation email.\n\n_Examples: AB1XY2, 2990FA62_",
                 current_node="buy_cover_booking_ref",
             )
@@ -2127,8 +2417,8 @@ async def handle_buy_cover_flow(
             await _send_text(
                 sender_wa_id,
                 (
-                    "✈️ I couldn't recognise that flight number\n\n"
-                    "Please enter it like this: *P47123*\n\n"
+                    "✈️ Invalid characters are not allowed. Only valid characters like *P47124* are allowed.\n\n"
+                    "Please re-enter the flight number\n\n"
                     "_Examples: P47123 — Air Peace, QI402 — Ibom Air_"
                 ),
                 phone_number_id,
@@ -2157,7 +2447,11 @@ async def handle_buy_cover_flow(
                 user_response=text,
                 expected_format="date",
             )
-            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+            if (
+                llm_result
+                and llm_result.get("is_valid")
+                and llm_result.get("extracted_value")
+            ):
                 iso_date = _parse_date_to_iso(str(llm_result["extracted_value"]))
         if not iso_date:
             await _send_text(
@@ -2202,8 +2496,14 @@ async def handle_buy_cover_flow(
                 user_response=text,
                 expected_format="time",
             )
-            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
-                parsed_dep_time = _parse_time_to_hhmm(str(llm_result["extracted_value"]))
+            if (
+                llm_result
+                and llm_result.get("is_valid")
+                and llm_result.get("extracted_value")
+            ):
+                parsed_dep_time = _parse_time_to_hhmm(
+                    str(llm_result["extracted_value"])
+                )
         if not parsed_dep_time:
             await _send_text(
                 sender_wa_id,
@@ -2324,7 +2624,11 @@ async def handle_buy_cover_flow(
                 user_response=text,
                 expected_format="date",
             )
-            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+            if (
+                llm_result
+                and llm_result.get("is_valid")
+                and llm_result.get("extracted_value")
+            ):
                 iso_arr_date = _parse_date_to_iso(str(llm_result["extracted_value"]))
         if not iso_arr_date:
             await _send_text(
@@ -2425,8 +2729,14 @@ async def handle_buy_cover_flow(
                 user_response=text,
                 expected_format="time",
             )
-            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
-                parsed_arr_time = _parse_time_to_hhmm(str(llm_result["extracted_value"]))
+            if (
+                llm_result
+                and llm_result.get("is_valid")
+                and llm_result.get("extracted_value")
+            ):
+                parsed_arr_time = _parse_time_to_hhmm(
+                    str(llm_result["extracted_value"])
+                )
         if not parsed_arr_time:
             await _send_text(
                 sender_wa_id,
@@ -2449,7 +2759,7 @@ async def handle_buy_cover_flow(
                 ),
                 [
                     {"id": "arr_time_change_date", "title": "🗓️ Change Arrival Date"},
-                    {"id": "arr_time_retry",        "title": "⏰ Enter Time Again"},
+                    {"id": "arr_time_retry", "title": "⏰ Enter Time Again"},
                 ],
                 phone_number_id,
             )
@@ -2548,7 +2858,11 @@ async def handle_buy_cover_flow(
             user_response=text,
             expected_format="text",
         )
-        if llm_airline and llm_airline.get("is_valid") and llm_airline.get("extracted_value"):
+        if (
+            llm_airline
+            and llm_airline.get("is_valid")
+            and llm_airline.get("extracted_value")
+        ):
             data["airline"] = str(llm_airline["extracted_value"])
         else:
             data["airline"] = text
@@ -2613,9 +2927,28 @@ async def handle_buy_cover_flow(
     elif step == "buy_cover_summary":
         if not reply_id and text:
             _t = text.strip().lower()
-            if _t in ("1", "yes", "confirm", "ok", "correct", "proceed", "submit", "looks good", "continue"):
+            if _t in (
+                "1",
+                "yes",
+                "confirm",
+                "ok",
+                "correct",
+                "proceed",
+                "submit",
+                "looks good",
+                "continue",
+            ):
                 reply_id = "summary_confirm"
-            elif _t in ("2", "no", "edit", "change", "wrong", "incorrect", "update", "modify"):
+            elif _t in (
+                "2",
+                "no",
+                "edit",
+                "change",
+                "wrong",
+                "incorrect",
+                "update",
+                "modify",
+            ):
                 reply_id = "summary_edit"
         if not reply_id and text:
             llm_result = await call_extract(
@@ -2625,11 +2958,38 @@ async def handle_buy_cover_flow(
                 user_response=text,
                 expected_format="text",
             )
-            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+            if (
+                llm_result
+                and llm_result.get("is_valid")
+                and llm_result.get("extracted_value")
+            ):
                 ev = str(llm_result["extracted_value"]).lower()
-                if any(k in ev for k in ("confirm", "yes", "proceed", "correct", "ok", "looks good", "continue", "submit")):
+                if any(
+                    k in ev
+                    for k in (
+                        "confirm",
+                        "yes",
+                        "proceed",
+                        "correct",
+                        "ok",
+                        "looks good",
+                        "continue",
+                        "submit",
+                    )
+                ):
                     reply_id = "summary_confirm"
-                elif any(k in ev for k in ("edit", "change", "no", "wrong", "incorrect", "update", "modify")):
+                elif any(
+                    k in ev
+                    for k in (
+                        "edit",
+                        "change",
+                        "no",
+                        "wrong",
+                        "incorrect",
+                        "update",
+                        "modify",
+                    )
+                ):
                     reply_id = "summary_edit"
 
         if reply_id == "summary_edit":
@@ -2931,9 +3291,9 @@ async def handle_buy_cover_flow(
                 {
                     "title": "Options",
                     "rows": [
-                        {"id": "next_kyc",    "title": "🪪 Continue to KYC"},
-                        {"id": "next_terms",  "title": "📄 View Policy Terms"},
-                        {"id": "next_ask",    "title": "❓ Ask a Question"},
+                        {"id": "next_kyc", "title": "🪪 Continue to KYC"},
+                        {"id": "next_terms", "title": "📄 View Policy Terms"},
+                        {"id": "next_ask", "title": "❓ Ask a Question"},
                         {"id": "next_cancel", "title": "❌ Cancel"},
                     ],
                 }
@@ -2945,7 +3305,16 @@ async def handle_buy_cover_flow(
     elif step == "buy_cover_next_steps":
         if not reply_id and text:
             _t = text.strip().lower()
-            if _t in ("1", "kyc", "continue", "proceed", "yes", "ok", "go ahead", "next"):
+            if _t in (
+                "1",
+                "kyc",
+                "continue",
+                "proceed",
+                "yes",
+                "ok",
+                "go ahead",
+                "next",
+            ):
                 reply_id = "next_kyc"
             elif _t in ("2", "terms", "policy terms", "view terms", "view policy"):
                 reply_id = "next_terms"
@@ -2961,13 +3330,30 @@ async def handle_buy_cover_flow(
                 user_response=text,
                 expected_format="text",
             )
-            if llm_next and llm_next.get("is_valid") and llm_next.get("extracted_value"):
+            if (
+                llm_next
+                and llm_next.get("is_valid")
+                and llm_next.get("extracted_value")
+            ):
                 ev = str(llm_next["extracted_value"]).lower()
-                if any(k in ev for k in ("kyc", "continue", "proceed", "next", "yes", "ok", "go ahead")):
+                if any(
+                    k in ev
+                    for k in (
+                        "kyc",
+                        "continue",
+                        "proceed",
+                        "next",
+                        "yes",
+                        "ok",
+                        "go ahead",
+                    )
+                ):
                     reply_id = "next_kyc"
                 elif any(k in ev for k in ("terms", "policy terms", "view")):
                     reply_id = "next_terms"
-                elif any(k in ev for k in ("ask", "question", "know", "enquire", "more info")):
+                elif any(
+                    k in ev for k in ("ask", "question", "know", "enquire", "more info")
+                ):
                     reply_id = "next_ask"
                 elif any(k in ev for k in ("cancel", "stop", "exit", "no")):
                     reply_id = "next_cancel"
@@ -3027,9 +3413,9 @@ async def handle_buy_cover_flow(
                     {
                         "title": "Options",
                         "rows": [
-                            {"id": "next_kyc",    "title": "🪪 Continue to KYC"},
-                            {"id": "next_terms",  "title": "📄 View Policy Terms"},
-                            {"id": "next_ask",    "title": "❓ Ask a Question"},
+                            {"id": "next_kyc", "title": "🪪 Continue to KYC"},
+                            {"id": "next_terms", "title": "📄 View Policy Terms"},
+                            {"id": "next_ask", "title": "❓ Ask a Question"},
                             {"id": "next_cancel", "title": "❌ Cancel"},
                         ],
                     }
@@ -3338,8 +3724,8 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             wa_id,
             "What would you like to do next?",
             [
-                {"id": "next_kyc",    "title": "🪪 Continue to KYC"},
-                {"id": "next_terms",  "title": "📄 View Policy Terms"},
+                {"id": "next_kyc", "title": "🪪 Continue to KYC"},
+                {"id": "next_terms", "title": "📄 View Policy Terms"},
                 {"id": "next_cancel", "title": "❌ Cancel"},
             ],
             phone_number_id,
