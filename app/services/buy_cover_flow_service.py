@@ -94,6 +94,14 @@ def _is_past_date(iso_date: str) -> bool:
         return False
 
 
+def _is_too_far_future(iso_date: str, max_days: int = 365) -> bool:
+    """Return True if the ISO date is more than max_days from today."""
+    try:
+        return (datetime.strptime(iso_date, "%Y-%m-%d").date() - datetime.now().date()).days > max_days
+    except ValueError:
+        return False
+
+
 def _is_valid_flight_number(fn: str) -> bool:
     """1–3 letters + optional space + 1–6 digits (e.g. P47123, QI402, AXE7120)."""
     return bool(re.match(r"^[A-Za-z]{1,3}\s?\d{1,6}$", fn.strip()))
@@ -2482,6 +2490,17 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
+        if _is_too_far_future(iso_date):
+            await _send_text(
+                sender_wa_id,
+                (
+                    "⚠️ Departure date cannot be more than 1 year in advance\n\n"
+                    "Please enter a date within the next 12 months\n\n"
+                    "_Example: 12 April 2026_"
+                ),
+                phone_number_id,
+            )
+            return
         data["date"] = iso_date
         if data.pop("_edit_mode", False):
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
@@ -2645,6 +2664,17 @@ async def handle_buy_cover_flow(
                 (
                     "⚠️ Arrival date cannot be in the past\n\n"
                     "Please enter today's date or a future arrival date\n\n"
+                    "_Example: 12 April 2026_"
+                ),
+                phone_number_id,
+            )
+            return
+        if _is_too_far_future(iso_arr_date):
+            await _send_text(
+                sender_wa_id,
+                (
+                    "⚠️ Arrival date cannot be more than 1 year in advance\n\n"
+                    "Please enter a date within the next 12 months\n\n"
                     "_Example: 12 April 2026_"
                 ),
                 phone_number_id,
