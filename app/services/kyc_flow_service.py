@@ -1247,3 +1247,57 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
 
     else:
         await start_kyc_flow(wa_id=wa_id, phone_number_id=phone_number_id)
+
+
+async def resume_at_current_step(wa_id: str, phone_number_id: Optional[str]) -> None:
+    """Re-show the original prompt for whatever KYC step the user is currently on.
+    Called when user taps 'No, go back' on the Cancel Purchase confirm screen."""
+    session, flow = await _get_flow_state(wa_id)
+    step = flow.get("step", "kyc_intro")
+    data = flow.get("data", {})
+    method = data.get("kyc_method", "NIN")
+
+    if step in ("kyc_intro", "kyc_both_failed"):
+        await _send_buttons(
+            wa_id,
+            "We may verify your identity to support any future payouts and ensure "
+            "security and accurate policy issuance.\n\n"
+            "> 🔒 *Your privacy matters*\n"
+            "> Your data is handled securely and never shared.\n\n"
+            "How would you like to verify your identity?\n"
+            "Select the country that issued your national biometric ID:",
+            [
+                {"id": "kyc_nin", "title": "🪪 NIN (Nigeria)"},
+                {"id": "kyc_bvn", "title": "🪪 BVN (Nigeria)"},
+                {"id": "kyc_help", "title": "🆘 Help"},
+            ],
+            phone_number_id,
+        )
+    elif step == "kyc_consent":
+        await _send_buttons(
+            wa_id,
+            f"🔒 We will only use your *{method}* to verify your identity for this purchase.\n\n"
+            "Do you consent to proceed?",
+            [
+                {"id": "kyc_consent_yes", "title": "1. ✅ Yes, continue"},
+                {"id": "kyc_consent_no", "title": "2. Go back"},
+            ],
+            phone_number_id,
+        )
+    elif step in ("kyc_id_input", "kyc_failed"):
+        await _send_text(
+            wa_id,
+            f"🔢 Please enter your *{method}* number\n\n"
+            f"_It should be 11 digits — example: 12345678901_\n\n"
+            f"🔒 _Your {method} is handled securely — only the last 3 digits will be shown for confirmation_",
+            phone_number_id,
+        )
+    elif step == "kyc_otp_input":
+        await _send_text(
+            wa_id,
+            "🔐 Please enter the *OTP* you received.\n\n"
+            "_It was sent to your registered phone number._",
+            phone_number_id,
+        )
+    else:
+        await start_kyc_flow(wa_id=wa_id, phone_number_id=phone_number_id)

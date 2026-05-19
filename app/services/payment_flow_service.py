@@ -1274,3 +1274,36 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
 
     else:
         await start_payment_flow(wa_id=wa_id, phone_number_id=phone_number_id)
+
+
+async def resume_at_current_step(wa_id: str, phone_number_id: Optional[str]) -> None:
+    """Re-show the original prompt for whatever payment step the user is currently on.
+    Called when user taps 'No, go back' on the Cancel Purchase confirm screen."""
+    session, flow = await _get_flow_state(wa_id)
+    step = flow.get("step", "pay_payout_options")
+
+    if step in ("pay_payout_options", "pay_method_choice"):
+        await start_payment_flow(wa_id=wa_id, phone_number_id=phone_number_id)
+    elif step == "pay_acct_number":
+        await _send_text(
+            wa_id,
+            "🏦 *Bank Transfer*\n\nPlease enter your 10-digit account number:\n\n"
+            "_Example: 0123456789_",
+            phone_number_id,
+        )
+    elif step in ("pay_bank_search", "pay_bank_select"):
+        await _send_text(
+            wa_id,
+            "Please enter at least the first 3 characters of your bank name:\n\n"
+            "_Example: Zen, Wem, GT_",
+            phone_number_id,
+        )
+    elif step in ("pay_wallet_payout_select", "pay_wallet_payout_phone"):
+        await _send_buttons(
+            wa_id,
+            "👛 *Wallet*\n\nChoose your wallet provider:",
+            [{"id": w["id"], "title": w["title"]} for w in WALLET_OPTIONS],
+            phone_number_id,
+        )
+    else:
+        await start_payment_flow(wa_id=wa_id, phone_number_id=phone_number_id)

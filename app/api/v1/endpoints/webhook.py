@@ -14,8 +14,10 @@ from app.services.whatsapp_service import send_text_message, send_whatsapp_paylo
 from app.services.llm_log_service import save_llm_log
 from app.services.buy_cover_flow_service import (
     is_in_buy_cover_flow, start_buy_cover_flow, handle_buy_cover_flow,
-    pause_buy_cover_flow,
+    pause_buy_cover_flow, resume_at_current_step as bc_resume,
 )
+from app.services.kyc_flow_service import resume_at_current_step as kyc_resume
+from app.services.payment_flow_service import resume_at_current_step as pay_resume
 import app.services.ipurvey_service as ipurvey_service
 from app.services.kyc_flow_service import (
     is_in_kyc_flow, handle_kyc_flow, start_kyc_flow,
@@ -1000,44 +1002,20 @@ async def _handle_cx_confirm(reply_id: str, wa_id: str, phone_number_id: str, se
         await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="webhook")
 
     elif reply_id == "cx_no_buy":
-        # Re-show the current step's prompt so the user knows what to do next.
-        # We pass a fake empty-text message so the active flow handler re-displays
-        # whatever step the user was on when they pressed 99/Cancel.
+        # Re-show the original prompt for the step the user was on before pressing 99.
+        # Each flow's resume_at_current_step uses _redisplay_step internally so the
+        # correct original prompt (not a validation error) is re-sent.
         _resumed = False
         if session:
-            import types as _types
-            _empty_msg = _types.SimpleNamespace(
-                type="text",
-                text=_types.SimpleNamespace(body=""),
-                image=None,
-                document=None,
-                audio=None,
-                sticker=None,
-                location=None,
-                contacts=None,
-                video=None,
-            )
             td = session.get("temp_data", {})
             if td.get("buy_cover_flow", {}).get("active"):
-                await handle_buy_cover_flow(
-                    message=_empty_msg,
-                    sender_wa_id=wa_id,
-                    phone_number_id=phone_number_id,
-                )
+                await bc_resume(wa_id, phone_number_id)
                 _resumed = True
             elif td.get("kyc_flow", {}).get("active"):
-                await handle_kyc_flow(
-                    message=_empty_msg,
-                    sender_wa_id=wa_id,
-                    phone_number_id=phone_number_id,
-                )
+                await kyc_resume(wa_id, phone_number_id)
                 _resumed = True
             elif td.get("payment_flow", {}).get("active"):
-                await handle_payment_flow(
-                    message=_empty_msg,
-                    sender_wa_id=wa_id,
-                    phone_number_id=phone_number_id,
-                )
+                await pay_resume(wa_id, phone_number_id)
                 _resumed = True
         if not _resumed:
             await send_text_message(
