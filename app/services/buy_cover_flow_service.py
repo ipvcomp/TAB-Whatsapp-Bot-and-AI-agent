@@ -3328,9 +3328,9 @@ async def handle_buy_cover_flow(
             sender_wa_id,
             card_body,
             [
-                {"id": "next_kyc",    "title": "🛒 Buy Cover"},
-                {"id": "next_terms",  "title": "📄 View Policy Terms"},
-                {"id": "next_cancel", "title": "❌ Cancel"},
+                {"id": "next_kyc",   "title": "🛒 Buy Cover"},
+                {"id": "next_terms", "title": "📄 View Policy Terms"},
+                {"id": "next_ask",   "title": "❓ Ask a Question"},
             ],
             phone_number_id,
         )
@@ -3443,9 +3443,9 @@ async def handle_buy_cover_flow(
                 sender_wa_id,
                 "What would you like to do next?",
                 [
-                    {"id": "next_kyc",    "title": "🛒 Buy Cover"},
-                    {"id": "next_terms",  "title": "📄 View Policy Terms"},
-                    {"id": "next_cancel", "title": "❌ Cancel"},
+                    {"id": "next_kyc",   "title": "🛒 Buy Cover"},
+                    {"id": "next_terms", "title": "📄 View Policy Terms"},
+                    {"id": "next_ask",   "title": "❓ Ask a Question"},
                 ],
                 phone_number_id,
             )
