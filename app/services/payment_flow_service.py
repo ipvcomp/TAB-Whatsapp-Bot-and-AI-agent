@@ -536,10 +536,14 @@ async def handle_payment_flow(
                 "_Example: 0123456789_",
                 phone_number_id)
         elif reply_id == "pay_wallet_payout":
-            flow["step"] = "pay_wallet_payout_select"
+            flow["step"] = "pay_wallet_payout_phone"
             await save_session(session)
-            await _send_buttons(sender_wa_id, "👛 *Wallet*\n\nChoose your wallet provider:",
-                [{"id": w["id"], "title": w["title"]} for w in WALLET_OPTIONS], phone_number_id)
+            await _send_text(
+                sender_wa_id,
+                "👛 *Wallet*\n\nEnter the phone number linked to your wallet:\n\n"
+                "_Example: 08012345678_",
+                phone_number_id,
+            )
         else:
             await start_payment_flow(sender_wa_id, phone_number_id)
 
@@ -711,73 +715,127 @@ async def handle_payment_flow(
                         pass
             await _send_text(sender_wa_id, "⚠️ Please select a bank from the list.", phone_number_id)
 
-    # ── Wallet payout — select ────────────────────────────────────────────────
+    # ── Wallet payout — select (legacy redirect) ──────────────────────────────
     elif step == "pay_wallet_payout_select":
-        wallet_map = {"wallet_9psb": "9PSB", "wallet_smartcash": "SmartCash", "wallet_opay": "OPay"}
-        if not reply_id and text:
-            llm_result = await call_extract(
-                user_id=sender_wa_id,
-                field_name="wallet_provider",
-                question_asked="Choose your wallet provider: 9PSB, SmartCash, or OPay.",
-                user_response=text,
-                expected_format="text",
-            )
-            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
-                ev = str(llm_result["extracted_value"]).lower()
-                if "9psb" in ev:
-                    reply_id = "wallet_9psb"
-                elif "smartcash" in ev or "smart cash" in ev:
-                    reply_id = "wallet_smartcash"
-                elif "opay" in ev or "o pay" in ev:
-                    reply_id = "wallet_opay"
-            if not reply_id:
-                await _send_buttons(
-                    sender_wa_id,
-                    "👛 *Wallet*\n\nChoose your wallet provider:",
-                    [{"id": w["id"], "title": w["title"]} for w in WALLET_OPTIONS],
-                    phone_number_id,
-                )
-                return
-        if reply_id in wallet_map:
-            data["pay_wallet_type"] = wallet_map[reply_id]
-            flow["step"] = "pay_wallet_payout_phone"
-            await save_session(session)
-            await _send_text(sender_wa_id,
-                "Enter the phone number linked to your wallet:\n\n_Example: 08012345678_",
-                phone_number_id)
-        else:
-            await start_payment_flow(sender_wa_id, phone_number_id)
+        flow["step"] = "pay_wallet_payout_phone"
+        await save_session(session)
+        await _send_text(
+            sender_wa_id,
+            "👛 *Wallet*\n\nEnter the phone number linked to your wallet:\n\n"
+            "_Example: 08012345678_",
+            phone_number_id,
+        )
 
-    # ── Wallet payout — phone ─────────────────────────────────────────────────
+    # ── Wallet payout — phone number ──────────────────────────────────────────
     elif step == "pay_wallet_payout_phone":
-        digits = text.replace(" ", "").replace("-", "")
-        if digits.isdigit() and len(digits) >= 10:
-            data["pay_wallet_phone"] = digits
-            wallet_type  = data.get("pay_wallet_type", "")
-            api_data     = session.get("api_data", {})
-            user_id      = api_data.get("user_id") or ""
-            _bc_w = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
-            account_name = _bc_w.get("name") or ""
-            if user_id:
-                try:
+        raw    = text.replace(" ", "").replace("-", "")
+        digits = raw.lstrip("+")
+        # Normalise +234XXXXXXXXXX or 234XXXXXXXXXX → 0XXXXXXXXXX
+        if digits.startswith("234") and len(digits) == 13:
+            digits = "0" + digits[3:]
+        valid = (
+            digits.isdigit()
+            and len(digits) in (10, 11)
+            and (digits.startswith("0") or len(digits) == 10)
+        )
+        if not valid:
+            await _send_text(
+                sender_wa_id,
+                "⚠️ Please enter a valid *Nigerian phone number*:\n_Example: 08012345678_",
+                phone_number_id,
+            )
+            return
+
+        data["pay_wallet_phone"] = digits
+        api_data         = session.get("api_data", {})
+        user_id          = api_data.get("user_id") or ""
+        existing_pm_id   = api_data.get("payout_method_id") or ""
+
+        if user_id:
+            try:
+                if existing_pm_id:
+                    # User came back via 0 — update existing payout method (PUT)
+                    payout_result = await ipurvey_service.update_payout_method_wallet(
+                        user_id=user_id,
+                        payout_method_id=existing_pm_id,
+                        phone_number=digits,
+                    )
+                else:
+                    # First time — create new payout method (POST)
                     payout_result = await ipurvey_service.create_payout_method_wallet(
                         user_id=user_id,
                         phone_number=digits,
-                        account_name=account_name,
-                        network=wallet_type,
                     )
-                    if payout_result and isinstance(payout_result, dict):
-                        pm_id = payout_result.get("id") or payout_result.get("payoutMethodId")
-                        if pm_id:
-                            session.setdefault("api_data", {})["payout_method_id"] = pm_id
-                except Exception as exc:
-                    logger.error(f"[payment] create_payout_method_wallet failed: {exc}")
-            await save_session(session)
-            await _show_payment_summary(sender_wa_id, session, flow, phone_number_id)
+                if payout_result and isinstance(payout_result, dict):
+                    pm_id = payout_result.get("id") or payout_result.get("payoutMethodId")
+                    if pm_id:
+                        session.setdefault("api_data", {})["payout_method_id"] = pm_id
+                        logger.info(f"[payment] wallet payout_method_id='{pm_id}'")
+            except Exception as exc:
+                logger.error(f"[payment] wallet payout method API failed: {exc}")
+
+        # Initiate payment for Mobile Money
+        policy_id      = session.get("api_data", {}).get("policy_id")
+        initiate_error = False
+        api_ref        = None
+        if policy_id:
+            try:
+                pay_result = await ipurvey_service.initiate_payment(
+                    policy_id=policy_id,
+                    payment_method="MOBILE_MONEY",
+                )
+                if pay_result and isinstance(pay_result, dict):
+                    api_ref    = (
+                        pay_result.get("reference")
+                        or pay_result.get("paymentReference")
+                        or pay_result.get("paymentRef")
+                    )
+                    payment_id = pay_result.get("paymentId") or pay_result.get("id")
+                    pc         = pay_result.get("policyCode")
+                    _ad        = session.setdefault("api_data", {})
+                    if payment_id:
+                        _ad["payment_id"] = payment_id
+                    if pc:
+                        _ad["policy_code"] = pc
+                        logger.info(f"[payment] wallet policy_code='{pc}'")
+                else:
+                    initiate_error = True
+            except Exception as exc:
+                logger.error(f"[payment] initiate_payment wallet failed: {exc}")
+                initiate_error = True
         else:
-            await _send_text(sender_wa_id,
-                "⚠️ Enter a valid *phone number*:\n_Example: 08012345678_",
-                phone_number_id)
+            initiate_error = True
+
+        if initiate_error:
+            await save_session(session)
+            await _show_payment_failed_screen(
+                sender_wa_id, session, data, data.get("pay_m_bank_ref", "—"), phone_number_id
+            )
+            return
+
+        ref_display              = api_ref or "Check SMS/email for reference"
+        data["pay_m_bank_ref"]   = ref_display
+        data["pay_method_display"] = "Wallet"
+        flow["step"]             = "pay_m_bank_pending"
+        await save_session(session)
+        await _send_buttons(
+            sender_wa_id,
+            "✅ *Payment method selected*\n"
+            "You chose: Wallet\n\n"
+            "ℹ️ *What happens next?*\n\n"
+            "📱 You will receive a WhatsApp message shortly with a payment link to complete your payment securely.\n"
+            "*Please check your WhatsApp inbox.*\n\n"
+            "⚠️ Do not make any payment outside the WhatsApp link you receive.\n\n"
+            "🛡️ *Important*\n\n"
+            "📋 Your policy will only be activated after *successful payment confirmation.*\n\n"
+            "❌ *Without a completed payment, no cover will be in place.*\n\n"
+            "After payment, reply with:",
+            [
+                {"id": "pay_m_done",    "title": "✅ I have paid"},
+                {"id": "pay_m_refresh", "title": "🔄 Refresh status"},
+            ],
+            phone_number_id,
+        )
 
     # ── Payment method choice ─────────────────────────────────────────────────
     elif step == "pay_method_choice":
@@ -1220,14 +1278,27 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
     data = flow.get("data", {})
 
     _PREV = {
-        "pay_acct_number":          "pay_payout_options",
-        "pay_wallet_payout_select": "pay_payout_options",
-        "pay_bank_search":          "pay_acct_number",
-        "pay_bank_select":          "pay_bank_search",
-        "pay_wallet_payout_phone":  "pay_wallet_payout_select",
+        "pay_acct_number":         "pay_payout_options",
+        "pay_wallet_payout_phone": "pay_payout_options",
+        "pay_bank_search":         "pay_acct_number",
+        "pay_bank_select":         "pay_bank_search",
     }
 
     prev = _PREV.get(step)
+
+    # For pay_m_bank_pending — if payout method was Wallet, allow going back to phone step
+    if step == "pay_m_bank_pending":
+        method = data.get("pay_method_display", "")
+        if "wallet" in method.lower():
+            flow["step"] = "pay_wallet_payout_phone"
+            await save_session(session)
+            await _send_text(
+                wa_id,
+                "👛 *Wallet*\n\nEnter the phone number linked to your wallet:\n\n"
+                "_Example: 08012345678_",
+                phone_number_id,
+            )
+            return
 
     if not prev or step in ("pay_payout_options", "pay_method_choice",
                             "pay_m_bank_pending", "pay_success", "pay_submit_retry"):
@@ -1264,14 +1335,6 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             phone_number_id,
         )
 
-    elif prev == "pay_wallet_payout_select":
-        await _send_buttons(
-            wa_id,
-            "👛 *Wallet*\n\nChoose your wallet provider:",
-            [{"id": w["id"], "title": w["title"]} for w in WALLET_OPTIONS],
-            phone_number_id,
-        )
-
     else:
         await start_payment_flow(wa_id=wa_id, phone_number_id=phone_number_id)
 
@@ -1299,10 +1362,10 @@ async def resume_at_current_step(wa_id: str, phone_number_id: Optional[str]) -> 
             phone_number_id,
         )
     elif step in ("pay_wallet_payout_select", "pay_wallet_payout_phone"):
-        await _send_buttons(
+        await _send_text(
             wa_id,
-            "👛 *Wallet*\n\nChoose your wallet provider:",
-            [{"id": w["id"], "title": w["title"]} for w in WALLET_OPTIONS],
+            "👛 *Wallet*\n\nEnter the phone number linked to your wallet:\n\n"
+            "_Example: 08012345678_",
             phone_number_id,
         )
     else:

@@ -983,24 +983,17 @@ async def update_payout_method(
 async def create_payout_method_wallet(
     user_id: str,
     phone_number: str,
-    account_name: str,
-    network: str,
-    is_default: bool = False,
 ) -> Optional[dict]:
-    logger.info(f"[ipurvey] create_payout_method_wallet user_id='{user_id}' network='{network}'")
+    """POST /api/tab-ums/users/{user_id}/payout-methods — create a MOBILE_MONEY payout method."""
+    logger.info(f"[ipurvey] create_payout_method_wallet user_id='{user_id}' phone='{phone_number}'")
+    body = {
+        "type": "MOBILE_MONEY",
+        "accountNumber": phone_number,
+        "config": {
+            "network": "MTN",
+        },
+    }
     try:
-        body = {
-            "type": "MOBILE_MONEY",
-            "accountNumber": phone_number,
-            "accountName": account_name,
-            "isDefault": is_default,
-            "active": True,
-            "config": {
-                "network": network,
-                "country": "NG",
-                "currency": "NGN",
-            },
-        }
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
             r = await c.post(
                 f"{_base()}/api/tab-ums/users/{user_id}/payout-methods",
@@ -1013,6 +1006,42 @@ async def create_payout_method_wallet(
             return None
     except Exception as e:
         logger.error(f"[ipurvey] create_payout_method_wallet failed: {e}")
+        return None
+
+
+async def update_payout_method_wallet(
+    user_id: str,
+    payout_method_id: str,
+    phone_number: str,
+) -> Optional[dict]:
+    """PUT /api/tab-ums/users/{user_id}/payout-methods/{payout_method_id} — update MOBILE_MONEY."""
+    logger.info(
+        f"[ipurvey] update_payout_method_wallet user_id='{user_id}' "
+        f"id='{payout_method_id}' phone='{phone_number}'"
+    )
+    body = {
+        "type": "MOBILE_MONEY",
+        "accountNumber": phone_number,
+        "config": {
+            "network": "MTN",
+        },
+    }
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.put(
+                f"{_base()}/api/tab-ums/users/{user_id}/payout-methods/{payout_method_id}",
+                json=body,
+            )
+            if r.status_code in (200, 204):
+                logger.info(f"[ipurvey] update_payout_method_wallet → success ({r.status_code})")
+                try:
+                    return _extract(r.json())
+                except Exception:
+                    return {"id": payout_method_id}
+            logger.error(f"[ipurvey] update_payout_method_wallet {r.status_code}: {r.text[:200]}")
+            return None
+    except Exception as e:
+        logger.error(f"[ipurvey] update_payout_method_wallet failed: {e}")
         return None
 
 
