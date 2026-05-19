@@ -1000,12 +1000,52 @@ async def _handle_cx_confirm(reply_id: str, wa_id: str, phone_number_id: str, se
         await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="webhook")
 
     elif reply_id == "cx_no_buy":
-        await send_text_message(
-            to=wa_id,
-            body="Okay, your purchase is still in progress. 👍",
-            phone_number_id=phone_number_id,
-            source="webhook",
-        )
+        # Re-show the current step's prompt so the user knows what to do next.
+        # We pass a fake empty-text message so the active flow handler re-displays
+        # whatever step the user was on when they pressed 99/Cancel.
+        _resumed = False
+        if session:
+            import types as _types
+            _empty_msg = _types.SimpleNamespace(
+                type="text",
+                text=_types.SimpleNamespace(body=""),
+                image=None,
+                document=None,
+                audio=None,
+                sticker=None,
+                location=None,
+                contacts=None,
+                video=None,
+            )
+            td = session.get("temp_data", {})
+            if td.get("buy_cover_flow", {}).get("active"):
+                await handle_buy_cover_flow(
+                    message=_empty_msg,
+                    sender_wa_id=wa_id,
+                    phone_number_id=phone_number_id,
+                )
+                _resumed = True
+            elif td.get("kyc_flow", {}).get("active"):
+                await handle_kyc_flow(
+                    message=_empty_msg,
+                    sender_wa_id=wa_id,
+                    phone_number_id=phone_number_id,
+                )
+                _resumed = True
+            elif td.get("payment_flow", {}).get("active"):
+                await handle_payment_flow(
+                    message=_empty_msg,
+                    sender_wa_id=wa_id,
+                    phone_number_id=phone_number_id,
+                )
+                _resumed = True
+        if not _resumed:
+            await send_text_message(
+                to=wa_id,
+                body="Okay, your purchase is still in progress. 👍",
+                phone_number_id=phone_number_id,
+                source="webhook",
+            )
 
     elif reply_id == "cx_yes_pol":
         if session:
