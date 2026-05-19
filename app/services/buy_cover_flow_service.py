@@ -3324,20 +3324,13 @@ async def handle_buy_cover_flow(
             f"📌 _Please review the Policy Terms before payment and activation._\n\n"
             f"What would you like to do next?"
         )
-        await _send_list(
+        await _send_buttons(
             sender_wa_id,
             card_body,
-            "What's next?",
             [
-                {
-                    "title": "Options",
-                    "rows": [
-                        {"id": "next_kyc", "title": "🛒 Buy Policy"},
-                        {"id": "next_terms", "title": "📄 View Policy Terms"},
-                        {"id": "next_ask", "title": "❓ Ask a Question"},
-                        {"id": "next_cancel", "title": "❌ Cancel"},
-                    ],
-                }
+                {"id": "next_kyc",    "title": "🛒 Buy Cover"},
+                {"id": "next_terms",  "title": "📄 View Policy Terms"},
+                {"id": "next_cancel", "title": "❌ Cancel"},
             ],
             phone_number_id,
         )
@@ -3446,20 +3439,13 @@ async def handle_buy_cover_flow(
         elif reply_id == "next_cancel":
             await show_cancel_purchase_confirm(sender_wa_id, phone_number_id)
         else:
-            await _send_list(
+            await _send_buttons(
                 sender_wa_id,
                 "What would you like to do next?",
-                "What's next?",
                 [
-                    {
-                        "title": "Options",
-                        "rows": [
-                            {"id": "next_kyc", "title": "🛒 Buy Policy"},
-                            {"id": "next_terms", "title": "📄 View Policy Terms"},
-                            {"id": "next_ask", "title": "❓ Ask a Question"},
-                            {"id": "next_cancel", "title": "❌ Cancel"},
-                        ],
-                    }
+                    {"id": "next_kyc",    "title": "🛒 Buy Cover"},
+                    {"id": "next_terms",  "title": "📄 View Policy Terms"},
+                    {"id": "next_cancel", "title": "❌ Cancel"},
                 ],
                 phone_number_id,
             )
