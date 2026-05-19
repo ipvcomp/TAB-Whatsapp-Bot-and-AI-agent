@@ -579,11 +579,6 @@ async def handle_kyc_flow(
             return
         masked = _mask_id(id_number)
         data["kyc_id"] = id_number
-        await _send_text_plain(
-            sender_wa_id,
-            f"🔍 *Checking your details...*\n_{method}: {masked}_\n_Please wait a moment_ ⏳",
-            phone_number_id,
-        )
 
         api_verified = False
         api_session_id = None
