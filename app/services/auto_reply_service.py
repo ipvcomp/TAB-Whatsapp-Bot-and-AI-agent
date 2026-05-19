@@ -99,12 +99,12 @@ def _match_simple_reply(text: str) -> Optional[str]:
 def _format_policy_card(policy: dict) -> str:
     """Format a rich draft policy card for the welcome-back message.
     All fields are always shown; missing values display as —."""
-    policy_id   = policy.get("policy_id") or ""
     booking_ref = policy.get("booking_ref") or ""
     trip_type   = policy.get("trip_type") or ""
     origin      = policy.get("origin") or ""
     dest        = policy.get("dest") or ""
     departure   = policy.get("departure") or ""
+    flight_num  = policy.get("flight_num") or ""
     passengers  = policy.get("passengers") or []
     status      = (policy.get("status") or "NONE").upper()
 
@@ -127,6 +127,7 @@ def _format_policy_card(policy: dict) -> str:
 
     lines = ["*YOUR SAVED POLICY (DRAFT)*", ""]
     lines.append(f"Booking Reference   {booking_ref or '—'}")
+    lines.append(f"Flight No.          {flight_num or '—'}")
     lines.append(f"Trip Type           {trip_type or '—'}")
     lines.append(f"From                {origin or '—'}")
     lines.append(f"To                  {dest or '—'}")
@@ -168,22 +169,25 @@ async def send_welcome_message(
         )
         await asyncio.sleep(1.5)
 
-    # 2. Determine user existence (contact DB) and draft status in parallel
+    # 2. Determine user existence (contact DB), draft status, and local session in parallel
     lookup_id        = wa_id or to
     is_existing_user = False
     has_draft        = False
     draft_policy_id  = ""
     draft_info: dict | None = None
+    local_session: dict = {}
     if lookup_id:
         try:
             msisdn = get_msisdn(lookup_id)
             results = await asyncio.gather(
                 get_contact_by_wa_id(lookup_id),
                 _ipurvey_svc.resume_draft_policy(msisdn),
+                get_session(lookup_id),
                 return_exceptions=True,
             )
-            contact_rec = results[0] if not isinstance(results[0], Exception) else None
-            draft_info  = results[1] if not isinstance(results[1], Exception) else None
+            contact_rec  = results[0] if not isinstance(results[0], Exception) else None
+            draft_info   = results[1] if not isinstance(results[1], Exception) else None
+            local_session = results[2] if not isinstance(results[2], Exception) and isinstance(results[2], dict) else {}
 
             # Existing user = contact record found in DB
             is_existing_user = bool(contact_rec)
@@ -202,6 +206,31 @@ async def send_welcome_message(
         except Exception as exc:
             logger.warning(f"[welcome] lookup failed for {lookup_id}: {exc}")
 
+    # Local buy-cover session data — used as fallback when the remote draft API
+    # doesn't yet have the fields (e.g. user exited before submit_itinerary was called)
+    local_bc: dict = (local_session or {}).get("temp_data", {}).get("buy_cover_flow", {}).get("data", {})
+
+    def _local_airport_display(raw: str) -> str:
+        """Convert 'LOS — Lagos Murtala Muhammed' → 'LOS (Lagos Murtala Muhammed)'."""
+        if not raw:
+            return ""
+        if "—" in raw:
+            parts = raw.split("—", 1)
+            code = parts[0].strip()
+            name = parts[1].strip()
+            return f"{code} ({name})" if name else code
+        return raw.strip()
+
+    def _local_trip_label(raw: str) -> str:
+        """Normalise session trip_type ('One-way 🗺️' / 'Return 🔄') → display label."""
+        if not raw:
+            return ""
+        if "one" in raw.lower() or "1" in raw:
+            return "One Way"
+        if "return" in raw.lower():
+            return "Return"
+        return raw
+
     # 2b. Build card data (draft fields if available, else all — for existing users)
     card_data: dict | None = None
     if is_existing_user:
@@ -216,8 +245,8 @@ async def send_welcome_message(
                 if p.get("firstName") or p.get("surname")
             ]
             trip_raw  = draft_info.get("trip_type", "")
-            dep_date  = leg.get("departureDate", "")
-            dep_time  = leg.get("departureTime", "")
+            dep_date  = leg.get("departureDate", "") or local_bc.get("date", "")
+            dep_time  = leg.get("departureTime", "") or local_bc.get("depart_time", "")
 
             # Format departure as "15 May 2026 · 08:30"
             if dep_date and dep_time:
@@ -238,19 +267,38 @@ async def send_welcome_message(
             trip_label = (
                 "One Way" if trip_raw and "ONE" in trip_raw.upper()
                 else "Return" if trip_raw
-                else ""
+                else _local_trip_label(local_bc.get("trip_type", ""))
             )
 
             dep_code = leg.get("departureAirport", "")
             dep_name = leg.get("departureAirportName", "")
             arr_code = leg.get("arrivalAirport", "")
             arr_name = leg.get("arrivalAirportName", "")
-            origin_display = f"{dep_code} ({dep_name})" if dep_name else dep_code
-            dest_display   = f"{arr_code} ({arr_name})" if arr_name else arr_code
+            origin_display = (
+                f"{dep_code} ({dep_name})" if dep_name
+                else dep_code
+                or _local_airport_display(local_bc.get("depart_airport", ""))
+            )
+            dest_display = (
+                f"{arr_code} ({arr_name})" if arr_name
+                else arr_code
+                or _local_airport_display(local_bc.get("arrive_airport", ""))
+            )
+
+            # Booking ref and flight number — API first, local session as fallback
+            booking_ref = (
+                itinerary.get("bookingReference", "")
+                or local_bc.get("booking_ref", "")
+            )
+            flight_num = (
+                leg.get("flightNumber", "")
+                or local_bc.get("flight_num", "")
+            )
 
             card_data = {
                 "policy_id":   draft_policy_id,
-                "booking_ref": itinerary.get("bookingReference", ""),
+                "booking_ref": booking_ref,
+                "flight_num":  flight_num,
                 "trip_type":   trip_label,
                 "origin":      origin_display,
                 "dest":        dest_display,
