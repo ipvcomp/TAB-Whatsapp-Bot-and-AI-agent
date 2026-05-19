@@ -97,7 +97,9 @@ def _is_past_date(iso_date: str) -> bool:
 def _is_too_far_future(iso_date: str, max_days: int = 365) -> bool:
     """Return True if the ISO date is more than max_days from today."""
     try:
-        return (datetime.strptime(iso_date, "%Y-%m-%d").date() - datetime.now().date()).days > max_days
+        return (
+            datetime.strptime(iso_date, "%Y-%m-%d").date() - datetime.now().date()
+        ).days > max_days
     except ValueError:
         return False
 
