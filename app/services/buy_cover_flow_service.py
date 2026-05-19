@@ -1668,6 +1668,23 @@ async def handle_buy_cover_flow(
             )
             return
 
+        # 9 conflicts with the Help shortcut — ask user to confirm intent
+        if count_int == 9:
+            data["pending_traveler_count"] = 9
+            flow["step"] = "buy_cover_tc_9_confirm"
+            await save_session(session)
+            await _send_buttons(
+                sender_wa_id,
+                "👥 *Confirm traveller count*\n\n"
+                "You entered *9*. What would you like to do?",
+                [
+                    {"id": "tc_9_confirm", "title": "✅ Add 9 travellers"},
+                    {"id": "tc_9_help",    "title": "🆘 Get Help"},
+                ],
+                phone_number_id,
+            )
+            return
+
         # 0 → switch to "just me" mode (remove additional travellers)
         if count_int == 0:
             data["who"] = "just_me"
@@ -1753,6 +1770,68 @@ async def handle_buy_cover_flow(
             ),
             phone_number_id,
         )
+
+    # ── Traveler count 9 — disambiguation ────────────────────────────────────
+    elif step == "buy_cover_tc_9_confirm":
+        # Map typed "1"/"2" to button ids
+        _tc9_raw = (text or "").strip()
+        if _tc9_raw == "1":
+            reply_id = "tc_9_confirm"
+        elif _tc9_raw == "2":
+            reply_id = "tc_9_help"
+
+        if reply_id == "tc_9_confirm":
+            count_int = data.pop("pending_traveler_count", 9)
+            data["others_count"] = count_int - 1
+            data["travelers"]    = []
+            flow["step"] = "buy_cover_name"
+            await save_session(session)
+            policy_id = session.get("api_data", {}).get("policy_id")
+            if policy_id:
+                try:
+                    pax_ids = await ipurvey_service.set_traveler_count(policy_id, count_int)
+                    if pax_ids:
+                        api_data = session.setdefault("api_data", {})
+                        api_data["passenger_ids"] = [
+                            p if isinstance(p, str) else (p.get("passengerId") or p.get("id") or "")
+                            for p in pax_ids if p
+                        ]
+                        logger.info(f"[BUY_COVER] pre-allocated passenger_ids (9): {api_data['passenger_ids']}")
+                        await save_session(session)
+                except Exception as exc:
+                    logger.error(f"[BUY_COVER] set_traveler_count(9) failed: {exc}")
+            await _send_text(
+                sender_wa_id,
+                (
+                    "👤 👑 *Enter main passenger name*\n"
+                    "Enter first name and surname as it appears on the ticket.\n\n"
+                    "ℹ️ This person is the main passenger.\n"
+                    "📞 This should be the person buying cover and would be linked to this WhatsApp number.\n"
+                    "💳 Used for payment & payout processing.\n"
+                    "🔔 Receive policy updates and notifications.\n\n"
+                    "_Example: Yusuf Usman_"
+                ),
+                phone_number_id,
+            )
+
+        elif reply_id == "tc_9_help":
+            from app.services.help_flow_service import start_help_flow
+            await pause_buy_cover_flow(sender_wa_id)
+            await start_help_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+
+        else:
+            # Unknown input — re-show the confirmation buttons
+            await _send_buttons(
+                sender_wa_id,
+                "👥 *Confirm traveller count*\n\n"
+                "You entered *9*. What would you like to do?\n\n"
+                "_Type *1* to add 9 travellers or *2* for help_",
+                [
+                    {"id": "tc_9_confirm", "title": "✅ Add 9 travellers"},
+                    {"id": "tc_9_help",    "title": "🆘 Get Help"},
+                ],
+                phone_number_id,
+            )
 
     # ── Name ──────────────────────────────────────────────────────────────────
     elif step == "buy_cover_name":
@@ -3532,6 +3611,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
     _PREV: dict[str, Optional[str]] = {
         "buy_cover_name": "buy_cover_who",
         "buy_cover_traveler_count": "buy_cover_who",
+        "buy_cover_tc_9_confirm": "buy_cover_traveler_count",
         "buy_cover_other_name": "buy_cover_name",
         "buy_cover_email": None,
         "buy_cover_trip_type": "buy_cover_email",

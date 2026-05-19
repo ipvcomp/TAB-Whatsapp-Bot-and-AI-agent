@@ -374,7 +374,18 @@ async def _process_change(entry_id: str, change):
                     _nav_norm = _nav_text.lower()
 
                     # 9 or #help → start help flow (works from anywhere)
-                    if _nav_text == "9" or _nav_norm == "#help":
+                    # Exception: if user is in traveler-count step, "9" is a valid count
+                    _bc_step_now = (
+                        (user_session or {})
+                        .get("temp_data", {})
+                        .get("buy_cover_flow", {})
+                        .get("step", "")
+                    )
+                    _nine_is_count = (
+                        _nav_text == "9"
+                        and _bc_step_now == "buy_cover_traveler_count"
+                    )
+                    if (_nav_text == "9" or _nav_norm == "#help") and not _nine_is_count:
                         if user_session:
                             # Pause buy/kyc/payment flows so user can resume after help
                             await pause_buy_cover_flow(sender_wa_id)
