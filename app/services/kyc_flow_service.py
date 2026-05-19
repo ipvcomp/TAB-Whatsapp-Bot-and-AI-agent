@@ -1140,18 +1140,26 @@ async def handle_kyc_flow(
             )
 
         elif reply_id == "kyc_bypass_review":
-            # Reset KYC so it restarts fresh after the user edits their details
-            session["temp_data"][KYC_FLOW_KEY] = {}
-            # Re-activate the buy_cover flow so subsequent messages route there
-            bc_flow = session["temp_data"].setdefault(BUY_COVER_FLOW_KEY, {})
-            bc_flow["active"] = True
-            bc_data = bc_flow.get("data", {})
-            await save_session(session)
-            # Take user to the buy_cover trip summary with Confirm / Edit options
-            from app.services.buy_cover_flow_service import _show_trip_summary
+            # Read-only trip summary — no Confirm / Edit buttons.
+            # User can only Continue to Pay or go to Main menu from here.
+            bc_data = (
+                session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
+            )
+            from app.services.buy_cover_flow_service import _build_trip_summary_text
 
-            await _show_trip_summary(
-                sender_wa_id, bc_data, bc_flow, session, phone_number_id
+            await _send_text(
+                sender_wa_id,
+                "📋 *Trip Summary*\n\n" + _build_trip_summary_text(bc_data),
+                phone_number_id,
+            )
+            await _send_buttons(
+                sender_wa_id,
+                "What would you like to do?",
+                [
+                    {"id": "kyc_bypass_pay",  "title": "💳 Continue to pay"},
+                    {"id": "kyc_bypass_menu", "title": "🏠 Main menu"},
+                ],
+                phone_number_id,
             )
 
         elif reply_id == "kyc_bypass_menu":

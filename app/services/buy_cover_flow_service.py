@@ -3014,6 +3014,18 @@ async def handle_buy_cover_flow(
                     reply_id = "summary_edit"
 
         if reply_id == "summary_edit":
+            # Block editing once itinerary has been submitted to the API — editing
+            # trip fields after submission causes an API error on re-submission.
+            if data.get("itinerary_submitted"):
+                await _send_buttons(
+                    sender_wa_id,
+                    "⚠️ *Trip details cannot be edited*\n\n"
+                    "Your flight details have already been submitted.\n"
+                    "Please continue to select your cover plan.",
+                    [{"id": "summary_confirm", "title": "▶️ Continue to covers"}],
+                    phone_number_id,
+                )
+                return
             flow["step"] = "buy_cover_edit_select"
             await save_session(session)
             await _send_edit_menu(sender_wa_id, phone_number_id)
@@ -3039,84 +3051,92 @@ async def handle_buy_cover_flow(
         quotes = None
         if policy_id:
             try:
-                dep_code = (
-                    data.get("depart_airport", "").split("—")[0].strip().split()[0]
-                    if data.get("depart_airport")
-                    else ""
-                )
-                arr_code = (
-                    data.get("arrive_airport", "").split("—")[0].strip().split()[0]
-                    if data.get("arrive_airport")
-                    else ""
-                )
-                dep_date = data.get(
-                    "date", ""
-                )  # already ISO YYYY-MM-DD from validation
-                dep_time = data.get("depart_time", "")  # already HH:MM from validation
-                arr_time = data.get("arrive_time", "")  # already HH:MM from validation
-                flight_num = data.get("flight_num", "").upper().replace(" ", "")
-                carrier = flight_num[:2] if len(flight_num) >= 2 else flight_num
-                trip_raw = data.get("trip_type", "One-way 🗺️")
-                trip_type = "RETURN" if "return" in trip_raw.lower() else "ONE_WAY"
-                arr_date = data.get("arrive_date") or dep_date
-                flight_id = f"{flight_num}-{dep_date}T{dep_time}"
-                session.setdefault("api_data", {})["flight_id"] = flight_id
-                legs = [
-                    {
-                        "flightNumber": flight_num,
-                        "carrier": carrier,
-                        "departureAirport": dep_code,
-                        "arrivalAirport": arr_code,
-                        "departureDate": dep_date,
-                        "departureTime": dep_time,
-                        "arrivalDate": arr_date,
-                        "arrivalTime": arr_time,
-                    }
-                ]
-                itinerary_ok, iti_err = await ipurvey_service.submit_itinerary(
-                    policy_id, trip_type, data.get("booking_ref", ""), legs
-                )
-                if not itinerary_ok:
-                    flow["step"] = "buy_cover_summary"
+                # If itinerary already submitted, skip re-submission to avoid API error
+                if data.get("itinerary_submitted"):
+                    quotes = await ipurvey_service.fetch_quotes(policy_id)
+                else:
+                    dep_code = (
+                        data.get("depart_airport", "").split("—")[0].strip().split()[0]
+                        if data.get("depart_airport")
+                        else ""
+                    )
+                    arr_code = (
+                        data.get("arrive_airport", "").split("—")[0].strip().split()[0]
+                        if data.get("arrive_airport")
+                        else ""
+                    )
+                    dep_date = data.get(
+                        "date", ""
+                    )  # already ISO YYYY-MM-DD from validation
+                    dep_time = data.get("depart_time", "")  # already HH:MM from validation
+                    arr_time = data.get("arrive_time", "")  # already HH:MM from validation
+                    flight_num = data.get("flight_num", "").upper().replace(" ", "")
+                    carrier = flight_num[:2] if len(flight_num) >= 2 else flight_num
+                    trip_raw = data.get("trip_type", "One-way 🗺️")
+                    trip_type = "RETURN" if "return" in trip_raw.lower() else "ONE_WAY"
+                    arr_date = data.get("arrive_date") or dep_date
+                    flight_id = f"{flight_num}-{dep_date}T{dep_time}"
+                    session.setdefault("api_data", {})["flight_id"] = flight_id
+                    legs = [
+                        {
+                            "flightNumber": flight_num,
+                            "carrier": carrier,
+                            "departureAirport": dep_code,
+                            "arrivalAirport": arr_code,
+                            "departureDate": dep_date,
+                            "departureTime": dep_time,
+                            "arrivalDate": arr_date,
+                            "arrivalTime": arr_time,
+                        }
+                    ]
+                    itinerary_ok, iti_err = await ipurvey_service.submit_itinerary(
+                        policy_id, trip_type, data.get("booking_ref", ""), legs
+                    )
+                    if not itinerary_ok:
+                        flow["step"] = "buy_cover_summary"
+                        await save_session(session)
+                        if iti_err and "already exists with booking reference" in iti_err:
+                            booking_ref = data.get("booking_ref", "")
+                            await _send_buttons(
+                                sender_wa_id,
+                                (
+                                    f"⚠️ *Booking Reference Already in Use*\n\n"
+                                    f"The booking reference *{booking_ref}* is already linked to an active policy.\n\n"
+                                    "Please enter a different booking reference."
+                                ),
+                                [
+                                    {
+                                        "id": "edit_booking_ref",
+                                        "title": "✏️ Change Booking Ref",
+                                    },
+                                    {
+                                        "id": "summary_edit",
+                                        "title": "📝 Edit other details",
+                                    },
+                                ],
+                                phone_number_id,
+                            )
+                        else:
+                            err_line = f"\n\n_{iti_err}_" if iti_err else ""
+                            await _send_buttons(
+                                sender_wa_id,
+                                (
+                                    "⚠️ *We couldn't submit your trip details*"
+                                    f"{err_line}\n\n"
+                                    "Please check your flight details and try again, or edit them if something is incorrect."
+                                ),
+                                [
+                                    {"id": "summary_confirm", "title": "🔄 Try again"},
+                                    {"id": "summary_edit", "title": "✏️ Edit details"},
+                                ],
+                                phone_number_id,
+                            )
+                        return
+                    # Mark itinerary as submitted so we never call submit_itinerary again
+                    # for this policy (re-calling it causes an API error).
+                    data["itinerary_submitted"] = True
                     await save_session(session)
-                    if iti_err and "already exists with booking reference" in iti_err:
-                        booking_ref = data.get("booking_ref", "")
-                        await _send_buttons(
-                            sender_wa_id,
-                            (
-                                f"⚠️ *Booking Reference Already in Use*\n\n"
-                                f"The booking reference *{booking_ref}* is already linked to an active policy.\n\n"
-                                "Please enter a different booking reference."
-                            ),
-                            [
-                                {
-                                    "id": "edit_booking_ref",
-                                    "title": "✏️ Change Booking Ref",
-                                },
-                                {
-                                    "id": "summary_edit",
-                                    "title": "📝 Edit other details",
-                                },
-                            ],
-                            phone_number_id,
-                        )
-                    else:
-                        err_line = f"\n\n_{iti_err}_" if iti_err else ""
-                        await _send_buttons(
-                            sender_wa_id,
-                            (
-                                "⚠️ *We couldn't submit your trip details*"
-                                f"{err_line}\n\n"
-                                "Please check your flight details and try again, or edit them if something is incorrect."
-                            ),
-                            [
-                                {"id": "summary_confirm", "title": "🔄 Try again"},
-                                {"id": "summary_edit", "title": "✏️ Edit details"},
-                            ],
-                            phone_number_id,
-                        )
-                    return
-                quotes = await ipurvey_service.fetch_quotes(policy_id)
+                    quotes = await ipurvey_service.fetch_quotes(policy_id)
             except Exception as exc:
                 logger.error(f"[buy_cover] itinerary/quotes API failed: {exc}")
                 flow["step"] = "buy_cover_summary"
@@ -3722,15 +3742,25 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         await _send_edit_menu(wa_id, phone_number_id)
 
     elif prev == "buy_cover_summary":
-        await _send_buttons(
-            wa_id,
-            "📋 *Trip Summary*\n\n" + _build_trip_summary_text(data),
-            [
-                {"id": "summary_confirm", "title": "✅ Confirm"},
-                {"id": "summary_edit", "title": "✏️ Edit details"},
-            ],
-            phone_number_id,
-        )
+        # If itinerary already submitted to the API, hide Edit details to prevent
+        # a re-submission error. User can only go forward (re-fetch quotes).
+        if data.get("itinerary_submitted"):
+            await _send_buttons(
+                wa_id,
+                "📋 *Trip Summary*\n\n" + _build_trip_summary_text(data),
+                [{"id": "summary_confirm", "title": "▶️ Continue to covers"}],
+                phone_number_id,
+            )
+        else:
+            await _send_buttons(
+                wa_id,
+                "📋 *Trip Summary*\n\n" + _build_trip_summary_text(data),
+                [
+                    {"id": "summary_confirm", "title": "✅ Confirm"},
+                    {"id": "summary_edit",    "title": "✏️ Edit details"},
+                ],
+                phone_number_id,
+            )
 
     elif prev == "buy_cover_select_cover":
         await _send_text(
