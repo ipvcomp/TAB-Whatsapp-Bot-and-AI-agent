@@ -413,15 +413,15 @@ def _build_trip_summary_text(data: dict) -> str:
     booking_ref_line = f"Booking Ref\t*{booking_ref}*\n" if booking_ref else ""
     return (
         "*✈️ YOUR TRIP*\n\n"
-        f"Airline   \t*{data.get('airline', '')}*\n"
-        f"Route     \t*{dep} → {arr}*\n"
-        f"Flight    \t*{data.get('flight_num', '')}*\n"
+        f"Airline\t\t\t*{data.get('airline', '')}*\n"
+        f"Route\t\t\t*{dep} → {arr}*\n"
+        f"Flight\t\t\t*{data.get('flight_num', '')}*\n"
         f"{booking_ref_line}"
         f"Dep Date  \t*{dep_date_disp}*\n"
         f"{arrive_date_line}"
-        f"Departs   \t*{data.get('depart_time', '')}*\n"
-        f"Arrives   \t*{data.get('arrive_time', '')}*\n"
-        f"Travellers\t*{traveler_line}*"
+        f"Departs\t\t\t*{data.get('depart_time', '')}*\n"
+        f"Arrives\t\t\t*{data.get('arrive_time', '')}*\n"
+        f"Travellers\t\t*{traveler_line}*"
     )
 
 
