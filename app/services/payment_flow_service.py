@@ -1300,8 +1300,20 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             )
             return
 
-    if not prev or step in ("pay_payout_options", "pay_method_choice",
-                            "pay_m_bank_pending", "pay_success", "pay_submit_retry"):
+    # At the very first payment step, "0" should exit payment and return to
+    # buy_cover_next_steps (the cover-selected screen), not restart payment.
+    if step in ("pay_payout_options", "pay_method_choice"):
+        session["temp_data"][PAYMENT_FLOW_KEY] = {"active": False}
+        bc_flow = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {})
+        bc_flow["active"] = True
+        bc_flow["step"]   = "buy_cover_next_steps"
+        session["temp_data"][BUY_COVER_FLOW_KEY] = bc_flow
+        await save_session(session)
+        from app.services.buy_cover_flow_service import resume_at_current_step as _bc_resume
+        await _bc_resume(wa_id=wa_id, phone_number_id=phone_number_id)
+        return
+
+    if not prev or step in ("pay_m_bank_pending", "pay_success", "pay_submit_retry"):
         await start_payment_flow(wa_id=wa_id, phone_number_id=phone_number_id)
         return
 
