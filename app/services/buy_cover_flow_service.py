@@ -513,9 +513,7 @@ async def _redisplay_step(
             "👤 👑 *Enter main passenger name*\n"
             "Enter first name and surname as it appears on the ticket.\n\n"
             "ℹ️ This person is the main passenger.\n"
-            "📞 This should be the person buying cover and would be linked to this WhatsApp number.\n"
-            "💳 Used for payment & payout processing.\n"
-            "🔔 Receive policy updates and notifications.\n\n"
+            "\n"
             "_Example: Yusuf Usman_",
             phone_number_id,
         )
@@ -1613,10 +1611,7 @@ async def handle_buy_cover_flow(
                 (
                     "👤 👑 *Enter main passenger name*\n"
                     "Enter first name and surname as it appears on the ticket.\n\n"
-                    "ℹ️ This person is the main passenger.\n"
-                    "📞 This should be the person buying cover and would be linked to this WhatsApp number.\n"
-                    "💳 Used for payment & payout processing.\n"
-                    "🔔 Receive policy updates and notifications.\n\n"
+                    "ℹ️ This person is the main passenger.\n\n"
                     "_Example: Yusuf Usman_"
                 ),
                 phone_number_id,
@@ -1718,10 +1713,7 @@ async def handle_buy_cover_flow(
                 (
                     "👤 👑 *Enter main passenger name*\n"
                     "Enter first name and surname as it appears on the ticket.\n\n"
-                    "ℹ️ This person is the main passenger.\n"
-                    "📞 This should be the person buying cover and would be linked to this WhatsApp number.\n"
-                    "💳 Used for payment & payout processing.\n"
-                    "🔔 Receive policy updates and notifications.\n\n"
+                    "ℹ️ This person is the main passenger.\n\n"
                     "_Example: Yusuf Usman_"
                 ),
                 phone_number_id,
@@ -1762,10 +1754,7 @@ async def handle_buy_cover_flow(
             (
                 "👤 👑 *Enter main passenger name*\n"
                 "Enter first name and surname as it appears on the ticket.\n\n"
-                "ℹ️ This person is the main passenger.\n"
-                "📞 This should be the person buying cover and would be linked to this WhatsApp number.\n"
-                "💳 Used for payment & payout processing.\n"
-                "🔔 Receive policy updates and notifications.\n\n"
+                "ℹ️ This person is the main passenger.\n\n"
                 "_Example: Yusuf Usman_"
             ),
             phone_number_id,
@@ -1805,10 +1794,7 @@ async def handle_buy_cover_flow(
                 (
                     "👤 👑 *Enter main passenger name*\n"
                     "Enter first name and surname as it appears on the ticket.\n\n"
-                    "ℹ️ This person is the main passenger.\n"
-                    "📞 This should be the person buying cover and would be linked to this WhatsApp number.\n"
-                    "💳 Used for payment & payout processing.\n"
-                    "🔔 Receive policy updates and notifications.\n\n"
+                    "ℹ️ This person is the main passenger.\n\n"
                     "_Example: Yusuf Usman_"
                 ),
                 phone_number_id,
@@ -3689,9 +3675,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             "👤 👑 *Enter main passenger name*\n"
             "Enter first name and surname as it appears on the ticket.\n\n"
             "ℹ️ This person is the main passenger.\n"
-            "📞 This should be the person buying cover and would be linked to this WhatsApp number.\n"
-            "💳 Used for payment & payout processing.\n"
-            "🔔 Receive policy updates and notifications.\n\n"
+            "\n"
             "_Example: Yusuf Usman_",
             phone_number_id,
         )
