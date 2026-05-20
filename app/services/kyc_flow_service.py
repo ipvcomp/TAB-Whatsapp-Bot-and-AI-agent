@@ -119,16 +119,14 @@ async def _show_bypass_screen(
     await save_session(session)
     await _send_buttons(
         wa_id,
-        "⚠️ *Verification Incomplete*\n"
-        "We could not complete verification automatically.\n\n"
-        "📋 Please review your trip details and ensure the main passenger name "
-        "matches the Biometric ID.\n\n"
-        "This will help avoid delays to any future payout.\n\n"
-        "What would you like to do?",
+        "⚠️ *Verification Pending*\n\n"
+        "Your BVN/NIN could not be verified automatically.\n\n"
+        "✅ You can still continue with your policy purchase.\n\n"
+        "ℹ️ Verification may be required before any disruption payout is processed.",
         [
-            {"id": "kyc_bypass_pay", "title": "💳 Continue to pay"},
+            {"id": "kyc_bypass_pay",    "title": "💳 Continue Purchase"},
             {"id": "kyc_bypass_review", "title": "📋 Review details"},
-            {"id": "kyc_bypass_menu", "title": "🏠 Main menu"},
+            {"id": "kyc_help",          "title": "🆘 Get Help"},
         ],
         phone_number_id,
     )
@@ -713,20 +711,20 @@ async def handle_kyc_flow(
                 _other = "NIN" if method == "BVN" else "BVN"
                 await _send_buttons(
                     sender_wa_id,
-                    f"⚠️ *{method} Verification Failed*\n\n"
-                    f"We could not verify your *{method}*: `{masked}`\n\n"
-                    f"You may have entered an incorrect number. "
-                    f"Please try again or use your {_other} instead.",
+                    f"⚠️ *Verification Pending*\n\n"
+                    f"Your {method} could not be verified automatically.\n\n"
+                    f"✅ You can still continue with your policy purchase.\n\n"
+                    f"ℹ️ Verification may be required before any disruption payout is processed.",
                     [
-                        {"id": "kyc_retry_same", "title": f"🔄 Try {method} again"},
-                        {
-                            "id": "kyc_try_another_id",
-                            "title": f"🪪 Try {_other} instead",
-                        },
                         {
                             "id": "kyc_continue_purchase",
                             "title": "💳 Continue Purchase",
                         },
+                        {
+                            "id": "kyc_try_another_id",
+                            "title": f"🪪 Try {_other} instead",
+                        },
+                        {"id": "kyc_help", "title": "🆘 Get Help"},
                     ],
                     phone_number_id,
                 )
@@ -760,20 +758,20 @@ async def handle_kyc_flow(
                 _other = "NIN" if method == "BVN" else "BVN"
                 await _send_buttons(
                     sender_wa_id,
-                    f"⚠️ *{method} Verification Failed*\n\n"
-                    f"We could not verify your *{method}*: `{masked}`\n\n"
-                    f"You may have entered an incorrect number. "
-                    f"Please try again or use your {_other} instead.",
+                    f"⚠️ *Verification Pending*\n\n"
+                    f"Your {method} could not be verified automatically.\n\n"
+                    f"✅ You can still continue with your policy purchase.\n\n"
+                    f"ℹ️ Verification may be required before any disruption payout is processed.",
                     [
-                        {"id": "kyc_retry_same", "title": f"🔄 Try {method} again"},
-                        {
-                            "id": "kyc_try_another_id",
-                            "title": f"🪪 Try {_other} instead",
-                        },
                         {
                             "id": "kyc_continue_purchase",
                             "title": "💳 Continue Purchase",
                         },
+                        {
+                            "id": "kyc_try_another_id",
+                            "title": f"🪪 Try {_other} instead",
+                        },
+                        {"id": "kyc_help", "title": "🆘 Get Help"},
                     ],
                     phone_number_id,
                 )
@@ -994,23 +992,22 @@ async def handle_kyc_flow(
                 elif any(k in ev for k in ("help", "support", "agent")):
                     reply_id = "kyc_help"
             if not reply_id:
-                masked = _mask_id(data.get("kyc_id", ""))
                 await _send_buttons(
                     sender_wa_id,
-                    f"⚠️ *{method} Verification Failed*\n\n"
-                    f"We could not verify your *{method}*: `{masked}`\n\n"
-                    f"You may have entered an incorrect number. "
-                    f"Please try again or use your {_other} instead.",
+                    f"⚠️ *Verification Pending*\n\n"
+                    f"Your {method} could not be verified automatically.\n\n"
+                    f"✅ You can still continue with your policy purchase.\n\n"
+                    f"ℹ️ Verification may be required before any disruption payout is processed.",
                     [
-                        {"id": "kyc_retry_same", "title": f"🔄 Try {method} again"},
-                        {
-                            "id": "kyc_try_another_id",
-                            "title": f"🪪 Try {_other} instead",
-                        },
                         {
                             "id": "kyc_continue_purchase",
                             "title": "💳 Continue Purchase",
                         },
+                        {
+                            "id": "kyc_try_another_id",
+                            "title": f"🪪 Try {_other} instead",
+                        },
+                        {"id": "kyc_help", "title": "🆘 Get Help"},
                     ],
                     phone_number_id,
                 )
