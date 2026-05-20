@@ -651,6 +651,26 @@ async def _redisplay_step(
                 phone_number_id,
             )
 
+    elif step == "buy_cover_next_steps":
+        cover_name = data.get("cover", "Selected cover")
+        cover_price = data.get("cover_price", 0)
+        try:
+            price_str = f"₦{float(cover_price):,.2f}"
+        except (TypeError, ValueError):
+            price_str = str(cover_price)
+        await _send_buttons(
+            wa_id,
+            f"✅ *{cover_name}*\n"
+            f"💳 *Insurance Premium: {price_str}*\n\n"
+            "What would you like to do next?",
+            [
+                {"id": "next_kyc",   "title": "🛒 Buy Cover"},
+                {"id": "next_terms", "title": "📄 View Policy Terms"},
+                {"id": "next_ask",   "title": "❓ Ask a Question"},
+            ],
+            phone_number_id,
+        )
+
     elif step == "buy_cover_summary":
         flow = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {})
         await _show_trip_summary(wa_id, data, flow, session, phone_number_id)

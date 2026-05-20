@@ -1204,14 +1204,14 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         bc_flow = session["temp_data"].get(BUY_COVER_FLOW_KEY, {})
         bc_step = bc_flow.get("step", "")
         if bc_step:
-            # Restore buy-cover as active at buy_cover_next_steps so that
-            # go_back_one_step can navigate it back to buy_cover_select_cover
+            # Restore buy-cover as active at buy_cover_next_steps and re-display
+            # that screen — "0" from buy_cover_next_steps will then go to covers
             bc_flow["active"] = True
             bc_flow["step"] = "buy_cover_next_steps"
             session["temp_data"][BUY_COVER_FLOW_KEY] = bc_flow
             await save_session(session)
-            from app.services.buy_cover_flow_service import go_back_one_step as _bc_back
-            await _bc_back(wa_id=wa_id, phone_number_id=phone_number_id)
+            from app.services.buy_cover_flow_service import resume_at_current_step as _bc_resume
+            await _bc_resume(wa_id=wa_id, phone_number_id=phone_number_id)
         else:
             await save_session(session)
             from app.services.auto_reply_service import send_main_menu
