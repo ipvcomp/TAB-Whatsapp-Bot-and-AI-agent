@@ -2588,8 +2588,27 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
+        old_dep_date = data.get("date", "")
         data["date"] = iso_date
         if data.pop("_edit_mode", False):
+            existing_arr_date = data.get("arrive_date", "")
+            if existing_arr_date and iso_date > existing_arr_date:
+                data["date"] = old_dep_date
+                try:
+                    arr_date_fmt = datetime.strptime(existing_arr_date, "%Y-%m-%d").strftime("%d %B %Y")
+                except ValueError:
+                    arr_date_fmt = existing_arr_date
+                await _send_text(
+                    sender_wa_id,
+                    (
+                        f"⚠️ Departure date cannot be after your arrival date\n\n"
+                        f"Your arrival is currently set to *{arr_date_fmt}* — "
+                        f"please enter a departure date on or before that\n\n"
+                        "_Example: 12 April 2026_"
+                    ),
+                    phone_number_id,
+                )
+                return
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
             return
         flow["step"] = "buy_cover_depart_time"
