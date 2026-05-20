@@ -405,20 +405,23 @@ async def _process_change(entry_id: str, change):
                     # 0 or #back → go back exactly ONE step in current flow
                     if _nav_text == "0" or _nav_norm in ("#back", "back"):
                         from app.services.auto_reply_service import send_main_menu
-                        if is_in_buy_cover_flow(user_session):
-                            from app.services.buy_cover_flow_service import go_back_one_step as _bc_back
-                            await _bc_back(
-                                wa_id=sender_wa_id,
-                                phone_number_id=msg_phone_number_id,
-                            )
-                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "buy_cover"})
-                        elif is_in_kyc_flow(user_session):
+                        # KYC must be checked before buy_cover — KYC runs on top of buy_cover
+                        # and buy_cover flow keeps its step set (active=False) during KYC,
+                        # so is_in_buy_cover_flow() would return True incorrectly.
+                        if is_in_kyc_flow(user_session):
                             from app.services.kyc_flow_service import go_back_one_step as _kyc_back
                             await _kyc_back(
                                 wa_id=sender_wa_id,
                                 phone_number_id=msg_phone_number_id,
                             )
                             log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "kyc"})
+                        elif is_in_buy_cover_flow(user_session):
+                            from app.services.buy_cover_flow_service import go_back_one_step as _bc_back
+                            await _bc_back(
+                                wa_id=sender_wa_id,
+                                phone_number_id=msg_phone_number_id,
+                            )
+                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "buy_cover"})
                         elif is_in_payment_flow(user_session):
                             from app.services.payment_flow_service import go_back_one_step as _pay_back
                             await _pay_back(
