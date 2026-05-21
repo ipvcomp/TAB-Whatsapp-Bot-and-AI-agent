@@ -540,12 +540,7 @@ async def _redisplay_step(
         )
 
     elif step == "buy_cover_trip_type":
-        # Auto-advance — only ONE_WAY supported; show booking_ref prompt
-        await _send_text(
-            wa_id,
-            "*🎫 Please enter your booking reference*\n\n_Examples: AB1XY2, 2990FA62_",
-            phone_number_id,
-        )
+        await _send_trip_type_buttons(wa_id, phone_number_id)
 
     elif step in (
         "buy_cover_departure_airport",
@@ -810,6 +805,27 @@ async def _send_list(
     await send_text_message(
         to=to, body=_UTILITY, phone_number_id=phone_number_id, source="buy_cover_flow"
     )
+
+
+_TRIP_TYPE_BTN_MAP = {
+    "ONE_WAY": {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
+    "RETURN":  {"id": "trip_return", "title": "2. 🔄 Return"},
+}
+
+
+async def _send_trip_type_buttons(wa_id: str, phone_number_id: Optional[str]) -> None:
+    trip_types = await ipurvey_service.get_trip_types()
+    buttons = [
+        _TRIP_TYPE_BTN_MAP[t["value"]]
+        for t in trip_types
+        if isinstance(t, dict) and t.get("value") in _TRIP_TYPE_BTN_MAP
+    ]
+    if not buttons:
+        buttons = [
+            {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
+            {"id": "trip_return", "title": "2. 🔄 Return"},
+        ]
+    await _send_buttons(wa_id, "🗺️ What type of trip is this?", buttons, phone_number_id)
 
 
 _COVER_PAGE_SIZE = (
@@ -2446,19 +2462,23 @@ async def handle_buy_cover_flow(
             return
         flow["step"] = "buy_cover_trip_type"
         await save_session(session)
-        await _send_buttons(
-            sender_wa_id,
-            "🗺️ What type of trip is this?",
-            [
-                {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
-            ],
-            phone_number_id,
-        )
+        await _send_trip_type_buttons(sender_wa_id, phone_number_id)
 
     # ── Trip type ─────────────────────────────────────────────────────────────
     elif step == "buy_cover_trip_type":
+        chosen_type = None
         if reply_id == "trip_oneway" or (text and text.strip() == "1"):
-            data["trip_type"] = "One-way 🗺️"
+            chosen_type = "One-way 🗺️"
+        elif reply_id == "trip_return" or (text and text.strip() == "2"):
+            chosen_type = "Return 🔄"
+        elif text:
+            _tl = text.strip().lower()
+            if any(k in _tl for k in ("one", "oneway", "one-way", "one way")):
+                chosen_type = "One-way 🗺️"
+            elif any(k in _tl for k in ("return", "round", "two", "twoway", "two-way")):
+                chosen_type = "Return 🔄"
+        if chosen_type:
+            data["trip_type"] = chosen_type
             flow["step"] = "buy_cover_booking_ref"
             await save_session(session)
             await _send_text(
@@ -2467,15 +2487,7 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
         else:
-            # Invalid input — skip LLM, directly re-prompt with the only valid option
-            await _send_buttons(
-                sender_wa_id,
-                "Only *One-way* trips are available at this time.\n\nPlease tap the button below to continue:",
-                [
-                    {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
-                ],
-                phone_number_id,
-            )
+            await _send_trip_type_buttons(sender_wa_id, phone_number_id)
 
     # ── Booking reference ─────────────────────────────────────────────────────
     elif step == "buy_cover_booking_ref":
@@ -3752,14 +3764,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         )
 
     elif prev == "buy_cover_trip_type":
-        await _send_buttons(
-            wa_id,
-            "🗺️ What type of trip is this?",
-            [
-                {"id": "trip_oneway", "title": "1. 🗺️ One-way"},
-            ],
-            phone_number_id,
-        )
+        await _send_trip_type_buttons(wa_id, phone_number_id)
 
     elif prev == "buy_cover_booking_ref":
         await _send_text(

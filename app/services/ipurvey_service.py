@@ -1045,6 +1045,26 @@ async def update_payout_method_wallet(
         return None
 
 
+# ── TRIP TYPES ────────────────────────────────────────────────────────────────
+
+async def get_trip_types() -> list[dict]:
+    """Fetch trip types from /api/tab-plc/policies/enums/trip-types."""
+    logger.info("[ipurvey] get_trip_types")
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(f"{_base()}/api/tab-plc/policies/enums/trip-types")
+            if r.status_code == 200:
+                body = r.json()
+                data = body.get("data") if isinstance(body, dict) else body
+                if isinstance(data, list) and data:
+                    logger.info(f"[ipurvey] get_trip_types → {[t.get('value') for t in data]}")
+                    return data
+            logger.warning(f"[ipurvey] get_trip_types → {r.status_code}: {r.text[:100]}")
+    except Exception as e:
+        logger.error(f"[ipurvey] get_trip_types failed: {e}")
+    return [{"value": "ONE_WAY", "label": "ONE WAY"}, {"value": "RETURN", "label": "RETURN"}]
+
+
 # ── PAYMENT ───────────────────────────────────────────────────────────────────
 
 async def get_payment_types(country: str = "NG") -> list[str]:
