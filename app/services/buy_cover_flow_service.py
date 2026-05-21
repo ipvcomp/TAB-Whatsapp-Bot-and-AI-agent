@@ -658,16 +658,18 @@ async def _redisplay_step(
             price_str = f"₦{float(cover_price):,.2f}"
         except (TypeError, ValueError):
             price_str = str(cover_price)
-        await _send_buttons(
+        await _send_list(
             wa_id,
             f"✅ *{cover_name}*\n"
             f"💳 *Insurance Premium: {price_str}*\n\n"
             "What would you like to do next?",
-            [
-                {"id": "next_kyc",   "title": "🛒 Buy Cover"},
-                {"id": "next_terms", "title": "📄 View Policy Terms"},
-                {"id": "next_ask",   "title": "❓ Ask a Question"},
-            ],
+            "Select an option",
+            [{"title": "Options", "rows": [
+                {"id": "next_kyc",    "title": "🛍️ Continue to KYC"},
+                {"id": "next_terms",  "title": "📄 View Policy Terms"},
+                {"id": "next_ask",    "title": "❓ Ask a Question"},
+                {"id": "next_cancel", "title": "❌ Cancel"},
+            ]}],
             phone_number_id,
         )
 
@@ -3428,14 +3430,16 @@ async def handle_buy_cover_flow(
             f"📌 _Please review the Policy Terms before payment and activation._\n\n"
             f"What would you like to do next?"
         )
-        await _send_buttons(
+        await _send_list(
             sender_wa_id,
             card_body,
-            [
-                {"id": "next_kyc",   "title": "🛒 Buy Cover"},
-                {"id": "next_terms", "title": "📄 View Policy Terms"},
-                {"id": "next_ask",   "title": "❓ Ask a Question"},
-            ],
+            "Select an option",
+            [{"title": "Options", "rows": [
+                {"id": "next_kyc",    "title": "🛍️ Continue to KYC"},
+                {"id": "next_terms",  "title": "📄 View Policy Terms"},
+                {"id": "next_ask",    "title": "❓ Ask a Question"},
+                {"id": "next_cancel", "title": "❌ Cancel"},
+            ]}],
             phone_number_id,
         )
 
@@ -3543,14 +3547,16 @@ async def handle_buy_cover_flow(
         elif reply_id == "next_cancel":
             await show_cancel_purchase_confirm(sender_wa_id, phone_number_id)
         else:
-            await _send_buttons(
+            await _send_list(
                 sender_wa_id,
                 "What would you like to do next?",
-                [
-                    {"id": "next_kyc",   "title": "🛒 Buy Cover"},
-                    {"id": "next_terms", "title": "📄 View Policy Terms"},
-                    {"id": "next_ask",   "title": "❓ Ask a Question"},
-                ],
+                "Select an option",
+                [{"title": "Options", "rows": [
+                    {"id": "next_kyc",    "title": "🛍️ Continue to KYC"},
+                    {"id": "next_terms",  "title": "📄 View Policy Terms"},
+                    {"id": "next_ask",    "title": "❓ Ask a Question"},
+                    {"id": "next_cancel", "title": "❌ Cancel"},
+                ]}],
                 phone_number_id,
             )
 
