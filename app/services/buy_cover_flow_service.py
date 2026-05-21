@@ -658,18 +658,16 @@ async def _redisplay_step(
             price_str = f"₦{float(cover_price):,.2f}"
         except (TypeError, ValueError):
             price_str = str(cover_price)
-        await _send_list(
+        await _send_buttons(
             wa_id,
             f"✅ *{cover_name}*\n"
             f"💳 *Insurance Premium: {price_str}*\n\n"
             "What would you like to do next?",
-            "Select an option",
-            [{"title": "Options", "rows": [
-                {"id": "next_kyc",    "title": "🛒 Buy Cover"},
-                {"id": "next_terms",  "title": "📄 View Policy Terms"},
-                {"id": "next_ask",    "title": "❓ Ask a Question"},
-                {"id": "next_cancel", "title": "❌ Cancel"},
-            ]}],
+            [
+                {"id": "next_kyc",   "title": "🛒 Buy Cover"},
+                {"id": "next_terms", "title": "📄 View Policy Terms"},
+                {"id": "next_ask",   "title": "❓ Ask a Question"},
+            ],
             phone_number_id,
         )
 
@@ -3396,9 +3394,13 @@ async def handle_buy_cover_flow(
             or ""
         )
         payout_limit = (
-            selected_q.get("coverageAmount")
+            selected_q.get("disruptionPayout")
+            or selected_q.get("coverageAmount")
             or selected_q.get("maxPayout")
             or selected_q.get("sumInsured")
+            or selected_q.get("payoutLimit")
+            or selected_q.get("maxCoverage")
+            or selected_q.get("disruption_payout")
             or 0
         )
         coverage = selected_q.get("coverageTypes") or [
@@ -3430,16 +3432,14 @@ async def handle_buy_cover_flow(
             f"📌 _Please review the Policy Terms before payment and activation._\n\n"
             f"What would you like to do next?"
         )
-        await _send_list(
+        await _send_buttons(
             sender_wa_id,
             card_body,
-            "Select an option",
-            [{"title": "Options", "rows": [
-                {"id": "next_kyc",    "title": "🛒 Buy Cover"},
-                {"id": "next_terms",  "title": "📄 View Policy Terms"},
-                {"id": "next_ask",    "title": "❓ Ask a Question"},
-                {"id": "next_cancel", "title": "❌ Cancel"},
-            ]}],
+            [
+                {"id": "next_kyc",   "title": "🛒 Buy Cover"},
+                {"id": "next_terms", "title": "📄 View Policy Terms"},
+                {"id": "next_ask",   "title": "❓ Ask a Question"},
+            ],
             phone_number_id,
         )
 
@@ -3547,16 +3547,14 @@ async def handle_buy_cover_flow(
         elif reply_id == "next_cancel":
             await show_cancel_purchase_confirm(sender_wa_id, phone_number_id)
         else:
-            await _send_list(
+            await _send_buttons(
                 sender_wa_id,
                 "What would you like to do next?",
-                "Select an option",
-                [{"title": "Options", "rows": [
-                    {"id": "next_kyc",    "title": "🛒 Buy Cover"},
-                    {"id": "next_terms",  "title": "📄 View Policy Terms"},
-                    {"id": "next_ask",    "title": "❓ Ask a Question"},
-                    {"id": "next_cancel", "title": "❌ Cancel"},
-                ]}],
+                [
+                    {"id": "next_kyc",   "title": "🛒 Buy Cover"},
+                    {"id": "next_terms", "title": "📄 View Policy Terms"},
+                    {"id": "next_ask",   "title": "❓ Ask a Question"},
+                ],
                 phone_number_id,
             )
 
@@ -3886,16 +3884,14 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             )
 
     elif prev == "buy_cover_next_steps":
-        await _send_list(
+        await _send_buttons(
             wa_id,
             "What would you like to do next?",
-            "Select an option",
-            [{"title": "Options", "rows": [
-                {"id": "next_kyc",    "title": "🛒 Buy Cover"},
-                {"id": "next_terms",  "title": "📄 View Policy Terms"},
-                {"id": "next_ask",    "title": "❓ Ask a Question"},
-                {"id": "next_cancel", "title": "❌ Cancel"},
-            ]}],
+            [
+                {"id": "next_kyc",   "title": "🛒 Buy Cover"},
+                {"id": "next_terms", "title": "📄 View Policy Terms"},
+                {"id": "next_ask",   "title": "❓ Ask a Question"},
+            ],
             phone_number_id,
         )
 
