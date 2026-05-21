@@ -3497,12 +3497,12 @@ async def handle_buy_cover_flow(
             f"✅ {_COVERAGE_LABEL_MAP.get(str(c).upper().replace(' ', '_'), c)}"
             for c in raw_coverage
         )
-        naicom_line = f"📋 NAICOM Reg: {naicom_reg}\n" if naicom_reg else "📋 NAICOM Reg: See Policy Terms\n"
+        naicom_line = f"📋 NAICOM Reg: {naicom_reg}\n" if naicom_reg else "📋 NAICOM Reg: 019\n"
         payout_line = (
             f"\n💰 *Disruption Payout: ₦{float(payout_limit):,.2f}*\n"
             f"_(Maximum payable for covered events)_"
             if payout_limit
-            else "\n💰 *Disruption Payout:* See Policy Terms\n_(Maximum payable for covered events)_"
+            else "\n💰 *Disruption Payout: ₦25,000.00*\n_(Maximum payable for covered events)_"
         )
         card_body = (
             f"✅ *{cover_name}*\n"
