@@ -665,7 +665,7 @@ async def _redisplay_step(
             "What would you like to do next?",
             "Select an option",
             [{"title": "Options", "rows": [
-                {"id": "next_kyc",    "title": "🛍️ Continue to KYC"},
+                {"id": "next_kyc",    "title": "🛒 Buy Cover"},
                 {"id": "next_terms",  "title": "📄 View Policy Terms"},
                 {"id": "next_ask",    "title": "❓ Ask a Question"},
                 {"id": "next_cancel", "title": "❌ Cancel"},
@@ -3435,7 +3435,7 @@ async def handle_buy_cover_flow(
             card_body,
             "Select an option",
             [{"title": "Options", "rows": [
-                {"id": "next_kyc",    "title": "🛍️ Continue to KYC"},
+                {"id": "next_kyc",    "title": "🛒 Buy Cover"},
                 {"id": "next_terms",  "title": "📄 View Policy Terms"},
                 {"id": "next_ask",    "title": "❓ Ask a Question"},
                 {"id": "next_cancel", "title": "❌ Cancel"},
@@ -3468,7 +3468,7 @@ async def handle_buy_cover_flow(
             llm_next = await call_extract(
                 user_id=sender_wa_id,
                 field_name="next_action",
-                question_asked="What would you like to do? Continue to KYC, View Policy Terms, Ask a question, or Cancel purchase?",
+                question_asked="What would you like to do? Buy Cover, View Policy Terms, Ask a question, or Cancel purchase?",
                 user_response=text,
                 expected_format="text",
             )
@@ -3552,7 +3552,7 @@ async def handle_buy_cover_flow(
                 "What would you like to do next?",
                 "Select an option",
                 [{"title": "Options", "rows": [
-                    {"id": "next_kyc",    "title": "🛍️ Continue to KYC"},
+                    {"id": "next_kyc",    "title": "🛒 Buy Cover"},
                     {"id": "next_terms",  "title": "📄 View Policy Terms"},
                     {"id": "next_ask",    "title": "❓ Ask a Question"},
                     {"id": "next_cancel", "title": "❌ Cancel"},
@@ -3891,7 +3891,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             "What would you like to do next?",
             "Select an option",
             [{"title": "Options", "rows": [
-                {"id": "next_kyc",    "title": "🛍️ Continue to KYC"},
+                {"id": "next_kyc",    "title": "🛒 Buy Cover"},
                 {"id": "next_terms",  "title": "📄 View Policy Terms"},
                 {"id": "next_ask",    "title": "❓ Ask a Question"},
                 {"id": "next_cancel", "title": "❌ Cancel"},
