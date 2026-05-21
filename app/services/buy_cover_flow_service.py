@@ -423,6 +423,60 @@ def _build_trip_summary_text(data: dict) -> str:
     )
 
 
+def _build_cover_card_body(data: dict) -> str:
+    """Build the full cover-selected card body from session data."""
+    cover_name  = data.get("cover", "Selected cover")
+    cover_price = data.get("cover_price", 0)
+    sq          = data.get("selected_quote") or {}
+    trip_type   = sq.get("tripType") or sq.get("travelType") or "Single trip"
+    insurer     = (
+        sq.get("insurer") or sq.get("provider")
+        or sq.get("providerName") or "Tangerine Insurance"
+    )
+    naicom_reg  = sq.get("naicomReg") or sq.get("regulatoryRef") or sq.get("regNumber") or ""
+    payout_limit = (
+        sq.get("disruptionPayout") or sq.get("coverageAmount") or sq.get("maxPayout")
+        or sq.get("sumInsured") or sq.get("payoutLimit") or sq.get("maxCoverage")
+        or sq.get("disruption_payout") or 0
+    )
+    _COVERAGE_LABEL_MAP = {
+        "CANCELLATION":      "Trip Cancellation Cover",
+        "DELAY":             "Trip Delay Cover",
+        "MAJOR_DELAY":       "Trip Delay Cover",
+        "TRAVEL_DISRUPTION": "Travel Disruption Cover",
+        "BAGGAGE":           "Baggage Cover",
+        "MEDICAL":           "Medical Cover",
+    }
+    raw_coverage  = sq.get("coverageTypes") or ["Trip Delay Cover", "Trip Cancellation Cover"]
+    coverage_lines = "\n".join(
+        f"✅ {_COVERAGE_LABEL_MAP.get(str(c).upper().replace(' ', '_'), c)}"
+        for c in raw_coverage
+    )
+    naicom_line = f"📋 NAICOM Reg: {naicom_reg}\n" if naicom_reg else "📋 NAICOM Reg: 019\n"
+    payout_line = (
+        f"\n💰 *Disruption Payout: ₦{float(payout_limit):,.2f}*\n"
+        f"_(Maximum payable for covered events)_"
+        if payout_limit
+        else "\n💰 *Disruption Payout: ₦25,000.00*\n_(Maximum payable for covered events)_"
+    )
+    return (
+        f"✅ *{cover_name}*\n"
+        f"✅ _Cover selected_\n\n"
+        f"✈️ Trip Type: {trip_type}\n"
+        f"🏢 Insurer: {insurer}\n"
+        f"{naicom_line}"
+        f"\n*Your cover includes:*\n"
+        f"{coverage_lines}\n\n"
+        f"💳 *Insurance Premium: ₦{float(cover_price):,.2f}*\n"
+        f"_(Inclusive of taxes & fees)_"
+        f"{payout_line}\n\n"
+        f"ℹ️ _This policy provides protection for covered travel disruption events only. "
+        f"Terms, limits, exclusions and waiting periods apply._\n\n"
+        f"📌 _Please review the Policy Terms before payment and activation._\n\n"
+        f"What would you like to do next?"
+    )
+
+
 def _build_paused_context(session: dict) -> dict:
     """Snapshot the currently active buy/kyc/payment flow for resume later."""
     td = session.get("temp_data", {})
@@ -647,17 +701,9 @@ async def _redisplay_step(
             )
 
     elif step == "buy_cover_next_steps":
-        cover_name = data.get("cover", "Selected cover")
-        cover_price = data.get("cover_price", 0)
-        try:
-            price_str = f"₦{float(cover_price):,.2f}"
-        except (TypeError, ValueError):
-            price_str = str(cover_price)
         await _send_buttons(
             wa_id,
-            f"✅ *{cover_name}*\n"
-            f"💳 *Insurance Premium: {price_str}*\n\n"
-            "What would you like to do next?",
+            _build_cover_card_body(data),
             [
                 {"id": "next_kyc",   "title": "🛒 Buy Cover"},
                 {"id": "next_terms", "title": "📄 View Policy Terms"},
@@ -3391,6 +3437,7 @@ async def handle_buy_cover_flow(
                     )
                     data["cover"] = q_name
                     data["cover_price"] = q_price
+                    data["selected_quote"] = selected_q
                     policy_id = session.get("api_data", {}).get("policy_id")
                     if policy_id and prod_id:
                         try:
@@ -3457,72 +3504,9 @@ async def handle_buy_cover_flow(
         flow["step"] = "buy_cover_next_steps"
         flow["active"] = True
         await save_session(session)
-        cover_name = data.get("cover", "Selected cover")
-        cover_price = data.get("cover_price", 0)
-        trip_type = (
-            selected_q.get("tripType") or selected_q.get("travelType") or "Single trip"
-        )
-        insurer = (
-            selected_q.get("insurer")
-            or selected_q.get("provider")
-            or selected_q.get("providerName")
-            or "Tangerine Insurance"
-        )
-        naicom_reg = (
-            selected_q.get("naicomReg")
-            or selected_q.get("regulatoryRef")
-            or selected_q.get("regNumber")
-            or ""
-        )
-        payout_limit = (
-            selected_q.get("disruptionPayout")
-            or selected_q.get("coverageAmount")
-            or selected_q.get("maxPayout")
-            or selected_q.get("sumInsured")
-            or selected_q.get("payoutLimit")
-            or selected_q.get("maxCoverage")
-            or selected_q.get("disruption_payout")
-            or 0
-        )
-        _COVERAGE_LABEL_MAP = {
-            "CANCELLATION":        "Trip Cancellation Cover",
-            "DELAY":               "Trip Delay Cover",
-            "MAJOR_DELAY":         "Trip Delay Cover",
-            "TRAVEL_DISRUPTION":   "Travel Disruption Cover",
-            "BAGGAGE":             "Baggage Cover",
-            "MEDICAL":             "Medical Cover",
-        }
-        raw_coverage = selected_q.get("coverageTypes") or ["Trip Delay Cover", "Trip Cancellation Cover"]
-        coverage_lines = "\n".join(
-            f"✅ {_COVERAGE_LABEL_MAP.get(str(c).upper().replace(' ', '_'), c)}"
-            for c in raw_coverage
-        )
-        naicom_line = f"📋 NAICOM Reg: {naicom_reg}\n" if naicom_reg else "📋 NAICOM Reg: 019\n"
-        payout_line = (
-            f"\n💰 *Disruption Payout: ₦{float(payout_limit):,.2f}*\n"
-            f"_(Maximum payable for covered events)_"
-            if payout_limit
-            else "\n💰 *Disruption Payout: ₦25,000.00*\n_(Maximum payable for covered events)_"
-        )
-        card_body = (
-            f"✅ *{cover_name}*\n"
-            f"✅ _Cover selected_\n\n"
-            f"✈️ Trip Type: {trip_type}\n"
-            f"🏢 Insurer: {insurer}\n"
-            f"{naicom_line}"
-            f"\n*Your cover includes:*\n"
-            f"{coverage_lines}\n\n"
-            f"💳 *Insurance Premium: ₦{float(cover_price):,.2f}*\n"
-            f"_(Inclusive of taxes & fees)_"
-            f"{payout_line}\n\n"
-            f"ℹ️ _This policy provides protection for covered travel disruption events only. "
-            f"Terms, limits, exclusions and waiting periods apply._\n\n"
-            f"📌 _Please review the Policy Terms before payment and activation._\n\n"
-            f"What would you like to do next?"
-        )
         await _send_buttons(
             sender_wa_id,
-            card_body,
+            _build_cover_card_body(data),
             [
                 {"id": "next_kyc",   "title": "🛒 Buy Cover"},
                 {"id": "next_terms", "title": "📄 View Policy Terms"},
@@ -3965,9 +3949,11 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             )
 
     elif prev == "buy_cover_next_steps":
+        flow  = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {})
+        _data = flow.get("data", {})
         await _send_buttons(
             wa_id,
-            "What would you like to do next?",
+            _build_cover_card_body(_data),
             [
                 {"id": "next_kyc",   "title": "🛒 Buy Cover"},
                 {"id": "next_terms", "title": "📄 View Policy Terms"},
