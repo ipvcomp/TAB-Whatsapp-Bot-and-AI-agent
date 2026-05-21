@@ -2471,17 +2471,33 @@ async def handle_buy_cover_flow(
 
     # ── Trip type ─────────────────────────────────────────────────────────────
     elif step == "buy_cover_trip_type":
-        chosen_type = None
+        valid_trip_types = await ipurvey_service.get_trip_types()
+        valid_values = {t["value"] for t in valid_trip_types if isinstance(t, dict) and t.get("value")}
+        if not valid_values:
+            valid_values = {"ONE_WAY", "RETURN"}
+
+        chosen_api_value = None
         if reply_id == "trip_oneway" or (text and text.strip() == "1"):
-            chosen_type = "One-way 🗺️"
+            chosen_api_value = "ONE_WAY"
         elif reply_id == "trip_return" or (text and text.strip() == "2"):
-            chosen_type = "Return 🔄"
+            chosen_api_value = "RETURN"
         elif text:
             _tl = text.strip().lower()
             if any(k in _tl for k in ("one", "oneway", "one-way", "one way")):
-                chosen_type = "One-way 🗺️"
+                chosen_api_value = "ONE_WAY"
             elif any(k in _tl for k in ("return", "round", "two", "twoway", "two-way")):
-                chosen_type = "Return 🔄"
+                chosen_api_value = "RETURN"
+
+        if chosen_api_value and chosen_api_value not in valid_values:
+            await _send_trip_type_buttons(sender_wa_id, phone_number_id)
+            return
+
+        chosen_type = None
+        if chosen_api_value == "ONE_WAY":
+            chosen_type = "One-way 🗺️"
+        elif chosen_api_value == "RETURN":
+            chosen_type = "Return 🔄"
+
         if chosen_type:
             data["trip_type"] = chosen_type
             flow["step"] = "buy_cover_booking_ref"
