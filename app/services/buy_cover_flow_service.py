@@ -3484,22 +3484,29 @@ async def handle_buy_cover_flow(
             or selected_q.get("disruption_payout")
             or 0
         )
-        coverage = selected_q.get("coverageTypes") or [
-            "Major delay",
-            "Cancellation",
-            "Travel disruption",
-        ]
-        coverage_lines = "\n".join(f"✅ {c}" for c in coverage)
-        naicom_line = f"📋 NAICOM Reg: {naicom_reg}\n" if naicom_reg else ""
+        _COVERAGE_LABEL_MAP = {
+            "CANCELLATION":        "Trip Cancellation Cover",
+            "DELAY":               "Trip Delay Cover",
+            "MAJOR_DELAY":         "Trip Delay Cover",
+            "TRAVEL_DISRUPTION":   "Travel Disruption Cover",
+            "BAGGAGE":             "Baggage Cover",
+            "MEDICAL":             "Medical Cover",
+        }
+        raw_coverage = selected_q.get("coverageTypes") or ["Trip Delay Cover", "Trip Cancellation Cover"]
+        coverage_lines = "\n".join(
+            f"✅ {_COVERAGE_LABEL_MAP.get(str(c).upper().replace(' ', '_'), c)}"
+            for c in raw_coverage
+        )
+        naicom_line = f"📋 NAICOM Reg: {naicom_reg}\n" if naicom_reg else "📋 NAICOM Reg: See Policy Terms\n"
         payout_line = (
             f"\n💰 *Disruption Payout: ₦{float(payout_limit):,.2f}*\n"
             f"_(Maximum payable for covered events)_"
             if payout_limit
-            else ""
+            else "\n💰 *Disruption Payout:* See Policy Terms\n_(Maximum payable for covered events)_"
         )
         card_body = (
             f"✅ *{cover_name}*\n"
-            f"_Cover selected_\n\n"
+            f"✅ _Cover selected_\n\n"
             f"✈️ Trip Type: {trip_type}\n"
             f"🏢 Insurer: {insurer}\n"
             f"{naicom_line}"
