@@ -951,17 +951,72 @@ async def handle_payment_flow(
             )
 
         elif reply_id in ("pay_m_card", "pay_m_wallet", "pay_m_ussd"):
-            await send_text_message(
-                to=sender_wa_id,
-                body=(
-                    "⚠️ *Payment method not currently available*\n\n"
-                    "Bank transfer is the only supported payment method at this time.\n\n"
-                    "Please select *Bank Transfer* to continue."
-                ),
-                phone_number_id=phone_number_id,
-                source="payment_flow",
+            _method_map = {
+                "pay_m_card":   ("CARD",                   "Card Payment"),
+                "pay_m_wallet": ("SMARTCASH_MOBILE_MONEY", "Mobile Money"),
+                "pay_m_ussd":   ("USSD",                   "USSD"),
+            }
+            _api_method, _method_display = _method_map[reply_id]
+            policy_id  = session.get("api_data", {}).get("policy_id")
+            initiate_error = False
+            payment_id = None
+            api_ref    = None
+            if policy_id:
+                try:
+                    pay_result = await ipurvey_service.initiate_payment(
+                        policy_id=policy_id,
+                        payment_method=_api_method,
+                    )
+                    if pay_result and isinstance(pay_result, dict):
+                        api_ref    = (
+                            pay_result.get("reference")
+                            or pay_result.get("paymentReference")
+                            or pay_result.get("paymentRef")
+                        )
+                        payment_id = pay_result.get("paymentId") or pay_result.get("id")
+                        policy_code_from_api = pay_result.get("policyCode")
+                        api_data = session.setdefault("api_data", {})
+                        if payment_id:
+                            api_data["payment_id"] = payment_id
+                        if policy_code_from_api:
+                            api_data["policy_code"] = policy_code_from_api
+                            logger.info(f"[payment] saved policy_code='{policy_code_from_api}' from initiate_payment")
+                    else:
+                        initiate_error = True
+                except Exception as exc:
+                    logger.error(f"[payment] initiate_payment {_api_method} failed: {exc}")
+                    initiate_error = True
+            else:
+                initiate_error = True
+
+            if initiate_error:
+                await save_session(session)
+                await _show_payment_failed_screen(sender_wa_id, session, data, data.get("pay_m_bank_ref", "—"), phone_number_id)
+                return
+
+            ref_display = api_ref or "Check SMS/email for reference"
+            data["pay_m_bank_ref"]     = ref_display
+            data["pay_method_display"] = _method_display
+            flow["step"] = "pay_m_bank_pending"
+            await save_session(session)
+            await _send_buttons(
+                sender_wa_id,
+                f"✅ *Payment method selected*\n"
+                f"You chose: {_method_display}\n\n"
+                "ℹ️ *What happens next?*\n\n"
+                "📱 You will receive a WhatsApp message shortly with a payment link to complete your payment securely.\n"
+                "*Please check your WhatsApp inbox.*\n\n"
+                "⚠️ Do not make any payment outside the WhatsApp link you receive.\n\n"
+                "🛡️ *Important*\n\n"
+                "📋 Your policy will only be activated after *successful payment confirmation.*\n\n"
+                "❌ *Without a completed payment, no cover will be in place.*\n\n"
+                "After payment, reply with:",
+                [
+                    {"id": "pay_m_done",    "title": "✅ I have paid"},
+                    {"id": "pay_m_refresh", "title": "🔄 Refresh status"},
+                ],
+                phone_number_id,
             )
-            await _show_payment_summary(sender_wa_id, session, flow, phone_number_id)
         else:
             await _show_payment_summary(sender_wa_id, session, flow, phone_number_id)
 
@@ -1084,21 +1139,12 @@ async def handle_payment_flow(
                 phone_number_id,
             )
 
-    # ── Legacy simulated payment steps — redirect to payment summary ──────────
+    # ── Legacy simulated payment steps — redirect to payment method choice ────
     elif step in (
         "pay_m_card_number", "pay_m_card_expiry", "pay_m_card_cvv", "pay_m_card_otp",
         "pay_m_wallet_select", "pay_m_wallet_phone", "pay_m_wallet_otp",
         "pay_m_ussd_confirm",
     ):
-        await send_text_message(
-            to=sender_wa_id,
-            body=(
-                "⚠️ *Payment method not currently available*\n\n"
-                "Only Bank Transfer is supported. Please select it to continue."
-            ),
-            phone_number_id=phone_number_id,
-            source="payment_flow",
-        )
         flow["step"] = "pay_method_choice"
         await save_session(session)
         await _show_payment_summary(sender_wa_id, session, flow, phone_number_id)
