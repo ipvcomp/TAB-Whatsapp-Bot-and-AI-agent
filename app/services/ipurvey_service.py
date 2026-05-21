@@ -195,7 +195,8 @@ async def search_airports(query: str, country_code: Optional[str] = None) -> lis
                 return []
             seen_codes: set = set()
             results = []
-            for item in items[:10]:
+            _ng_filter = country_code and country_code.upper() == "NG"
+            for item in items[:20]:
                 code = (
                     item.get("iataCode") or item.get("iata_code") or
                     item.get("code") or item.get("airportCode") or ""
@@ -208,13 +209,26 @@ async def search_airports(query: str, country_code: Optional[str] = None) -> lis
                     item.get("country") or item.get("countryName") or
                     item.get("country_name") or ""
                 )
+                item_country_code = (
+                    item.get("countryCode") or item.get("country_code") or
+                    item.get("country_iso2") or item.get("iso2") or ""
+                ).upper()
                 if not (code or name):
                     continue
+                if _ng_filter:
+                    is_nigeria = (
+                        "nigeria" in country.lower()
+                        or item_country_code == "NG"
+                    )
+                    if not is_nigeria:
+                        continue
                 dedup_key = code.upper() if code else name.lower()
                 if dedup_key in seen_codes:
                     continue
                 seen_codes.add(dedup_key)
                 results.append({"code": code, "name": name, "country": country})
+                if len(results) >= 10:
+                    break
 
         logger.info(f"[ipurvey] search_airports → {len(results)} result(s) for '{query}'")
         # ── cache store ───────────────────────────────────────────────────────

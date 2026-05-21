@@ -6,7 +6,7 @@ from typing import Optional
 import app.services.ipurvey_service as ipurvey_service
 
 from app.core.test_overrides import get_msisdn
-from app.services.llm_service import call_extract, call_generic
+from app.services.llm_service import call_extract, call_generic, call_policy_flow_validate
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -2705,17 +2705,36 @@ async def handle_buy_cover_flow(
                 search_term, country_code="NG"
             )
             if not airports:
-                await _send_buttons(
-                    sender_wa_id,
-                    (
-                        f'❌ *No airports found matching "{search_term}"*\n\n'
-                        "We couldn't find any airport matching your entry.\n"
-                        "Please check the spelling or try searching again."
-                    ),
-                    [{"id": "dep_search_again", "title": "🔍 Search again"}],
-                    phone_number_id,
+                logger.info(f"[airport_dep] No results for '{search_term}', calling LLM to extract clean search term")
+                llm_resp = await call_policy_flow_validate(
+                    step_id=12,
+                    context="Departure airport",
+                    field_name="departure_airport",
+                    question_asked="✈️ What airport are you flying from?\n\nType at least 3 characters of the airport name or IATA code to search.",
+                    user_response=search_term,
+                    step_type="airport",
+                    expected_format="3+ alpha characters or IATA code",
+                    validation_rules={"pattern": "alpha_only", "min_len": 3},
                 )
-                return
+                extracted = (llm_resp or {}).get("extracted_value", "")
+                if llm_resp and llm_resp.get("is_valid") and extracted and len(extracted.strip()) >= 3:
+                    logger.info(f"[airport_dep] LLM extracted '{extracted}', retrying airport search")
+                    airports = await ipurvey_service.search_airports(
+                        extracted.strip(), country_code="NG"
+                    )
+                if not airports:
+                    await _send_buttons(
+                        sender_wa_id,
+                        (
+                            f'❌ *No airports found matching "{search_term}"*\n\n'
+                            "We couldn't find any Nigerian airport matching your entry.\n"
+                            "Please check the spelling or try a different name or IATA code.\n\n"
+                            "_Example: LOS, ABV, KAD, PHC_"
+                        ),
+                        [{"id": "dep_search_again", "title": "🔍 Search again"}],
+                        phone_number_id,
+                    )
+                    return
             rows = [
                 {
                     "id": f"dep_{a['code']}|{a['name']}",
@@ -2938,17 +2957,36 @@ async def handle_buy_cover_flow(
                 search_term, country_code="NG"
             )
             if not airports:
-                await _send_buttons(
-                    sender_wa_id,
-                    (
-                        f'❌ *No airports found matching "{search_term}"*\n\n'
-                        "We couldn't find any airport matching your entry.\n"
-                        "Please check the spelling or try searching again."
-                    ),
-                    [{"id": "arr_search_again", "title": "🔍 Search again"}],
-                    phone_number_id,
+                logger.info(f"[airport_arr] No results for '{search_term}', calling LLM to extract clean search term")
+                llm_resp = await call_policy_flow_validate(
+                    step_id=15,
+                    context="Arrival airport",
+                    field_name="arrival_airport",
+                    question_asked="✈️ What airport are you arriving at?\n\nType at least 3 characters of the airport name or IATA code to search.",
+                    user_response=search_term,
+                    step_type="airport",
+                    expected_format="3+ alpha characters or IATA code",
+                    validation_rules={"pattern": "alpha_only", "min_len": 3},
                 )
-                return
+                extracted = (llm_resp or {}).get("extracted_value", "")
+                if llm_resp and llm_resp.get("is_valid") and extracted and len(extracted.strip()) >= 3:
+                    logger.info(f"[airport_arr] LLM extracted '{extracted}', retrying airport search")
+                    airports = await ipurvey_service.search_airports(
+                        extracted.strip(), country_code="NG"
+                    )
+                if not airports:
+                    await _send_buttons(
+                        sender_wa_id,
+                        (
+                            f'❌ *No airports found matching "{search_term}"*\n\n'
+                            "We couldn't find any Nigerian airport matching your entry.\n"
+                            "Please check the spelling or try a different name or IATA code.\n\n"
+                            "_Example: ABV, LOS, KAN, PHC_"
+                        ),
+                        [{"id": "arr_search_again", "title": "🔍 Search again"}],
+                        phone_number_id,
+                    )
+                    return
             rows = [
                 {
                     "id": f"arr_{a['code']}|{a['name']}",
