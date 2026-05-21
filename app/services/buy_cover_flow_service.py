@@ -705,34 +705,33 @@ async def _show_trip_summary(
     )
 
 
-async def _send_edit_menu(to: str, phone_number_id: Optional[str]):
+async def _send_edit_menu(to: str, phone_number_id: Optional[str], page: int = 1):
+    if page == 2:
+        rows = [
+            {"id": "edit_arrive_date",   "title": "📅 Arrival date"},
+            {"id": "edit_depart_time",   "title": "⏰ Departure time"},
+            {"id": "edit_arrive_time",   "title": "⏰ Arrival time"},
+            {"id": "edit_depart_airport","title": "🛫 Departure airport"},
+            {"id": "edit_arrive_airport","title": "🛬 Arrival airport"},
+            {"id": "edit_prev_fields",   "title": "⬅️ Back to page 1"},
+        ]
+        body = "✏️ *Edit details — page 2 of 2*\n\nSelect the field to update:"
+    else:
+        rows = [
+            {"id": "edit_name",         "title": "👤 Passenger name"},
+            {"id": "edit_email",        "title": "📧 Email address"},
+            {"id": "edit_airline",      "title": "✈️ Airline"},
+            {"id": "edit_booking_ref",  "title": "🎫 Booking reference"},
+            {"id": "edit_flight_num",   "title": "✈️ Flight number"},
+            {"id": "edit_date",         "title": "📅 Departure date"},
+            {"id": "edit_more_fields",  "title": "➡️ More fields (page 2)"},
+        ]
+        body = "✏️ *Edit details — page 1 of 2*\n\nSelect the field to update:"
     await _send_list(
         to,
-        "✏️ *What would you like to edit?*\n\nSelect the field to update:",
+        body,
         "Select field",
-        [
-            {
-                "title": "Personal & Flight",
-                "rows": [
-                    {"id": "edit_name",        "title": "👤 Passenger name"},
-                    {"id": "edit_email",        "title": "📧 Email address"},
-                    {"id": "edit_airline",      "title": "✈️ Airline"},
-                    {"id": "edit_booking_ref",  "title": "🎫 Booking reference"},
-                    {"id": "edit_flight_num",   "title": "🔢 Flight number"},
-                ],
-            },
-            {
-                "title": "Itinerary",
-                "rows": [
-                    {"id": "edit_date",          "title": "📅 Departure date"},
-                    {"id": "edit_arrive_date",   "title": "📅 Arrival date"},
-                    {"id": "edit_depart_time",   "title": "⏰ Departure time"},
-                    {"id": "edit_arrive_time",   "title": "⏰ Arrival time"},
-                    {"id": "edit_depart_airport","title": "🛫 Departure airport"},
-                    {"id": "edit_arrive_airport","title": "🛬 Arrival airport"},
-                ],
-            },
-        ],
+        [{"title": " ", "rows": rows}],
         phone_number_id,
     )
 
@@ -3026,6 +3025,16 @@ async def handle_buy_cover_flow(
             "edit_arrive_airport": "buy_cover_arrive_airport_pick",
             "edit_airline": "buy_cover_airline",
         }
+        if reply_id == "edit_more_fields":
+            flow["step"] = "buy_cover_edit_select"
+            await save_session(session)
+            await _send_edit_menu(sender_wa_id, phone_number_id, page=2)
+            return
+        if reply_id == "edit_prev_fields":
+            flow["step"] = "buy_cover_edit_select"
+            await save_session(session)
+            await _send_edit_menu(sender_wa_id, phone_number_id, page=1)
+            return
         target = _EDIT_MAP.get(reply_id or "")
         if not target:
             flow["step"] = "buy_cover_edit_select"
