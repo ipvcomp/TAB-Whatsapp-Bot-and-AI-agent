@@ -4,7 +4,7 @@ from typing import Optional
 import app.services.ipurvey_service as ipurvey_service
 
 from app.core.test_overrides import get_msisdn
-from app.services.llm_service import call_extract, call_generic
+from app.services.llm_service import call_extract, call_generic, call_policy_flow_validate
 from app.services.session_service import get_session, save_session, invalidate_policy_cache
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -604,13 +604,34 @@ async def handle_payment_flow(
             return
         banks = await ipurvey_service.search_banks(query)
         if not banks:
-            await _send_buttons(sender_wa_id,
-                f"❌ *No banks found matching \"{query}\"*\n\n"
-                "We couldn't find any bank matching your entry.\n"
-                "Please check the spelling or try searching again.",
-                [{"id": "bank_search_again", "title": "🔍 Search again"}],
-                phone_number_id)
-            return
+            logger.info(f"[bank_search] No results for '{query}', calling LLM to extract clean search term")
+            llm_resp = await call_policy_flow_validate(
+                step_id=23,
+                context="Bank name search",
+                field_name="bank_name",
+                question_asked="Please enter at least the first 3 characters of your bank name.",
+                user_response=query,
+                step_type="free_text",
+                expected_format="Bank name or abbreviation (3+ characters)",
+            )
+            extracted = (llm_resp or {}).get("extracted_value", "")
+            logger.info(
+                f"[bank_search] LLM result: is_valid={( llm_resp or {}).get('is_valid')}, "
+                f"extracted='{extracted}', "
+                f"guidance='{(llm_resp or {}).get('guidance_message')}'"
+            )
+            if llm_resp and llm_resp.get("is_valid") and extracted and len(extracted.strip()) >= 3:
+                logger.info(f"[bank_search] Retrying with LLM extracted term '{extracted}'")
+                banks = await ipurvey_service.search_banks(extracted.strip())
+            if not banks:
+                await _send_buttons(sender_wa_id,
+                    f"❌ *No banks found matching \"{query}\"*\n\n"
+                    "We couldn't find any bank matching your entry.\n"
+                    "Please check the spelling or try searching again.\n\n"
+                    "_Example: Zenith, GT, Access, First_",
+                    [{"id": "bank_search_again", "title": "🔍 Search again"}],
+                    phone_number_id)
+                return
         data["pay_bank_list"] = banks
         flow["step"] = "pay_bank_select"
         await save_session(session)

@@ -235,7 +235,8 @@ async def call_policy_flow_validate(
                     logger.info(
                         f"LLM policy-flow/validate OK: field={field_name}, "
                         f"is_valid={response_data.get('is_valid')}, "
-                        f"extracted={response_data.get('extracted_value')}"
+                        f"extracted={response_data.get('extracted_value')}, "
+                        f"guidance='{response_data.get('guidance_message')}'"
                     )
                     return response_data
 
