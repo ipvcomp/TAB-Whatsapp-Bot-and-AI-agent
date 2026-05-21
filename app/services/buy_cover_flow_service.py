@@ -3886,14 +3886,16 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             )
 
     elif prev == "buy_cover_next_steps":
-        await _send_buttons(
+        await _send_list(
             wa_id,
             "What would you like to do next?",
-            [
-                {"id": "next_kyc", "title": "🛒 Buy Policy"},
-                {"id": "next_terms", "title": "📄 View Policy Terms"},
+            "Select an option",
+            [{"title": "Options", "rows": [
+                {"id": "next_kyc",    "title": "🛍️ Continue to KYC"},
+                {"id": "next_terms",  "title": "📄 View Policy Terms"},
+                {"id": "next_ask",    "title": "❓ Ask a Question"},
                 {"id": "next_cancel", "title": "❌ Cancel"},
-            ],
+            ]}],
             phone_number_id,
         )
 
