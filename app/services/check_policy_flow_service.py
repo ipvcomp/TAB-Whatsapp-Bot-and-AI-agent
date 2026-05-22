@@ -1033,9 +1033,8 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
     # Steps that are sub-screens of pol_detail — go back to pol_detail
     _DETAIL_SUB = {"pol_download", "pol_eligibility", "pol_payout_done"}
 
-    # Steps that go back to pol_menu
-    _TO_MENU = {"pol_phone_list", "pol_ref_input", "pol_flight_input",
-                "pol_detail", "pol_all_list"}
+    # Steps that go back to pol_menu (search method selection)
+    _TO_MENU = {"pol_phone_list", "pol_ref_input", "pol_flight_input", "pol_detail"}
 
     if step in _DETAIL_SUB:
         pol = data.get("pol_selected") or {}
@@ -1043,6 +1042,26 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             await _show_detail(session, wa_id, pol, phone_number_id)
         else:
             # No selection cached — fall back to menu
+            flow["step"] = "pol_menu"
+            await save_session(session)
+            await _send_buttons(wa_id,
+                "How would you like to find your policy?",
+                [
+                    {"id": "pol_by_phone",  "title": "📱 My phone number"},
+                    {"id": "pol_by_number", "title": "🔢 Policy number"},
+                    {"id": "pol_by_flight", "title": "✈️ Flight number"},
+                ],
+                phone_number_id,
+                header="📋 Check my policy")
+        return
+
+    if step == "pol_all_list":
+        # Back from "All my policies" list → show the last viewed policy detail
+        pol = data.get("pol_selected") or {}
+        if pol:
+            await _show_detail(session, wa_id, pol, phone_number_id)
+        else:
+            # No selection — go to search menu
             flow["step"] = "pol_menu"
             await save_session(session)
             await _send_buttons(wa_id,

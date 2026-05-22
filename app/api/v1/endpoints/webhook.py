@@ -405,13 +405,15 @@ async def _process_change(entry_id: str, change):
                     # 0 or #back → go back exactly ONE step in current flow
                     if _nav_text == "0" or _nav_norm in ("#back", "back"):
                         from app.services.auto_reply_service import send_main_menu
-                        # KYC must be checked before buy_cover — KYC runs on top of buy_cover
-                        # and buy_cover flow keeps its step set (active=False) during KYC,
-                        # so is_in_buy_cover_flow() would return True incorrectly.
-                        # Priority order: KYC → Payment → Buy Cover → others
-                        # Both KYC and Payment run "on top of" buy_cover, which keeps
-                        # its step set (active=False), making is_in_buy_cover_flow()
-                        # return True incorrectly during those flows.
+                        # Priority order for back navigation:
+                        # KYC and Payment MUST come first — they run on top of buy_cover,
+                        # which keeps active=False during those sub-flows, so buy_cover
+                        # would incorrectly match if checked first.
+                        # check_policy, bp_link, and update_details are fully independent
+                        # flows and MUST be checked before buy_cover so that stale
+                        # buy_cover session data cannot intercept their back navigation.
+                        # Order: KYC → Payment → Check Policy → BP Link → Update Details
+                        #        → Buy Cover → Help → (main menu)
                         if is_in_kyc_flow(user_session):
                             from app.services.kyc_flow_service import go_back_one_step as _kyc_back
                             await _kyc_back(
@@ -426,20 +428,6 @@ async def _process_change(entry_id: str, change):
                                 phone_number_id=msg_phone_number_id,
                             )
                             log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "payment"})
-                        elif is_in_buy_cover_flow(user_session):
-                            from app.services.buy_cover_flow_service import go_back_one_step as _bc_back
-                            await _bc_back(
-                                wa_id=sender_wa_id,
-                                phone_number_id=msg_phone_number_id,
-                            )
-                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "buy_cover"})
-                        elif is_in_bp_link_flow(user_session):
-                            from app.services.bp_link_flow_service import go_back_one_step as _bp_back
-                            await _bp_back(
-                                wa_id=sender_wa_id,
-                                phone_number_id=msg_phone_number_id,
-                            )
-                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "bp_link"})
                         elif is_in_check_policy_flow(user_session):
                             from app.services.check_policy_flow_service import go_back_one_step as _cp_back
                             await _cp_back(
@@ -447,6 +435,13 @@ async def _process_change(entry_id: str, change):
                                 phone_number_id=msg_phone_number_id,
                             )
                             log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "check_policy"})
+                        elif is_in_bp_link_flow(user_session):
+                            from app.services.bp_link_flow_service import go_back_one_step as _bp_back
+                            await _bp_back(
+                                wa_id=sender_wa_id,
+                                phone_number_id=msg_phone_number_id,
+                            )
+                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "bp_link"})
                         elif is_in_update_details_flow(user_session):
                             from app.services.update_details_flow_service import go_back_one_step as _upd_back
                             await _upd_back(
@@ -454,6 +449,13 @@ async def _process_change(entry_id: str, change):
                                 phone_number_id=msg_phone_number_id,
                             )
                             log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "update_details"})
+                        elif is_in_buy_cover_flow(user_session):
+                            from app.services.buy_cover_flow_service import go_back_one_step as _bc_back
+                            await _bc_back(
+                                wa_id=sender_wa_id,
+                                phone_number_id=msg_phone_number_id,
+                            )
+                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "buy_cover"})
                         elif is_in_help_flow(user_session):
                             await start_help_flow(
                                 wa_id=sender_wa_id,
