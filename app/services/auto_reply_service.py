@@ -248,13 +248,17 @@ async def send_welcome_message(
             dep_date  = leg.get("departureDate", "") or local_bc.get("date", "")
             dep_time  = leg.get("departureTime", "") or local_bc.get("depart_time", "")
 
-            # Format departure as "15 May 2026 · 08:30"
+            # Format departure as "15 May 2026 · 04:30 PM"
             if dep_date and dep_time:
                 try:
                     from datetime import datetime as _dt
-                    dep_display = _dt.strptime(dep_date, "%Y-%m-%d").strftime("%d %b %Y") + f" · {dep_time}"
+                    formatted_time = _dt.strptime(dep_time, "%H:%M").strftime("%I:%M %p")
+                except (ValueError, TypeError):
+                    formatted_time = dep_time
+                try:
+                    dep_display = _dt.strptime(dep_date, "%Y-%m-%d").strftime("%d %b %Y") + f" · {formatted_time}"
                 except ValueError:
-                    dep_display = f"{dep_date} · {dep_time}"
+                    dep_display = f"{dep_date} · {formatted_time}"
             elif dep_date:
                 try:
                     from datetime import datetime as _dt
