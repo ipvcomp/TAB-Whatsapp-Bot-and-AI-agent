@@ -1216,6 +1216,24 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         return
 
     flow["step"] = prev
+
+    # When going back from kyc_failed → kyc_id_input, reset stale KYC
+    # attempt data so the new BVN/NIN entry is treated as a fresh attempt.
+    # Without this, the old wrong ID stays cached and the stale API session
+    # can interfere with the new verification call.
+    if step == "kyc_failed" and prev == "kyc_id_input":
+        data.pop("kyc_id", None)
+        data.pop("kyc_verified", None)
+        # Remove current method from tried list so a retry with the same
+        # method is allowed cleanly (won't prematurely trigger bypass screen)
+        current_method = data.get("kyc_method", "")
+        tried = data.get("kyc_methods_tried", [])
+        if current_method and current_method in tried:
+            tried.remove(current_method)
+            data["kyc_methods_tried"] = tried
+        # Clear stale OTP session from previous attempt
+        session.get("api_data", {}).pop("kyc_session_id", None)
+
     await save_session(session)
 
     if prev == "kyc_intro":
