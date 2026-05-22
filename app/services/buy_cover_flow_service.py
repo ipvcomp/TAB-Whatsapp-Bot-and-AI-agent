@@ -86,6 +86,18 @@ def _parse_time_to_hhmm(time_str: str) -> Optional[str]:
     return None
 
 
+def _fmt_time_display(hhmm: str) -> str:
+    """Convert stored HH:MM (24-hour) to 12-hour display format with AM/PM.
+
+    Examples: "03:30" → "03:30 AM", "16:30" → "04:30 PM", "00:00" → "12:00 AM"
+    Falls back to the raw string if parsing fails.
+    """
+    try:
+        return datetime.strptime(hhmm, "%H:%M").strftime("%I:%M %p")
+    except (ValueError, TypeError):
+        return hhmm
+
+
 def _is_past_date(iso_date: str) -> bool:
     """Return True if the ISO date is strictly before today."""
     try:
@@ -417,8 +429,8 @@ def _build_trip_summary_text(data: dict) -> str:
         f"{booking_ref_line}"
         f"Dep Date\t\t*{dep_date_disp}*\n"
         f"{arrive_date_line}"
-        f"Departs\t\t\t*{data.get('depart_time', '')}*\n"
-        f"Arrives\t\t\t*{data.get('arrive_time', '')}*\n"
+        f"Departs\t\t\t*{_fmt_time_display(data.get('depart_time', ''))}*\n"
+        f"Arrives\t\t\t*{_fmt_time_display(data.get('arrive_time', ''))}*\n"
         f"Travellers\t\t*{traveler_line}*"
     )
 
@@ -2728,7 +2740,7 @@ async def handle_buy_cover_flow(
                 sender_wa_id,
                 (
                     f"⚠️ Departure time must be *before* arrival time\n\n"
-                    f"Your flight arrives at *{arr_time}* on the same day — "
+                    f"Your flight arrives at *{_fmt_time_display(arr_time)}* on the same day — "
                     f"please enter a departure time earlier than that\n\n"
                     "_Example: 13:40 · 1:40 AM · 1:40 PM_"
                 ),
@@ -2975,7 +2987,7 @@ async def handle_buy_cover_flow(
                 sender_wa_id,
                 (
                     f"⚠️ *Arrival time must be after departure time on the same day*\n\n"
-                    f"Your flight departs at *{dep_time}* — "
+                    f"Your flight departs at *{_fmt_time_display(dep_time)}* — "
                     f"please enter an arrival time later than that, or if this is an "
                     f"overnight flight tap *Change Arrival Date* to set the correct date first.\n\n"
                     "_Example: 15:00 · 3:00 AM · 3:00 PM_"
