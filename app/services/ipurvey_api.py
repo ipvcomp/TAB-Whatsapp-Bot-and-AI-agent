@@ -173,6 +173,22 @@ def _normalize_policy(raw: dict) -> dict:
         or ""
     )
     policy_id = raw.get("id") or raw.get("policyId") or ref
+    dep_time = (
+        raw.get("departureTimeLocal")
+        or raw.get("departureTime")
+        or raw.get("dep_time")
+        or leg0.get("departureTimeLocal")
+        or leg0.get("departureTime")
+        or ""
+    )
+    arr_time = (
+        raw.get("arrivalTimeLocal")
+        or raw.get("arrivalTime")
+        or raw.get("arr_time")
+        or leg0.get("arrivalTimeLocal")
+        or leg0.get("arrivalTime")
+        or ""
+    )
 
     return {
         "id":        str(policy_id),
@@ -182,6 +198,8 @@ def _normalize_policy(raw: dict) -> dict:
         "airline":   str(airline),
         "flight":    str(flight),
         "date":      str(date),
+        "dep_time":  str(dep_time),
+        "arr_time":  str(arr_time),
         "origin":    str(origin),
         "dest":      str(dest),
         "cover":     str(cover),

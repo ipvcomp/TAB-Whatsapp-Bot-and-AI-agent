@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from typing import Optional
 
 import app.services.ipurvey_service as ipurvey_service
@@ -66,6 +67,18 @@ _UTILITY = (
     "0 ↩️ Back  |  9 🆘 Help  |  00 🏠 Main menu\n"
     "99 ❌ Cancel/Exit"
 )
+
+
+def _fmt_time_display(hhmm: str) -> str:
+    """Convert stored HH:MM (24-hour) to 12-hour display format with AM/PM.
+
+    Examples: "03:30" → "03:30 AM", "16:30" → "04:30 PM", "00:00" → "12:00 AM"
+    Falls back to the raw string if parsing fails.
+    """
+    try:
+        return datetime.strptime(hhmm, "%H:%M").strftime("%I:%M %p")
+    except (ValueError, TypeError):
+        return hhmm
 
 
 async def _send_text(to: str, body: str, phone_number_id: Optional[str]):
@@ -686,13 +699,18 @@ async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Op
     status_label = p["status"].capitalize() if p["status"] else "Unknown"
     traveler = p["travelers"][0] if p.get("travelers") else "—"
 
+    dep_time_display = _fmt_time_display(p.get("dep_time", "")) if p.get("dep_time") else ""
+    arr_time_display = _fmt_time_display(p.get("arr_time", "")) if p.get("arr_time") else ""
+
     card_body = (
         f"*{p['name']}*\n"
         f"Policy No: *{p['ref']}*   {status_emoji} {status_label}\n\n"
         f"✈️ Airline      {p['airline'] or '—'}\n"
         f"✈️ Flight         {p['flight'] or '—'}\n"
-        f"📅 Date          {p['date'] or '—'}\n"
-        f"👤 Traveller   {traveler}\n"
+        f"📅 Dep Date   {p['date'] or '—'}\n"
+        + (f"🕐 Dep Time  {dep_time_display}\n" if dep_time_display else "")
+        + (f"🕐 Arr Time   {arr_time_display}\n" if arr_time_display else "")
+        + f"👤 Traveller   {traveler}\n"
     )
 
     if p.get("doc_url"):
