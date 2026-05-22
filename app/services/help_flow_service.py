@@ -580,15 +580,23 @@ async def _show_topic(
         header=f"{meta['emoji']} {meta['title']} — FAQs",
     )
 
-    await _send_buttons(
-        wa_id,
-        meta["action_body"],
-        [
-            {"id": meta["action_id"], "title": meta["action_btn"]},
-            {"id": "hlp_back",        "title": "↩️ Back to topics"},
-        ],
-        phone_number_id,
-    )
+    if topic_key != "hlp_claim":
+        await _send_buttons(
+            wa_id,
+            meta["action_body"],
+            [
+                {"id": meta["action_id"], "title": meta["action_btn"]},
+                {"id": "hlp_back",        "title": "↩️ Back to topics"},
+            ],
+            phone_number_id,
+        )
+    else:
+        await _send_buttons(
+            wa_id,
+            "What would you like to do?",
+            [{"id": "hlp_back", "title": "↩️ Back to topics"}],
+            phone_number_id,
+        )
 
 
 async def _show_faq_answer(
@@ -609,15 +617,23 @@ async def _show_faq_answer(
     meta = _TOPIC_META[topic_key]
 
     await _send_text(wa_id, answer, phone_number_id)
-    await _send_buttons(
-        wa_id,
-        "What would you like to do next?",
-        [
-            {"id": meta["action_id"],    "title": meta["action_btn"]},
-            {"id": "hlp_back_to_topic",  "title": f"↩️ Back to {meta['title']}"},
-        ],
-        phone_number_id,
-    )
+    if topic_key != "hlp_claim":
+        await _send_buttons(
+            wa_id,
+            "What would you like to do next?",
+            [
+                {"id": meta["action_id"],    "title": meta["action_btn"]},
+                {"id": "hlp_back_to_topic",  "title": f"↩️ Back to {meta['title']}"},
+            ],
+            phone_number_id,
+        )
+    else:
+        await _send_buttons(
+            wa_id,
+            "What would you like to do next?",
+            [{"id": "hlp_back_to_topic", "title": f"↩️ Back to {meta['title']}"}],
+            phone_number_id,
+        )
 
 
 async def handle_help_flow(
