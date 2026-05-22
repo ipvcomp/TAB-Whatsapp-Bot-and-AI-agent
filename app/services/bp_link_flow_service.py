@@ -384,6 +384,8 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
         }
         await save_session(session)
 
+        bp_already_uploaded = data.get("bp_uploaded", False)
+
         if not eligible:
             # Pre-flight: no triggerType means the flight has not yet occurred
             pre_flight = not trigger_type
@@ -396,13 +398,13 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
                     "\nPlease check back with us once the scheduled flight time "
                     "has passed! ✈️",
                 ]
+                not_elig_buttons = [{"id": "bp_keep_alerts", "title": "🔔 Keep alerts on"}]
+                if not bp_already_uploaded:
+                    not_elig_buttons.append({"id": "bp_upload_first", "title": "📤 Upload pass"})
                 await _send_buttons(
                     wa_id,
                     "\n".join(body_lines),
-                    [
-                        {"id": "bp_keep_alerts",  "title": "🔔 Keep alerts on"},
-                        {"id": "bp_upload_first", "title": "📤 Upload pass"},
-                    ],
+                    not_elig_buttons,
                     phone_number_id,
                     header="❌ Not Yet Eligible",
                 )
@@ -417,13 +419,13 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
                 body_lines.append(f"📋  Policy         {pol_code}")
                 if justification:
                     body_lines.append(f"\n_{justification}_")
+                not_elig_buttons = [{"id": "bp_keep_alerts", "title": "🔔 Keep alerts on"}]
+                if not bp_already_uploaded:
+                    not_elig_buttons.append({"id": "bp_upload_first", "title": "📤 Upload pass"})
                 await _send_buttons(
                     wa_id,
                     "\n".join(body_lines),
-                    [
-                        {"id": "bp_keep_alerts",  "title": "🔔 Keep alerts on"},
-                        {"id": "bp_upload_first", "title": "📤 Upload pass"},
-                    ],
+                    not_elig_buttons,
                     phone_number_id,
                     header="⏳ Not yet eligible",
                 )
@@ -464,21 +466,22 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
             "We're unable to check eligibility right now. Please try again shortly.",
         ]
         eligible_flag = False
+        bp_already_uploaded = data.get("bp_uploaded", False)
+
+    if eligible_flag:
+        result_buttons = [{"id": "bp_confirm_payout", "title": "✅ Confirm payout"}]
+        if not bp_already_uploaded:
+            result_buttons.append({"id": "bp_upload_first", "title": "📤 Upload pass"})
+    else:
+        result_buttons = []
+        if not bp_already_uploaded:
+            result_buttons.append({"id": "bp_upload_first", "title": "📤 Upload pass"})
+        result_buttons.append({"id": "bp_eligibility", "title": "🔍 Check again"})
 
     await _send_buttons(
         wa_id,
         "\n".join(body_lines),
-        (
-            [
-                {"id": "bp_confirm_payout", "title": "✅ Confirm payout"},
-                {"id": "bp_upload_first",   "title": "📤 Upload pass"},
-            ]
-            if eligible_flag else
-            [
-                {"id": "bp_upload_first",  "title": "📤 Upload pass"},
-                {"id": "bp_eligibility",   "title": "🔍 Check again"},
-            ]
-        ),
+        result_buttons,
         phone_number_id,
         header="✅ Eligible for payout" if eligible_flag else "ℹ️ Eligibility Result",
     )
@@ -788,6 +791,7 @@ async def handle_bp_link_flow(
                                 logger.info(f"[bp_link] boarding pass uploaded OK for {pol_code} → status={bp_status}")
                                 data["bp_passenger_id"] = passenger_id
                                 data["bp_policy_id"]    = effective_pol_id
+                                data["bp_uploaded"]     = True
                                 invalidate_policy_cache(session)
                                 await save_session(session)
                                 await _show_bp_status(sender_wa_id, session, flow, bp_status, phone_number_id)
