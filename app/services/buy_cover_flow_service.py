@@ -1363,7 +1363,7 @@ async def handle_buy_cover_flow(
                     await save_session(session)
                     from app.services.kyc_flow_service import start_kyc_flow
 
-                    await start_kyc_flow(sender_wa_id, phone_number_id)
+                    await start_kyc_flow(sender_wa_id, phone_number_id, from_buy_cover=True)
                     return
 
                 elif active_flow_y == PAYMENT_FLOW_KEY:
@@ -3587,7 +3587,7 @@ async def handle_buy_cover_flow(
         if reply_id == "next_kyc":
             from app.services.kyc_flow_service import start_kyc_flow
 
-            await start_kyc_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+            await start_kyc_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id, from_buy_cover=True)
         elif reply_id == "next_terms":
             await _send_text(
                 sender_wa_id,

@@ -162,6 +162,7 @@ async def start_kyc_flow(
     wa_id: str,
     phone_number_id: Optional[str],
     in_reply_to: Optional[str] = None,
+    from_buy_cover: bool = False,
 ):
     session = await get_session(wa_id) or {}
     session.setdefault("temp_data", {})[KYC_FLOW_KEY] = {
@@ -174,8 +175,12 @@ async def start_kyc_flow(
         session["user_id"] = wa_id
     await save_session(session)
 
+    # Only short-circuit to "already verified → pay" when launched from within
+    # an active buy-cover flow.  When called from Help or standalone, the user
+    # may be verifying for a different policy, so we always show the full KYC
+    # entry screen.
     policy_id = session.get("api_data", {}).get("policy_id")
-    if policy_id:
+    if from_buy_cover and policy_id:
         try:
             kyc_status = await ipurvey_service.check_kyc_status(policy_id)
             if kyc_status and isinstance(kyc_status, dict):
@@ -186,7 +191,6 @@ async def start_kyc_flow(
                     session["temp_data"][KYC_FLOW_KEY]["step"] = "kyc_verified"
                     session["temp_data"][KYC_FLOW_KEY]["data"]["kyc_verified"] = True
                     await save_session(session)
-                    from app.services.payment_flow_service import start_payment_flow
 
                     await _send_buttons(
                         wa_id,
