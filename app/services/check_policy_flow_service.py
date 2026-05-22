@@ -910,13 +910,6 @@ async def _show_eligibility(session: dict, wa_id: str, pol: dict, phone_number_i
     await _set_step(session, "pol_eligibility")
     p = _normalize_policy(pol)
 
-    await send_text_message(
-        to=wa_id,
-        body="🔍 *Checking eligibility...*\n_Verifying policy and flight status_",
-        phone_number_id=phone_number_id,
-        source="check_policy_flow",
-    )
-
     pol_id = p.get("id", "")
     eligibility = None
     if pol_id:
@@ -972,25 +965,45 @@ async def _show_eligibility(session: dict, wa_id: str, pol: dict, phone_number_i
                 header="✅ Eligible for payout",
             )
         else:
-            body_lines = [
-                "⏳ *Not yet eligible*\n",
-                f"📋  Policy        {pol_code}",
-                f"🔔  Trigger       {trigger_label}",
-            ]
-            if delay_str:
-                body_lines.append(f"⏱️  Delay         {delay_str}")
-            if justification:
-                body_lines.append(f"\n_{justification}_")
-            await _send_buttons(
-                wa_id,
-                "\n".join(body_lines),
-                [
-                    {"id": "pol_upload_first", "title": "📤 Re-upload pass"},
-                    {"id": "pol_back_detail",  "title": "↩️ Back"},
-                ],
-                phone_number_id,
-                header="⏳ Not yet eligible",
-            )
+            # Pre-flight: no triggerType means the flight has not yet occurred
+            pre_flight = not trigger_type
+            if pre_flight:
+                body_lines = [
+                    "The flight has not taken place yet, so we cannot check your "
+                    "eligibility for a payout just yet.\n",
+                    f"📋  Policy        {pol_code}",
+                    "\nPlease check back with us once the scheduled flight time "
+                    "has passed! ✈️",
+                ]
+                await _send_buttons(
+                    wa_id,
+                    "\n".join(body_lines),
+                    [
+                        {"id": "pol_upload_first", "title": "📤 Re-upload pass"},
+                        {"id": "pol_back_detail",  "title": "↩️ Back"},
+                    ],
+                    phone_number_id,
+                    header="❌ Not Yet Eligible",
+                )
+            else:
+                body_lines = [
+                    f"📋  Policy        {pol_code}",
+                    f"🔔  Trigger       {trigger_label}",
+                ]
+                if delay_str:
+                    body_lines.append(f"⏱️  Delay         {delay_str}")
+                if justification:
+                    body_lines.append(f"\n_{justification}_")
+                await _send_buttons(
+                    wa_id,
+                    "\n".join(body_lines),
+                    [
+                        {"id": "pol_upload_first", "title": "📤 Re-upload pass"},
+                        {"id": "pol_back_detail",  "title": "↩️ Back"},
+                    ],
+                    phone_number_id,
+                    header="⏳ Not yet eligible",
+                )
     else:
         await _send_buttons(
             wa_id,

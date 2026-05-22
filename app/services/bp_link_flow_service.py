@@ -343,13 +343,6 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
     flight  = data.get("bp_sel_flight",    "")
     pol_id  = data.get("bp_sel_policy_id", "")
 
-    await _send_text(
-        wa_id,
-        "🔍 *Checking your eligibility...*\n"
-        "_Verifying policy, flight status and cover details_\n\n• • •",
-        phone_number_id,
-    )
-
     eligibility = None
     if pol_id:
         try:
@@ -392,27 +385,48 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
         await save_session(session)
 
         if not eligible:
-            body_lines = [
-                "⏳ *Not yet eligible*",
-                "Your policy has been evaluated but does not qualify for payout yet.\n",
-                f"✈️  Flight         {flight}" + (f" — {airline}" if airline else ""),
-                f"🔔  Trigger        {trigger_label}",
-            ]
-            if delay_str:
-                body_lines.append(f"⏱️  Delay          {delay_str}")
-            body_lines.append(f"📋  Policy         {pol_code}")
-            if justification:
-                body_lines.append(f"\n_{justification}_")
-            await _send_buttons(
-                wa_id,
-                "\n".join(body_lines),
-                [
-                    {"id": "bp_keep_alerts",  "title": "🔔 Keep alerts on"},
-                    {"id": "bp_upload_first", "title": "📤 Upload pass"},
-                ],
-                phone_number_id,
-                header="⏳ Not yet eligible",
-            )
+            # Pre-flight: no triggerType means the flight has not yet occurred
+            pre_flight = not trigger_type
+            if pre_flight:
+                body_lines = [
+                    "The flight has not taken place yet, so we cannot check your "
+                    "eligibility for a payout just yet.\n",
+                    f"✈️  Flight         {flight}" + (f" — {airline}" if airline else ""),
+                    f"📋  Policy         {pol_code}",
+                    "\nPlease check back with us once the scheduled flight time "
+                    "has passed! ✈️",
+                ]
+                await _send_buttons(
+                    wa_id,
+                    "\n".join(body_lines),
+                    [
+                        {"id": "bp_keep_alerts",  "title": "🔔 Keep alerts on"},
+                        {"id": "bp_upload_first", "title": "📤 Upload pass"},
+                    ],
+                    phone_number_id,
+                    header="❌ Not Yet Eligible",
+                )
+            else:
+                body_lines = [
+                    "Your policy has been evaluated but does not qualify for payout yet.\n",
+                    f"✈️  Flight         {flight}" + (f" — {airline}" if airline else ""),
+                    f"🔔  Trigger        {trigger_label}",
+                ]
+                if delay_str:
+                    body_lines.append(f"⏱️  Delay          {delay_str}")
+                body_lines.append(f"📋  Policy         {pol_code}")
+                if justification:
+                    body_lines.append(f"\n_{justification}_")
+                await _send_buttons(
+                    wa_id,
+                    "\n".join(body_lines),
+                    [
+                        {"id": "bp_keep_alerts",  "title": "🔔 Keep alerts on"},
+                        {"id": "bp_upload_first", "title": "📤 Upload pass"},
+                    ],
+                    phone_number_id,
+                    header="⏳ Not yet eligible",
+                )
             await _send_buttons(
                 wa_id, "More options:",
                 [
