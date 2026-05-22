@@ -63,6 +63,10 @@ def _normalize_policy(raw: dict) -> dict:
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("Raw policy dict (PII masked): %s", _mask_pii(raw))
 
+    itin = raw.get("itinerary") or {}
+    legs = itin.get("legs") or [] if isinstance(itin, dict) else []
+    leg0 = legs[0] if legs else {}
+
     travelers_raw = raw.get("passengers") or raw.get("travelers") or raw.get("insuredPersons") or []
     if isinstance(travelers_raw, list):
         travelers = []
@@ -79,8 +83,17 @@ def _normalize_policy(raw: dict) -> dict:
         travelers = [str(travelers_raw)] if travelers_raw else []
 
     if not travelers:
-        first = raw.get("firstName", "")
-        last = raw.get("surname") or raw.get("lastName", "")
+        first = (
+            raw.get("firstName")
+            or raw.get("passengerFirstName")
+            or ""
+        )
+        last = (
+            raw.get("surname")
+            or raw.get("lastName")
+            or raw.get("passengerSurname")
+            or ""
+        )
         full = (first + " " + last).strip() or raw.get("name", "") or raw.get("traveler", "")
         if full:
             travelers = [full]
@@ -107,12 +120,17 @@ def _normalize_policy(raw: dict) -> dict:
         or raw.get("airline")
         or raw.get("carrier")
         or raw.get("carrierName")
+        or leg0.get("airlineName")
+        or leg0.get("carrier")
         or ""
     )
     flight = (
         raw.get("flightNumber")
         or raw.get("flight")
         or raw.get("flightNo")
+        or leg0.get("flightNo")
+        or leg0.get("flightNumber")
+        or leg0.get("flight")
         or ""
     )
     date = (
@@ -121,12 +139,17 @@ def _normalize_policy(raw: dict) -> dict:
         or raw.get("travelDate")
         or raw.get("date")
         or raw.get("startDate")
+        or leg0.get("scheduledDepartureDateLocal")
+        or leg0.get("departureDate")
+        or leg0.get("date")
         or ""
     )
     origin = (
         raw.get("departureAirport")
         or raw.get("originAirport")
         or raw.get("origin")
+        or leg0.get("departureAirport")
+        or leg0.get("origin")
         or ""
     )
     dest = (
@@ -134,6 +157,9 @@ def _normalize_policy(raw: dict) -> dict:
         or raw.get("destinationAirport")
         or raw.get("destination")
         or raw.get("dest")
+        or leg0.get("arrivalAirport")
+        or leg0.get("destination")
+        or leg0.get("dest")
         or ""
     )
     cover = raw.get("coverType") or raw.get("cover") or raw.get("planType") or ""
