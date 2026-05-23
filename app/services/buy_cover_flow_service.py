@@ -3076,7 +3076,76 @@ async def handle_buy_cover_flow(
                         return
             except (ValueError, TypeError):
                 pass
-        # ── end AM/PM check ──────────────────────────────────────────────────
+
+        # ── Cross-day duration check ──────────────────────────────────────────
+        # Catches cases like dep 24-May 03:30 → arr 25-May 16:30 (37 h) that
+        # slip past the same-day guard above because the dates differ.
+        elif arr_date != dep_date and dep_date and dep_time:
+            try:
+                dep_dt = datetime.strptime(f"{dep_date} {dep_time}", "%Y-%m-%d %H:%M")
+                arr_dt = datetime.strptime(f"{arr_date} {parsed_arr_time}", "%Y-%m-%d %H:%M")
+                total_mins = int((arr_dt - dep_dt).total_seconds() / 60)
+                explicit_am = data.pop("_dep_explicit_am", False)
+                if total_mins > 360:
+                    dep_h, dep_m = map(int, dep_time.split(":"))
+                    dur_h, dur_m = divmod(total_mins, 60)
+                    dur_str = f"{dur_h}h {dur_m}m" if dur_m else f"{dur_h}h"
+                    # Check if switching departure to PM would bring it within limit
+                    pm_dep_h = dep_h + 12
+                    pm_fixes = False
+                    pm_dep = None
+                    pm_total_mins = None
+                    if not explicit_am and dep_h < 12 and pm_dep_h < 24:
+                        pm_dt = dep_dt.replace(hour=pm_dep_h)
+                        pm_total_mins = int((arr_dt - pm_dt).total_seconds() / 60)
+                        if 0 < pm_total_mins <= 360:
+                            pm_fixes = True
+                            pm_dep = f"{pm_dep_h:02d}:{dep_m:02d}"
+                    if pm_fixes and pm_dep:
+                        data["_dep_pm_alt"] = pm_dep
+                        flow["step"] = "buy_cover_depart_ampm_confirm"
+                        await save_session(session)
+                        await _send_buttons(
+                            sender_wa_id,
+                            (
+                                f"⏰ *Departure time check*\n\n"
+                                f"You entered departs *{_fmt_time_display(dep_time)}* → arrives "
+                                f"*{_fmt_time_display(parsed_arr_time)}* — "
+                                f"that's *{dur_str}*.\n\n"
+                                f"Did you mean *{_fmt_time_display(pm_dep)}* (PM) for departure?\n\n"
+                                f"_If yes, your trip would be "
+                                f"{pm_total_mins // 60}h {pm_total_mins % 60}m._"
+                            ),
+                            [
+                                {"id": "ampm_yes", "title": f"✅ Yes, {_fmt_time_display(pm_dep)}"},
+                                {"id": "ampm_no",  "title": f"No, keep {_fmt_time_display(dep_time)}"},
+                            ],
+                            phone_number_id,
+                        )
+                        return
+                    else:
+                        data.pop("depart_time", None)
+                        flow["step"] = "buy_cover_depart_time"
+                        await save_session(session)
+                        await _send_buttons(
+                            sender_wa_id,
+                            (
+                                f"⚠️ *Departure time issue*\n\n"
+                                f"You entered departs *{_fmt_time_display(dep_time)}* → arrives "
+                                f"*{_fmt_time_display(parsed_arr_time)}* — "
+                                f"that's *{dur_str}*.\n\n"
+                                f"Nigerian domestic flights don't exceed 6 hours. "
+                                f"Please check your departure time and enter it again."
+                            ),
+                            [{"id": "dep_time_retry", "title": "⏰ Re-enter departure time"}],
+                            phone_number_id,
+                        )
+                        return
+            except (ValueError, TypeError):
+                pass
+        else:
+            data.pop("_dep_explicit_am", None)
+        # ── end duration checks ───────────────────────────────────────────────
 
         if data.pop("_edit_mode", False):
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
