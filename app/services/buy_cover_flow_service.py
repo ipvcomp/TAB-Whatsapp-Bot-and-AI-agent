@@ -2713,6 +2713,14 @@ async def handle_buy_cover_flow(
 
     # ── Departure time ────────────────────────────────────────────────────────
     elif step == "buy_cover_depart_time":
+        if reply_id == "dep_time_retry":
+            await _send_text(
+                sender_wa_id,
+                "*⏰ Please enter your departure time*\n\n"
+                "_Example: 13:40 · 1:40 AM · 3:30 PM_",
+                phone_number_id,
+            )
+            return
         parsed_dep_time = _parse_time_to_hhmm(text or "")
         if not parsed_dep_time:
             await _send_text(
@@ -2749,6 +2757,9 @@ async def handle_buy_cover_flow(
             )
             return
         data["depart_time"] = parsed_dep_time
+        # Track whether the user explicitly wrote "AM" so the arrival-time
+        # sanity check can show a validation error instead of a PM suggestion.
+        data["_dep_explicit_am"] = bool(re.search(r"\bam\b", (text or "").lower()))
         if data.pop("_edit_mode", False):
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
             return
@@ -3013,31 +3024,56 @@ async def handle_buy_cover_flow(
                 pm_dep_h = dep_h + 12
                 pm_total = pm_dep_h * 60 + dep_m
                 arr_total = arr_h * 60 + arr_m
+                explicit_am = data.pop("_dep_explicit_am", False)
                 if dep_h < 12 and duration_mins > 360 and pm_total < arr_total:
-                    pm_dep = f"{pm_dep_h:02d}:{dep_m:02d}"
-                    data["_dep_pm_alt"] = pm_dep
-                    flow["step"] = "buy_cover_depart_ampm_confirm"
-                    await save_session(session)
                     dur_h, dur_m = divmod(duration_mins, 60)
                     dur_str = f"{dur_h}h {dur_m}m" if dur_m else f"{dur_h}h"
-                    await _send_buttons(
-                        sender_wa_id,
-                        (
-                            f"⏰ *Departure time check*\n\n"
-                            f"You entered departs *{_fmt_time_display(dep_time)}* → arrives "
-                            f"*{_fmt_time_display(parsed_arr_time)}* on the same day — "
-                            f"that's *{dur_str}*.\n\n"
-                            f"Did you mean *{_fmt_time_display(pm_dep)}* (PM) for departure?\n\n"
-                            f"_If yes, your trip would be "
-                            f"{(arr_total - pm_total) // 60}h {(arr_total - pm_total) % 60}m._"
-                        ),
-                        [
-                            {"id": "ampm_yes", "title": f"✅ Yes, {_fmt_time_display(pm_dep)}"},
-                            {"id": "ampm_no",  "title": f"No, keep {_fmt_time_display(dep_time)}"},
-                        ],
-                        phone_number_id,
-                    )
-                    return
+                    if explicit_am:
+                        # User wrote "AM" explicitly — trust them but flag the
+                        # duration as unrealistic and send them back to fix it.
+                        # Only clear depart_time (arrival is likely correct and
+                        # will be re-prompted in the normal sequence anyway).
+                        data.pop("depart_time", None)
+                        flow["step"] = "buy_cover_depart_time"
+                        await save_session(session)
+                        await _send_buttons(
+                            sender_wa_id,
+                            (
+                                f"⚠️ *Departure time issue*\n\n"
+                                f"You entered departs *{_fmt_time_display(dep_time)}* → arrives "
+                                f"*{_fmt_time_display(parsed_arr_time)}* on the same day — "
+                                f"that's *{dur_str}*.\n\n"
+                                f"Nigerian domestic flights don't exceed 6 hours. "
+                                f"Please check your departure time and enter it again."
+                            ),
+                            [{"id": "dep_time_retry", "title": "⏰ Re-enter departure time"}],
+                            phone_number_id,
+                        )
+                        return
+                    else:
+                        # Ambiguous input (no AM/PM suffix) — offer PM alternative.
+                        pm_dep = f"{pm_dep_h:02d}:{dep_m:02d}"
+                        data["_dep_pm_alt"] = pm_dep
+                        flow["step"] = "buy_cover_depart_ampm_confirm"
+                        await save_session(session)
+                        await _send_buttons(
+                            sender_wa_id,
+                            (
+                                f"⏰ *Departure time check*\n\n"
+                                f"You entered departs *{_fmt_time_display(dep_time)}* → arrives "
+                                f"*{_fmt_time_display(parsed_arr_time)}* on the same day — "
+                                f"that's *{dur_str}*.\n\n"
+                                f"Did you mean *{_fmt_time_display(pm_dep)}* (PM) for departure?\n\n"
+                                f"_If yes, your trip would be "
+                                f"{(arr_total - pm_total) // 60}h {(arr_total - pm_total) % 60}m._"
+                            ),
+                            [
+                                {"id": "ampm_yes", "title": f"✅ Yes, {_fmt_time_display(pm_dep)}"},
+                                {"id": "ampm_no",  "title": f"No, keep {_fmt_time_display(dep_time)}"},
+                            ],
+                            phone_number_id,
+                        )
+                        return
             except (ValueError, TypeError):
                 pass
         # ── end AM/PM check ──────────────────────────────────────────────────
