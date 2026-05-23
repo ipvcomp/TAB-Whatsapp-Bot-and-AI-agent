@@ -2760,6 +2760,17 @@ async def handle_buy_cover_flow(
         # Track whether the user explicitly wrote "AM" so the arrival-time
         # sanity check can show a validation error instead of a PM suggestion.
         data["_dep_explicit_am"] = bool(re.search(r"\bam\b", (text or "").lower()))
+        if data.pop("_repair_to_arrive_time", False):
+            # Fixing dep_time after a duration error — all other data already
+            # collected, so jump straight back to arrive_time validation.
+            flow["step"] = "buy_cover_arrive_time"
+            await save_session(session)
+            await _send_text(
+                sender_wa_id,
+                "*⏰ What time is your flight scheduled to arrive?*\n\n_Example: 15:00 · 3:00 AM · 3:00 PM_",
+                phone_number_id,
+            )
+            return
         if data.pop("_edit_mode", False):
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
             return
@@ -2977,6 +2988,28 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
+        if reply_id == "fix_dep_time":
+            data.pop("depart_time", None)
+            data["_repair_to_arrive_time"] = True
+            flow["step"] = "buy_cover_depart_time"
+            await save_session(session)
+            await _send_text(
+                sender_wa_id,
+                "*⏰ Please enter your corrected departure time*\n\n"
+                "_Example: 13:40 · 1:40 PM · 3:30 PM_",
+                phone_number_id,
+            )
+            return
+        if reply_id == "fix_arr_date":
+            flow["step"] = "buy_cover_arrive_date"
+            await save_session(session)
+            await _send_text(
+                sender_wa_id,
+                "*📅 Please enter your corrected arrival date*\n\n"
+                "_Example: 12 April 2026, 12/04/2026, 12-04-2026_",
+                phone_number_id,
+            )
+            return
         parsed_arr_time = _parse_time_to_hhmm(text or "")
         if not parsed_arr_time:
             await _send_text(
@@ -3031,9 +3064,8 @@ async def handle_buy_cover_flow(
                     if explicit_am:
                         # User wrote "AM" explicitly — trust them but flag the
                         # duration as unrealistic and send them back to fix it.
-                        # Only clear depart_time (arrival is likely correct and
-                        # will be re-prompted in the normal sequence anyway).
                         data.pop("depart_time", None)
+                        data["_repair_to_arrive_time"] = True
                         flow["step"] = "buy_cover_depart_time"
                         await save_session(session)
                         await _send_buttons(
@@ -3124,20 +3156,25 @@ async def handle_buy_cover_flow(
                         )
                         return
                     else:
-                        data.pop("depart_time", None)
-                        flow["step"] = "buy_cover_depart_time"
+                        # PM doesn't fix it — offer user a choice of what to correct.
+                        # Keep dep_time in data; stay on arrive_time step so the
+                        # fix_dep_time / fix_arr_date buttons are handled here.
+                        flow["step"] = "buy_cover_arrive_time"
                         await save_session(session)
                         await _send_buttons(
                             sender_wa_id,
                             (
-                                f"⚠️ *Departure time issue*\n\n"
+                                f"⚠️ *Flight duration too long*\n\n"
                                 f"You entered departs *{_fmt_time_display(dep_time)}* → arrives "
                                 f"*{_fmt_time_display(parsed_arr_time)}* — "
                                 f"that's *{dur_str}*.\n\n"
                                 f"Nigerian domestic flights don't exceed 6 hours. "
-                                f"Please check your departure time and enter it again."
+                                f"What would you like to fix?"
                             ),
-                            [{"id": "dep_time_retry", "title": "⏰ Re-enter departure time"}],
+                            [
+                                {"id": "fix_dep_time", "title": "⏰ Fix departure time"},
+                                {"id": "fix_arr_date", "title": "📅 Fix arrival date"},
+                            ],
                             phone_number_id,
                         )
                         return
