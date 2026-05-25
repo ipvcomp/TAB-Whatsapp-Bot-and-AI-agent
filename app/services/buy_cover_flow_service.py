@@ -993,14 +993,19 @@ async def start_buy_cover_flow(
     if paused and paused.get("policy_id"):
         resumed_api = None
         try:
-            resumed_api = await ipurvey_service.resume_draft_policy(msisdn)
+            # Pass the paused policy_id as preferred_id so the function finds
+            # the EXACT draft the user was on before pressing "00", even when
+            # the API returns many drafts for the same MSISDN.
+            resumed_api = await ipurvey_service.resume_draft_policy(
+                msisdn,
+                preferred_id=paused.get("policy_id"),
+            )
         except Exception:
             pass
 
-        # Restore api_data from paused_context.  If the resume API returned a
-        # valid policy_id, prefer it over the stale paused_context id — the
-        # backend may have created a new draft while the old one expired.
-        # Only fall back to paused_context.policy_id when the API gives nothing.
+        # Restore api_data from paused_context.  The resume API now returns the
+        # exact draft the user was on (preferred_id match).  Only falls back to
+        # paused_context.policy_id when the API returns nothing at all.
         api_pid = (
             (resumed_api or {}).get("policy_id")
             or paused.get("policy_id")

@@ -427,16 +427,28 @@ def _normalise_draft(data: dict) -> dict:
     }
 
 
-async def resume_draft_policy(msisdn: str) -> Optional[dict]:
+async def resume_draft_policy(
+    msisdn: str,
+    preferred_id: Optional[str] = None,
+) -> Optional[dict]:
     """GET /api/tab-plc/policies/draft/resume?msisdn={msisdn}
 
     Handles both response shapes:
       - Old (single object): { "data": { "policyId": "...", ... } }
       - New (list):          { "data": [ {...}, {...}, ... ], "count": N }
 
-    Returns a normalised dict for the best resumable draft, or None.
+    When ``preferred_id`` is given (e.g. from a paused_context snapshot) the
+    list is searched for that exact policy first.  Only when it is absent does
+    the function fall back to ``_pick_best_draft()``.  This ensures a user who
+    pressed "00" mid-flow is always resumed onto the policy they were actually
+    working on, even if the API returns 8+ drafts for the same MSISDN.
+
+    Returns a normalised dict for the chosen draft, or None.
     """
-    logger.info(f"[ipurvey] resume_draft_policy msisdn='{msisdn}'")
+    logger.info(
+        f"[ipurvey] resume_draft_policy msisdn='{msisdn}' "
+        f"preferred_id='{preferred_id}'"
+    )
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
             r = await c.get(
@@ -452,7 +464,36 @@ async def resume_draft_policy(msisdn: str) -> Optional[dict]:
                     if not data:
                         logger.info("[ipurvey] resume_draft_policy → empty list")
                         return None
-                    chosen = _pick_best_draft(data)
+
+                    chosen = None
+
+                    # 1. Try exact match on preferred_id first
+                    if preferred_id:
+                        for d in data:
+                            raw_id = (
+                                d.get("policyId")
+                                or d.get("id")
+                                or d.get("policy_id")
+                            )
+                            if raw_id == preferred_id:
+                                chosen = d
+                                logger.info(
+                                    f"[ipurvey] resume_draft_policy "
+                                    f"(list/{len(data)}) → exact match "
+                                    f"preferred_id='{preferred_id}'"
+                                )
+                                break
+
+                    # 2. Fall back to best-ranked draft
+                    if chosen is None:
+                        if preferred_id:
+                            logger.info(
+                                f"[ipurvey] resume_draft_policy "
+                                f"preferred_id='{preferred_id}' not found in list "
+                                f"— falling back to _pick_best_draft()"
+                            )
+                        chosen = _pick_best_draft(data)
+
                     if not chosen:
                         return None
                     result = _normalise_draft(chosen)
