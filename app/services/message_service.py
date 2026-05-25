@@ -178,6 +178,52 @@ async def save_inbound_message(
         return None
 
 
+async def save_outbound_message(
+    message_id: str,
+    contact_wa_id: str,
+    phone_number_id: str,
+    body: str,
+    source: str = "system",
+    in_reply_to: Optional[str] = None,
+) -> Optional[dict]:
+    db = get_database()
+    if db is None:
+        logger.error("Database not available for outbound message save")
+        return None
+
+    collection = db[COLLECTION]
+    now = datetime.now(timezone.utc)
+
+    doc = {
+        "message_id": message_id,
+        "contact_wa_id": contact_wa_id,
+        "phone_number_id": phone_number_id,
+        "direction": "outbound",
+        "type": "text",
+        "content": {"body": body},
+        "context": {"in_reply_to": in_reply_to} if in_reply_to else None,
+        "source": source,
+        "wa_timestamp": now,
+        "created_at": now,
+    }
+
+    try:
+        result = await collection.update_one(
+            {"message_id": message_id},
+            {"$setOnInsert": doc},
+            upsert=True,
+        )
+        is_new = result.upserted_id is not None
+        if is_new:
+            logger.info(f"Saved outbound message: {message_id} to {contact_wa_id}")
+        else:
+            logger.info(f"Outbound message already stored (skipped): {message_id}")
+        return {"doc": doc, "is_new": is_new}
+    except Exception as e:
+        logger.error(f"Failed to save outbound message {message_id}: {e}")
+        return None
+
+
 async def get_messages_by_contact(
     contact_wa_id: str,
     limit: int = 50,
