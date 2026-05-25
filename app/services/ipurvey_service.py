@@ -1235,6 +1235,9 @@ async def initiate_payment(
                 logger.info(f"[ipurvey] initiate_payment → success ({r.status_code})")
                 return _extract(r.json())
             logger.error(f"[ipurvey] initiate_payment {r.status_code}: {r.text[:200]}")
+            if r.status_code == 400 and "not linked" in r.text.lower():
+                logger.warning(f"[ipurvey] initiate_payment → user not linked to policy")
+                return {"_error": "user_not_linked"}
             return None
     except Exception as e:
         logger.error(f"[ipurvey] initiate_payment failed: {e}")

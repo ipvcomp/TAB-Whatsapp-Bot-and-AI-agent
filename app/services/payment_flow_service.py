@@ -120,6 +120,41 @@ async def _send_bank_results(wa_id: str, banks: list, phone_number_id: Optional[
     )
 
 
+async def _initiate_payment_with_link_retry(
+    session: dict,
+    policy_id: str,
+    payment_method: str,
+) -> Optional[dict]:
+    """Call initiate_payment and, if the API returns 400 'User not linked',
+    automatically link the user to the policy and retry once."""
+    pay_result = await ipurvey_service.initiate_payment(
+        policy_id=policy_id,
+        payment_method=payment_method,
+    )
+    if pay_result and isinstance(pay_result, dict) and pay_result.get("_error") == "user_not_linked":
+        user_id = session.get("api_data", {}).get("user_id")
+        if user_id:
+            logger.warning(
+                f"[payment] user_not_linked on initiate_payment — "
+                f"auto-linking user_id='{user_id}' to policy_id='{policy_id}' and retrying"
+            )
+            linked = await ipurvey_service.link_user_to_policy(policy_id, user_id)
+            if linked:
+                pay_result = await ipurvey_service.initiate_payment(
+                    policy_id=policy_id,
+                    payment_method=payment_method,
+                )
+            else:
+                logger.error(f"[payment] link_user_to_policy failed — cannot retry initiate_payment")
+                return None
+        else:
+            logger.error(f"[payment] user_not_linked but no user_id in session — cannot auto-link")
+            return None
+    if pay_result and isinstance(pay_result, dict) and pay_result.get("_error"):
+        return None
+    return pay_result
+
+
 def _get_trip_details(session: dict, data: dict, ref: str) -> dict:
     """Pull policy/trip info for the payment status screens."""
     bc_data  = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
@@ -801,7 +836,8 @@ async def handle_payment_flow(
         api_ref        = None
         if policy_id:
             try:
-                pay_result = await ipurvey_service.initiate_payment(
+                pay_result = await _initiate_payment_with_link_retry(
+                    session=session,
                     policy_id=policy_id,
                     payment_method="MOBILE_MONEY",
                 )
@@ -888,7 +924,8 @@ async def handle_payment_flow(
             initiate_error = False
             if policy_id:
                 try:
-                    pay_result = await ipurvey_service.initiate_payment(
+                    pay_result = await _initiate_payment_with_link_retry(
+                        session=session,
                         policy_id=policy_id,
                         payment_method="BANK_TRANSFER",
                     )
@@ -984,7 +1021,8 @@ async def handle_payment_flow(
             api_ref    = None
             if policy_id:
                 try:
-                    pay_result = await ipurvey_service.initiate_payment(
+                    pay_result = await _initiate_payment_with_link_retry(
+                        session=session,
                         policy_id=policy_id,
                         payment_method=_api_method,
                     )
