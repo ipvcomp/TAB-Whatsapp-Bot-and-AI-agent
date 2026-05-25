@@ -372,6 +372,11 @@ def is_in_buy_cover_flow(session: Optional[dict]) -> bool:
     if not session:
         return False
     flow = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {})
+    # If active is explicitly False the flow is paused (user pressed 00/9).
+    # A paused flow keeps its step key for resume, but must NOT intercept
+    # shortcut navigation — treat it as inactive.
+    if flow.get("active") is False:
+        return False
     # Return True if explicitly active OR if a step is set (active flag may be
     # missing when step was assigned directly without _set_step)
     return bool(flow.get("active") or flow.get("step"))
