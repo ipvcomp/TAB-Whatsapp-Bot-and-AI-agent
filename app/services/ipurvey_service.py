@@ -362,10 +362,79 @@ async def create_draft_policy(msisdn: str) -> Optional[dict]:
         return None
 
 
+_DRAFT_STATE_RANK = {
+    "KYC_COMPLETED":      4,
+    "AWAITING_KYC":       3,
+    "AWAITING_ITINERARY": 2,
+    "DETAILS_COLLECTED":  3,
+    "DRAFT":              1,
+}
+
+
+def _pick_best_draft(drafts: list) -> Optional[dict]:
+    """Select the most-advanced resumable draft from a list.
+
+    Priority (descending):
+      1. State rank (KYC_COMPLETED > AWAITING_KYC / DETAILS_COLLECTED >
+                     AWAITING_ITINERARY > DRAFT)
+      2. missingFields count = 0 (all data present)
+      3. Last in list (newest, since API returns oldest-first)
+    """
+    if not drafts:
+        return None
+    best = None
+    best_rank = -1
+    best_complete = False
+    best_idx = -1
+    for idx, d in enumerate(drafts):
+        state = d.get("creationState") or d.get("creation_state") or "DRAFT"
+        rank = _DRAFT_STATE_RANK.get(state, 0)
+        complete = len(d.get("missingFields") or []) == 0
+        if (
+            best is None
+            or rank > best_rank
+            or (rank == best_rank and complete and not best_complete)
+            or (rank == best_rank and complete == best_complete and idx > best_idx)
+        ):
+            best = d
+            best_rank = rank
+            best_complete = complete
+            best_idx = idx
+    return best
+
+
+def _normalise_draft(data: dict) -> dict:
+    """Convert a raw draft dict (from API) to our internal resume_draft format."""
+    pid = (
+        data.get("policyId")
+        or data.get("id")
+        or data.get("policy_id")
+    )
+    state = (
+        data.get("creationState")
+        or data.get("creation_state")
+        or "DRAFT"
+    )
+    return {
+        "policy_id":      pid,
+        "creation_state": state,
+        "current_step":   data.get("currentStep"),
+        "passengers":     data.get("passengers") or [],
+        "email":          data.get("email") or "",
+        "trip_type":      data.get("tripType") or "",
+        "itinerary":      data.get("itinerary") or {},
+        "missing_fields": data.get("missingFields") or [],
+    }
+
+
 async def resume_draft_policy(msisdn: str) -> Optional[dict]:
     """GET /api/tab-plc/policies/draft/resume?msisdn={msisdn}
-    Returns a dict with draft data when an existing resumable draft is found,
-    None when there is no draft (404) or on any error.
+
+    Handles both response shapes:
+      - Old (single object): { "data": { "policyId": "...", ... } }
+      - New (list):          { "data": [ {...}, {...}, ... ], "count": N }
+
+    Returns a normalised dict for the best resumable draft, or None.
     """
     logger.info(f"[ipurvey] resume_draft_policy msisdn='{msisdn}'")
     try:
@@ -377,31 +446,39 @@ async def resume_draft_policy(msisdn: str) -> Optional[dict]:
             if r.status_code in (200, 201):
                 body = r.json()
                 data = _extract(body)
-                if isinstance(data, dict):
-                    pid = (
-                        data.get("policyId")
-                        or data.get("id")
-                        or data.get("policy_id")
-                    )
-                    state = (
-                        data.get("creationState")
-                        or data.get("creation_state")
-                        or "DRAFT"
-                    )
+
+                # ── New format: API returned a list of drafts ──────────────
+                if isinstance(data, list):
+                    if not data:
+                        logger.info("[ipurvey] resume_draft_policy → empty list")
+                        return None
+                    chosen = _pick_best_draft(data)
+                    if not chosen:
+                        return None
+                    result = _normalise_draft(chosen)
                     logger.info(
-                        f"[ipurvey] resume_draft_policy → policy_id='{pid}' "
-                        f"state='{state}'"
+                        f"[ipurvey] resume_draft_policy (list/{len(data)}) → "
+                        f"policy_id='{result['policy_id']}' "
+                        f"state='{result['creation_state']}'"
                     )
-                    return {
-                        "policy_id":      pid,
-                        "creation_state": state,
-                        "current_step":   data.get("currentStep"),
-                        "passengers":     data.get("passengers") or [],
-                        "email":          data.get("email") or "",
-                        "trip_type":      data.get("tripType") or "",
-                        "itinerary":      data.get("itinerary") or {},
-                        "missing_fields": data.get("missingFields") or [],
-                    }
+                    return result
+
+                # ── Old format: API returned a single dict ─────────────────
+                if isinstance(data, dict):
+                    result = _normalise_draft(data)
+                    logger.info(
+                        f"[ipurvey] resume_draft_policy (dict) → "
+                        f"policy_id='{result['policy_id']}' "
+                        f"state='{result['creation_state']}'"
+                    )
+                    return result
+
+                logger.warning(
+                    f"[ipurvey] resume_draft_policy unexpected data type: "
+                    f"{type(data).__name__}"
+                )
+                return None
+
             elif r.status_code == 404:
                 logger.info("[ipurvey] resume_draft_policy → 404 (no existing draft)")
                 return None

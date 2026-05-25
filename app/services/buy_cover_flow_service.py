@@ -997,13 +997,21 @@ async def start_buy_cover_flow(
         except Exception:
             pass
 
-        # Restore api_data from paused_context regardless of whether the API
-        # still has a "draft" entry.  The resume_draft_policy endpoint returns
-        # 404 once the policy moves past the early-draft state (e.g. after
-        # cover selection, KYC, or payment), but our local snapshot contains
-        # all the IDs and data needed to continue — so we never clear it on 404.
+        # Restore api_data from paused_context.  If the resume API returned a
+        # valid policy_id, prefer it over the stale paused_context id — the
+        # backend may have created a new draft while the old one expired.
+        # Only fall back to paused_context.policy_id when the API gives nothing.
+        api_pid = (
+            (resumed_api or {}).get("policy_id")
+            or paused.get("policy_id")
+        )
+        if resumed_api and resumed_api.get("policy_id") != paused.get("policy_id"):
+            logger.info(
+                f"[buy_cover] paused resume: API policy_id '{resumed_api.get('policy_id')}' "
+                f"differs from paused_context '{paused.get('policy_id')}' — using API id"
+            )
         session["api_data"] = {
-            "policy_id": paused.get("policy_id"),
+            "policy_id": api_pid,
             "policy_code": paused.get("policy_code"),
             "passenger_id": paused.get("passenger_id"),
             "passenger_ids": paused.get("passenger_ids") or [],
