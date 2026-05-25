@@ -229,12 +229,13 @@ async def _process_change(entry_id: str, change):
                         # clear non-resumable flows before showing welcome.
                         await pause_buy_cover_flow(sender_wa_id)
                         user_session = await get_session(sender_wa_id) or user_session
-                        td = user_session.setdefault("temp_data", {})
-                        for fk in ("bp_link_flow", "help_flow",
-                                   "check_policy_flow", "update_details_flow"):
-                            if td.get(fk, {}).get("active"):
-                                td[fk] = {}
-                        await save_session(user_session)
+                        if user_session:
+                            td = user_session.setdefault("temp_data", {})
+                            for fk in ("bp_link_flow", "help_flow",
+                                       "check_policy_flow", "update_details_flow"):
+                                if td.get(fk, {}).get("active"):
+                                    td[fk] = {}
+                            await save_session(user_session)
                         await send_welcome_message(
                             to=sender_wa_id,
                             phone_number_id=msg_phone_number_id,
@@ -788,18 +789,6 @@ async def _handle_llm_reply(message, sender_wa_id, profile_name, phone_number_id
                 "get_support":          "help",
             }
             _routed = _INTENT_MAP.get(_di)
-            # Fallback: keyword scan when intent value doesn't match exactly
-            if not _routed:
-                if any(k in _di for k in ("buy", "purchase", "cover", "policy")) and "check" not in _di:
-                    _routed = "buy_cover"
-                elif any(k in _di for k in ("check", "view", "my_polic")):
-                    _routed = "check_policy"
-                elif any(k in _di for k in ("update", "edit", "change")):
-                    _routed = "update_details"
-                elif any(k in _di for k in ("boarding", "upload", "bp")):
-                    _routed = "bp_link"
-                elif any(k in _di for k in ("help", "support", "assist")):
-                    _routed = "help"
 
             if _routed:
                 log_event("LLM_INTENT_ROUTE", {
