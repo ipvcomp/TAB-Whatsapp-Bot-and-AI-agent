@@ -996,104 +996,116 @@ async def start_buy_cover_flow(
             resumed_api = await ipurvey_service.resume_draft_policy(msisdn)
         except Exception:
             pass
+
+        # Restore api_data from paused_context regardless of whether the API
+        # still has a "draft" entry.  The resume_draft_policy endpoint returns
+        # 404 once the policy moves past the early-draft state (e.g. after
+        # cover selection, KYC, or payment), but our local snapshot contains
+        # all the IDs and data needed to continue — so we never clear it on 404.
+        session["api_data"] = {
+            "policy_id": paused.get("policy_id"),
+            "policy_code": paused.get("policy_code"),
+            "passenger_id": paused.get("passenger_id"),
+            "passenger_ids": paused.get("passenger_ids") or [],
+            "quotes": paused.get("quotes") or [],
+            "user_id": paused.get("user_id"),
+            "payout_method_id": paused.get("payout_method_id"),
+            "user_exists": True,
+        }
         if resumed_api and resumed_api.get("policy_id"):
-            # API still has the draft → restore data & offer resume / fresh
-            session["api_data"] = {
-                "policy_id": paused.get("policy_id"),
-                "policy_code": paused.get("policy_code"),
-                "passenger_id": paused.get("passenger_id"),
-                "passenger_ids": paused.get("passenger_ids") or [],
-                "quotes": paused.get("quotes") or [],
-                "user_id": paused.get("user_id"),
-                "payout_method_id": paused.get("payout_method_id"),
-                "user_exists": True,
-                "resume_draft": resumed_api,
-            }
-            bc_data = paused.get("buy_cover_data") or {}
-            active_flow = paused.get("active_flow", BUY_COVER_FLOW_KEY)
-            name = bc_data.get("name", "")
-            cover = bc_data.get("cover", "")
-            flight = bc_data.get("flight_num", "")
-            date = bc_data.get("date", "")
-            dep = (bc_data.get("depart_airport") or "").split("—")[0].strip()
-            arr = (bc_data.get("arrive_airport") or "").split("—")[0].strip()
-
-            h_lines = []
-            if name:
-                h_lines.append(f"👤 {name}")
-            if flight:
-                h_lines.append(
-                    f"✈️ {flight}" + (f"  •  {dep} → {arr}" if dep or arr else "")
-                )
-            elif dep or arr:
-                h_lines.append(f"🛫 {dep} → {arr}")
-            if date:
-                h_lines.append(f"📅 {date}")
-            if cover:
-                h_lines.append(f"🛡️ {cover}")
-
-            if active_flow == KYC_FLOW_KEY:
-                h_lines.append("\n🔐 Identity verification was in progress")
-            elif active_flow == PAYMENT_FLOW_KEY:
-                h_lines.append("\n💳 Payment setup was in progress")
-            else:
-                bc_step = paused.get("buy_cover_step", "")
-                step_label = {
-                    "buy_cover_name": "📝 Entering traveller name",
-                    "buy_cover_email": "📧 Entering email address",
-                    "buy_cover_trip_type": "🗺️ Selecting trip type",
-                    "buy_cover_departure_airport": "🔍 Selecting departure airport",
-                    "buy_cover_depart_date": "📅 Entering departure date",
-                    "buy_cover_depart_time": "⏰ Entering departure time",
-                    "buy_cover_arrival_airport": "🔍 Selecting arrival airport",
-                    "buy_cover_arrive_date": "📅 Entering arrival date",
-                    "buy_cover_arrive_time": "⏰ Entering arrival time",
-                    "buy_cover_depart_ampm_confirm": "⏰ Confirming departure time",
-                    "buy_cover_booking_ref": "🎫 Entering booking reference",
-                    "buy_cover_flight_num": "✈️ Entering flight number",
-                    "buy_cover_select_cover": "🛡️ Selecting cover plan",
-                    "buy_cover_summary": "📋 Confirming trip summary",
-                }.get(bc_step, "")
-                if step_label:
-                    h_lines.append(f"\n{step_label}")
-
-            hint = "\n".join(h_lines)
-            td = session.setdefault("temp_data", {})
-            td[BUY_COVER_FLOW_KEY] = {
-                "active": True,
-                "step": "buy_cover_resume_choice",
-                "data": bc_data,
-            }
-            if paused.get("kyc_step"):
-                td[KYC_FLOW_KEY] = {
-                    "active": False,
-                    "step": paused["kyc_step"],
-                    "data": paused.get("kyc_data") or {},
-                }
-            if paused.get("payment_step"):
-                td[PAYMENT_FLOW_KEY] = {
-                    "active": False,
-                    "step": paused["payment_step"],
-                    "data": paused.get("payment_data") or {},
-                }
-            await save_session(session)
-            await _send_buttons(
-                wa_id,
-                "📋 *Incomplete Application Found*\n\n"
-                "We found an unfinished policy from your last session:\n\n"
-                f"{hint}\n\n"
-                "Would you like to continue where you left off?",
-                [
-                    {"id": "resume_yes", "title": "▶️ Resume"},
-                    {"id": "resume_fresh", "title": "🆕 Start Fresh"},
-                ],
-                phone_number_id,
+            # API still returned draft data — keep it for step-resolution later
+            session["api_data"]["resume_draft"] = resumed_api
+            logger.info(
+                f"[buy_cover] paused resume: API draft found "
+                f"state='{resumed_api.get('creation_state')}'"
             )
-            return
         else:
-            # API no longer has this draft → clear context and start fresh
-            session.pop("paused_context", None)
-            await save_session(session)
+            logger.info(
+                "[buy_cover] paused resume: API returned 404 — "
+                "resuming from local paused_context snapshot"
+            )
+
+        bc_data = paused.get("buy_cover_data") or {}
+        active_flow = paused.get("active_flow", BUY_COVER_FLOW_KEY)
+        name = bc_data.get("name", "")
+        cover = bc_data.get("cover", "")
+        flight = bc_data.get("flight_num", "")
+        date = bc_data.get("date", "")
+        dep = (bc_data.get("depart_airport") or "").split("—")[0].strip()
+        arr = (bc_data.get("arrive_airport") or "").split("—")[0].strip()
+
+        h_lines = []
+        if name:
+            h_lines.append(f"👤 {name}")
+        if flight:
+            h_lines.append(
+                f"✈️ {flight}" + (f"  •  {dep} → {arr}" if dep or arr else "")
+            )
+        elif dep or arr:
+            h_lines.append(f"🛫 {dep} → {arr}")
+        if date:
+            h_lines.append(f"📅 {date}")
+        if cover:
+            h_lines.append(f"🛡️ {cover}")
+
+        if active_flow == KYC_FLOW_KEY:
+            h_lines.append("\n🔐 Identity verification was in progress")
+        elif active_flow == PAYMENT_FLOW_KEY:
+            h_lines.append("\n💳 Payment setup was in progress")
+        else:
+            bc_step = paused.get("buy_cover_step", "")
+            step_label = {
+                "buy_cover_name": "📝 Entering traveller name",
+                "buy_cover_email": "📧 Entering email address",
+                "buy_cover_trip_type": "🗺️ Selecting trip type",
+                "buy_cover_departure_airport": "🔍 Selecting departure airport",
+                "buy_cover_depart_date": "📅 Entering departure date",
+                "buy_cover_depart_time": "⏰ Entering departure time",
+                "buy_cover_arrival_airport": "🔍 Selecting arrival airport",
+                "buy_cover_arrive_date": "📅 Entering arrival date",
+                "buy_cover_arrive_time": "⏰ Entering arrival time",
+                "buy_cover_depart_ampm_confirm": "⏰ Confirming departure time",
+                "buy_cover_booking_ref": "🎫 Entering booking reference",
+                "buy_cover_flight_num": "✈️ Entering flight number",
+                "buy_cover_select_cover": "🛡️ Selecting cover plan",
+                "buy_cover_summary": "📋 Confirming trip summary",
+            }.get(bc_step, "")
+            if step_label:
+                h_lines.append(f"\n{step_label}")
+
+        hint = "\n".join(h_lines)
+        td = session.setdefault("temp_data", {})
+        td[BUY_COVER_FLOW_KEY] = {
+            "active": True,
+            "step": "buy_cover_resume_choice",
+            "data": bc_data,
+        }
+        if paused.get("kyc_step"):
+            td[KYC_FLOW_KEY] = {
+                "active": False,
+                "step": paused["kyc_step"],
+                "data": paused.get("kyc_data") or {},
+            }
+        if paused.get("payment_step"):
+            td[PAYMENT_FLOW_KEY] = {
+                "active": False,
+                "step": paused["payment_step"],
+                "data": paused.get("payment_data") or {},
+            }
+        await save_session(session)
+        await _send_buttons(
+            wa_id,
+            "📋 *Incomplete Application Found*\n\n"
+            "We found an unfinished policy from your last session:\n\n"
+            f"{hint}\n\n"
+            "Would you like to continue where you left off?",
+            [
+                {"id": "resume_yes", "title": "▶️ Resume"},
+                {"id": "resume_fresh", "title": "🆕 Start Fresh"},
+            ],
+            phone_number_id,
+        )
+        return
 
     # ── 2. Normal flow start ──────────────────────────────────────────────────
     session.setdefault("temp_data", {})[BUY_COVER_FLOW_KEY] = {
