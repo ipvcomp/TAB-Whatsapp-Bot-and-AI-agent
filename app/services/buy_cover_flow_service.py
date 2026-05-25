@@ -3241,6 +3241,19 @@ async def handle_buy_cover_flow(
             parts = reply_id.replace("arr_", "", 1).split("|", 1)
             code = parts[0]
             name = parts[1] if len(parts) > 1 else code
+            dep_code = data.get("depart_airport", "").split("—")[0].strip().split()[0]
+            if dep_code and code.upper() == dep_code.upper():
+                await _send_buttons(
+                    sender_wa_id,
+                    (
+                        f"⚠️ *Invalid route*\n\n"
+                        f"Your departure and arrival airport are both *{code}*. "
+                        f"Please select a different arrival airport."
+                    ),
+                    [{"id": "arr_search_again", "title": "🔍 Search again"}],
+                    phone_number_id,
+                )
+                return
             data["arrive_airport"] = f"{code} — {name}"
         elif text and len(text.strip()) >= 3:
             search_term = text.strip()
