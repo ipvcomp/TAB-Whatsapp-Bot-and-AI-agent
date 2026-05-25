@@ -796,6 +796,14 @@ async def _handle_llm_reply(message, sender_wa_id, profile_name, phone_number_id
                     "intent": detected_intent,
                     "flow": _routed,
                 })
+                if response_text and response_text.strip():
+                    await send_text_message(
+                        to=sender_wa_id,
+                        body=response_text,
+                        phone_number_id=phone_number_id,
+                        in_reply_to=inbound_message_id,
+                        source="llm",
+                    )
                 if _routed == "buy_cover":
                     from app.services.buy_cover_flow_service import start_buy_cover_flow
                     await start_buy_cover_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
