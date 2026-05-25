@@ -3986,7 +3986,10 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
     else:
         prev = _PREV.get(step)
 
-    if not prev or step in ("buy_cover_who", "buy_cover_resume_choice"):
+    # buy_cover_next_steps is a terminal state (cover already selected).
+    # Pressing "0" there should exit the flow and show the main menu, not
+    # navigate back inside the flow to the cover-selection list.
+    if not prev or step in ("buy_cover_who", "buy_cover_resume_choice", "buy_cover_next_steps"):
         await _reset(session, wa_id)
         from app.services.auto_reply_service import send_main_menu
 
