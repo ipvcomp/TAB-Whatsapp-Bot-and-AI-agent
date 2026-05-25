@@ -188,6 +188,25 @@ async def start_kyc_flow(
                     kyc_status.get("status") or kyc_status.get("kycStatus") or ""
                 ).upper()
                 if status_val in ("VERIFIED", "COMPLETED", "SUCCESS", "PASSED"):
+                    # Ensure this user is linked to the CURRENT policy before
+                    # skipping to payment.  check_kyc_status returns VERIFIED
+                    # based on the user's global KYC history — the user may
+                    # have been verified on a different (older) draft.
+                    # Without this link call, initiate_payment returns
+                    # HTTP 400 "User not linked to policy."
+                    _uid = session.get("api_data", {}).get("user_id")
+                    if _uid:
+                        try:
+                            await ipurvey_service.link_user_to_policy(policy_id, _uid)
+                            logger.info(
+                                f"[kyc] already-verified skip: linked "
+                                f"user_id='{_uid}' to policy_id='{policy_id}'"
+                            )
+                        except Exception as _link_exc:
+                            logger.error(
+                                f"[kyc] link_user_to_policy in skip path failed: {_link_exc}"
+                            )
+
                     session["temp_data"][KYC_FLOW_KEY]["step"] = "kyc_verified"
                     session["temp_data"][KYC_FLOW_KEY]["data"]["kyc_verified"] = True
                     await save_session(session)
