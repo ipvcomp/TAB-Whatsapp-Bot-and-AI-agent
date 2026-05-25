@@ -223,16 +223,18 @@ async def _process_change(entry_id: str, change):
 
                 if message.type == "text" and message.text:
                     from app.services.auto_reply_service import is_greeting, send_welcome_message
-                    if (
-                        is_greeting(message.text.body)
-                        and not is_in_buy_cover_flow(user_session)
-                        and not is_in_kyc_flow(user_session)
-                        and not is_in_payment_flow(user_session)
-                        and not is_in_bp_link_flow(user_session)
-                        and not is_in_help_flow(user_session)
-                        and not is_in_check_policy_flow(user_session)
-                        and not is_in_update_details_flow(user_session)
-                    ):
+                    if is_greeting(message.text.body):
+                        # Greeting always shows welcome — same behaviour as "00".
+                        # Pause buy/kyc/payment so user can resume later, then
+                        # clear non-resumable flows before showing welcome.
+                        await pause_buy_cover_flow(sender_wa_id)
+                        user_session = await get_session(sender_wa_id) or user_session
+                        td = user_session.setdefault("temp_data", {})
+                        for fk in ("bp_link_flow", "help_flow",
+                                   "check_policy_flow", "update_details_flow"):
+                            if td.get(fk, {}).get("active"):
+                                td[fk] = {}
+                        await save_session(user_session)
                         await send_welcome_message(
                             to=sender_wa_id,
                             phone_number_id=msg_phone_number_id,
@@ -753,6 +755,75 @@ async def _handle_llm_reply(message, sender_wa_id, profile_name, phone_number_id
         if "user_id" not in session:
             session["user_id"] = sender_wa_id
         await save_session(session)
+
+    # ── Intent-based flow routing ─────────────────────────────────────────────
+    # When the LLM returns a recognised flow intent AND the user is not
+    # currently inside any flow, route them into the right flow instead of
+    # just sending the conversational text reply.
+    if detected_intent:
+        _td = session.get("temp_data", {})
+        _in_flow = any(
+            _td.get(fk, {}).get("active")
+            for fk in (
+                "buy_cover_flow", "kyc_flow", "payment_flow",
+                "bp_link_flow", "help_flow", "check_policy_flow",
+                "update_details_flow",
+            )
+        )
+        if not _in_flow:
+            _di = detected_intent.lower()
+            _INTENT_MAP = {
+                "buy_policy":           "buy_cover",
+                "buy_cover":            "buy_cover",
+                "purchase_policy":      "buy_cover",
+                "check_policy":         "check_policy",
+                "view_policy":          "check_policy",
+                "my_policy":            "check_policy",
+                "update_details":       "update_details",
+                "edit_details":         "update_details",
+                "upload_boarding_pass": "bp_link",
+                "boarding_pass":        "bp_link",
+                "help":                 "help",
+                "support":              "help",
+                "get_support":          "help",
+            }
+            _routed = _INTENT_MAP.get(_di)
+            # Fallback: keyword scan when intent value doesn't match exactly
+            if not _routed:
+                if any(k in _di for k in ("buy", "purchase", "cover", "policy")) and "check" not in _di:
+                    _routed = "buy_cover"
+                elif any(k in _di for k in ("check", "view", "my_polic")):
+                    _routed = "check_policy"
+                elif any(k in _di for k in ("update", "edit", "change")):
+                    _routed = "update_details"
+                elif any(k in _di for k in ("boarding", "upload", "bp")):
+                    _routed = "bp_link"
+                elif any(k in _di for k in ("help", "support", "assist")):
+                    _routed = "help"
+
+            if _routed:
+                log_event("LLM_INTENT_ROUTE", {
+                    "to": sender_wa_id,
+                    "intent": detected_intent,
+                    "flow": _routed,
+                })
+                if _routed == "buy_cover":
+                    from app.services.buy_cover_flow_service import start_buy_cover_flow
+                    await start_buy_cover_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+                elif _routed == "check_policy":
+                    from app.services.check_policy_flow_service import start_check_policy_flow
+                    await start_check_policy_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+                elif _routed == "update_details":
+                    from app.services.update_details_flow_service import start_update_details_flow
+                    await start_update_details_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+                elif _routed == "bp_link":
+                    from app.services.bp_link_flow_service import start_bp_link_flow
+                    await start_bp_link_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+                elif _routed == "help":
+                    from app.services.help_flow_service import start_help_flow
+                    await start_help_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+                return
+    # ─────────────────────────────────────────────────────────────────────────
 
     outbound_message_id = None
 
