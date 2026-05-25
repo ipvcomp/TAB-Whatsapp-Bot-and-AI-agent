@@ -210,6 +210,10 @@ async def send_welcome_message(
     # doesn't yet have the fields (e.g. user exited before submit_itinerary was called)
     local_bc: dict = (local_session or {}).get("temp_data", {}).get("buy_cover_flow", {}).get("data", {})
 
+    # Check if user has a locally-paused buy-cover/kyc/payment flow
+    _paused_ctx: dict = (local_session or {}).get("paused_context") or {}
+    has_paused_ctx: bool = bool(_paused_ctx.get("policy_id"))
+
     def _local_airport_display(raw: str) -> str:
         """Convert 'LOS — Lagos Murtala Muhammed' → 'LOS (Lagos Murtala Muhammed)'."""
         if not raw:
@@ -402,6 +406,32 @@ async def send_welcome_message(
         phone_number_id=phone_number_id,
         source="auto_reply",
     )
+
+    # 5. Paused context: show Resume Application button when user has a locally
+    #    paused buy-cover / kyc / payment flow (and no remote API draft was found,
+    #    since that case already shows Continue / Discard buttons above).
+    if has_paused_ctx:
+        logger.info(f"[welcome] paused_ctx found for {lookup_id} — showing resume button")
+        resume_payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": to,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": "📋 You have an unfinished policy application. Pick up where you left off?"},
+                "action": {
+                    "buttons": [
+                        {"type": "reply", "reply": {"id": "welcome_resume_application", "title": "▶️ Resume Application"}},
+                    ]
+                },
+            },
+        }
+        result = await send_whatsapp_payload(
+            whatsapp_payload=resume_payload,
+            phone_number_id=phone_number_id,
+            source="auto_reply",
+        )
 
     return result
 

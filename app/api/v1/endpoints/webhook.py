@@ -44,6 +44,7 @@ WELCOME_BUTTON_IDS = {
     "buy_cover", "check_policy", "check_eligibility", "update_details",
     "boarding_pass", "help", "restart_buy", "go_main",
     "welcome_continue_draft", "welcome_discard_draft",
+    "welcome_resume_application",
 }
 
 _CX_CONFIRM_IDS = frozenset({
@@ -270,6 +271,8 @@ async def _process_change(entry_id: str, change):
                         "purchase policy": "welcome_purchase_policy",
                         "submit boarding pass": "welcome_submit_boarding",
                         "get support": "welcome_get_support",
+                        "resume application": "welcome_resume_application",
+                        "resume": "welcome_resume_application",
                     }
                     matched_welcome = welcome_text_map.get(text_norm)
                     _no_active_flow = (
@@ -820,7 +823,7 @@ async def _handle_welcome_button(
     session = await get_session(sender_wa_id)
 
     # Determine if the action is a buy-cover action
-    _is_buy_action = reply_id in ("buy_cover", "welcome_purchase_policy", "restart_buy")
+    _is_buy_action = reply_id in ("buy_cover", "welcome_purchase_policy", "restart_buy", "welcome_resume_application")
 
     if session:
         if _is_buy_action:
@@ -842,8 +845,15 @@ async def _handle_welcome_button(
                     td[fk] = {}
             await save_session(session)
 
-    if reply_id == "buy_cover" or reply_id == "restart_buy":
+    if reply_id in ("buy_cover", "restart_buy"):
         log_event("WELCOME_BUTTON", {"action": "buy_cover", "from": sender_wa_id})
+        await start_buy_cover_flow(
+            wa_id=sender_wa_id,
+            phone_number_id=phone_number_id,
+            in_reply_to=in_reply_to,
+        )
+    elif reply_id == "welcome_resume_application":
+        log_event("WELCOME_BUTTON", {"action": "resume_application", "from": sender_wa_id})
         await start_buy_cover_flow(
             wa_id=sender_wa_id,
             phone_number_id=phone_number_id,
