@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     IPURVEY_BASE_URL: str = "https://dev-ilekun-ipv.ipurvey.com"
     IPURVEY_JWT_TOKEN: str = ""
 
+    ADMIN_SECRET: str = ""
+
     @property
     def ENV(self) -> str:
         return self.APP_ENV
