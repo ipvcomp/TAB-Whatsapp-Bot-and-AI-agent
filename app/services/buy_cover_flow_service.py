@@ -2739,10 +2739,43 @@ async def handle_buy_cover_flow(
     # ── Departure time ────────────────────────────────────────────────────────
     elif step == "buy_cover_depart_time":
         if reply_id == "dep_time_retry":
+            data.pop("_pending_dep_time", None)
+            await save_session(session)
             await _send_text(
                 sender_wa_id,
                 "*⏰ Please enter your departure time*\n\n"
                 "_Example: 13:40 · 1:40 AM · 3:30 PM_",
+                phone_number_id,
+            )
+            return
+        if reply_id == "dep_time_intl_ok":
+            # User confirmed the later departure time is correct (timezone difference).
+            pending = data.pop("_pending_dep_time", None)
+            if not pending:
+                await _send_text(
+                    sender_wa_id,
+                    "*⏰ Please enter your departure time*\n\n"
+                    "_Example: 13:40 · 1:40 AM · 3:30 PM_",
+                    phone_number_id,
+                )
+                return
+            data["depart_time"] = pending
+            data["_dep_explicit_am"] = False
+            if data.pop("_repair_to_arrive_time", False):
+                flow["step"] = "buy_cover_arrive_time"
+                await save_session(session)
+                await _send_text(
+                    sender_wa_id,
+                    "*⏰ What time is your flight scheduled to arrive?*\n\n_Example: 15:00 · 3:00 AM · 3:00 PM_",
+                    phone_number_id,
+                )
+                return
+            flow["step"] = "buy_cover_arrive_date"
+            await save_session(session)
+            await _send_text(
+                sender_wa_id,
+                "*📅 What date does your flight arrive?*\n\n"
+                "_Example: 12 April 2026, 12/04/2026, 12-04-2026_",
                 phone_number_id,
             )
             return
@@ -2770,14 +2803,22 @@ async def handle_buy_cover_flow(
             and dep_date_chk == arr_date_chk
             and parsed_dep_time >= arr_time
         ):
-            await _send_text(
+            # Save pending dep_time so dep_time_intl_ok can commit it
+            data["_pending_dep_time"] = parsed_dep_time
+            await save_session(session)
+            await _send_buttons(
                 sender_wa_id,
                 (
-                    f"⚠️ Departure time must be *before* arrival time\n\n"
-                    f"Your flight arrives at *{_fmt_time_display(arr_time)}* on the same day — "
-                    f"please enter a departure time earlier than that\n\n"
-                    "_Example: 13:40 · 1:40 AM · 1:40 PM_"
+                    f"⚠️ *Departure time is after arrival time*\n\n"
+                    f"Dep: *{_fmt_time_display(parsed_dep_time)}* → "
+                    f"Arr: *{_fmt_time_display(arr_time)}* on the same day.\n\n"
+                    f"If this is correct (e.g. international flight with timezone "
+                    f"difference), tap *Confirm*. Otherwise re-enter the departure time."
                 ),
+                [
+                    {"id": "dep_time_intl_ok", "title": "✅ Correct (intl. flight)"},
+                    {"id": "dep_time_retry",   "title": "⏰ Re-enter Departure Time"},
+                ],
                 phone_number_id,
             )
             return
@@ -3007,9 +3048,36 @@ async def handle_buy_cover_flow(
             )
             return
         if reply_id == "arr_time_retry":
+            data.pop("_pending_arr_time", None)
+            await save_session(session)
             await _send_text(
                 sender_wa_id,
                 "*⏰ What time is your flight scheduled to arrive?*\n\n_Example: 15:00 · 3:00 AM · 3:00 PM_",
+                phone_number_id,
+            )
+            return
+        if reply_id == "arr_time_intl_ok":
+            # User confirmed the earlier arrival time is correct (timezone difference).
+            # Commit the pending time saved before the button prompt was shown.
+            pending = data.pop("_pending_arr_time", None)
+            if not pending:
+                # Fallback — shouldn't normally happen; ask again
+                await _send_text(
+                    sender_wa_id,
+                    "*⏰ What time is your flight scheduled to arrive?*\n\n_Example: 15:00 · 3:00 AM · 3:00 PM_",
+                    phone_number_id,
+                )
+                return
+            data["arrive_time"] = pending
+            if data.pop("_edit_mode", False):
+                await save_session(session)
+                await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
+                return
+            flow["step"] = "buy_cover_arrive_airport_pick"
+            await save_session(session)
+            await _send_text(
+                sender_wa_id,
+                "*✈️ What airport are you arriving at?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, Lagos, ABV, Abuja_",
                 phone_number_id,
             )
             return
@@ -3053,18 +3121,22 @@ async def handle_buy_cover_flow(
         dep_date = data.get("date", "")
         arr_date = data.get("arrive_date", dep_date)
         if arr_date == dep_date and dep_time and parsed_arr_time <= dep_time:
+            # Save pending time — confirmed via arr_time_intl_ok if user says it's correct
+            data["_pending_arr_time"] = parsed_arr_time
+            await save_session(session)
             await _send_buttons(
                 sender_wa_id,
                 (
-                    f"⚠️ *Arrival time must be after departure time on the same day*\n\n"
-                    f"Your flight departs at *{_fmt_time_display(dep_time)}* — "
-                    f"please enter an arrival time later than that, or if this is an "
-                    f"overnight flight tap *Change Arrival Date* to set the correct date first.\n\n"
-                    "_Example: 15:00 · 3:00 AM · 3:00 PM_"
+                    f"⚠️ *Arrival time is before departure time*\n\n"
+                    f"Dep: *{_fmt_time_display(dep_time)}* → "
+                    f"Arr: *{_fmt_time_display(parsed_arr_time)}* on the same day.\n\n"
+                    f"If this is correct (e.g. international flight with timezone "
+                    f"difference), tap *Confirm*. Otherwise change the date or re-enter."
                 ),
                 [
+                    {"id": "arr_time_intl_ok",     "title": "✅ Correct (intl. flight)"},
                     {"id": "arr_time_change_date", "title": "🗓️ Change Arrival Date"},
-                    {"id": "arr_time_retry", "title": "⏰ Enter Time Again"},
+                    {"id": "arr_time_retry",       "title": "⏰ Re-enter Time"},
                 ],
                 phone_number_id,
             )
