@@ -1025,6 +1025,28 @@ async def start_buy_cover_flow(
             "payout_method_id": paused.get("payout_method_id"),
             "user_exists": True,
         }
+        # If user_id was never set in the original (pre-pause) flow — e.g. the
+        # user did not exist in Ipurvey when the flow first started but was
+        # created later — do a fresh lookup now so the rest of the flow
+        # (KYC skip → link → payment) has a valid user_id to work with.
+        if not session["api_data"].get("user_id"):
+            try:
+                _fresh_user = await ipurvey_service.check_user_exists(msisdn)
+                if _fresh_user and isinstance(_fresh_user, dict):
+                    _fresh_uid = (
+                        _fresh_user.get("userId")
+                        or _fresh_user.get("id")
+                        or _fresh_user.get("user_id")
+                    )
+                    if _fresh_uid:
+                        session["api_data"]["user_id"] = _fresh_uid
+                        session["api_data"]["user_exists"] = True
+                        logger.info(
+                            f"[buy_cover] paused resume: refreshed "
+                            f"user_id='{_fresh_uid}' via check_user_exists"
+                        )
+            except Exception as _ue:
+                logger.error(f"[buy_cover] paused resume: check_user_exists failed: {_ue}")
         if resumed_api and resumed_api.get("policy_id"):
             # API still returned draft data — keep it for step-resolution later
             session["api_data"]["resume_draft"] = resumed_api

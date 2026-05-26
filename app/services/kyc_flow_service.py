@@ -195,6 +195,27 @@ async def start_kyc_flow(
                     # Without this link call, initiate_payment returns
                     # HTTP 400 "User not linked to policy."
                     _uid = session.get("api_data", {}).get("user_id")
+                    # Defensive fallback: if user_id was never stored in the
+                    # session (e.g. user was created after the flow was paused),
+                    # fetch it fresh from Ipurvey before linking.
+                    if not _uid:
+                        try:
+                            _msisdn = get_msisdn(wa_id)
+                            _fresh = await ipurvey_service.check_user_exists(_msisdn)
+                            if _fresh and isinstance(_fresh, dict):
+                                _uid = (
+                                    _fresh.get("userId")
+                                    or _fresh.get("id")
+                                    or _fresh.get("user_id")
+                                )
+                                if _uid:
+                                    session.setdefault("api_data", {})["user_id"] = _uid
+                                    logger.info(
+                                        f"[kyc] already-verified skip: fetched "
+                                        f"user_id='{_uid}' via check_user_exists"
+                                    )
+                        except Exception as _fe:
+                            logger.error(f"[kyc] check_user_exists in skip path failed: {_fe}")
                     if _uid:
                         try:
                             await ipurvey_service.link_user_to_policy(policy_id, _uid)
@@ -206,6 +227,11 @@ async def start_kyc_flow(
                             logger.error(
                                 f"[kyc] link_user_to_policy in skip path failed: {_link_exc}"
                             )
+                    else:
+                        logger.error(
+                            f"[kyc] already-verified skip: user_id not found for "
+                            f"wa_id='{wa_id}' — link_user_to_policy skipped"
+                        )
 
                     session["temp_data"][KYC_FLOW_KEY]["step"] = "kyc_verified"
                     session["temp_data"][KYC_FLOW_KEY]["data"]["kyc_verified"] = True
