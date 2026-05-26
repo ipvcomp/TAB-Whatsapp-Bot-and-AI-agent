@@ -3025,7 +3025,7 @@ async def handle_buy_cover_flow(
                 (
                     f"⚠️ Arrival date cannot be before your departure date\n\n"
                     f"Your flight departs on *{dep_date_fmt}* — "
-                    f"please enter an arrival date on or after that\n\n"
+                    f"Please enter a future time\n\n"
                     "_Example: 12 April 2026_"
                 ),
                 phone_number_id,
