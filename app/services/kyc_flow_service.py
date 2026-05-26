@@ -119,14 +119,14 @@ async def _show_bypass_screen(
     await save_session(session)
     await _send_buttons(
         wa_id,
-        "⚠️ *Verification Pending*\n\n"
-        "Your BVN/NIN could not be verified automatically.\n\n"
-        "✅ You can still continue with your policy purchase.\n\n"
-        "ℹ️ Verification may be required before any disruption payout is processed.",
+        "⚠️ *Verification Incomplete*\n\n"
+        "We could not complete verification automatically.\n\n"
+        "Please review and resubmit your trip details and ensure the name of the main passenger or purchaser matches the Biometric ID details. This will help avoid delays to any future payout.\n\n"
+        "What would you like to do next?",
         [
-            {"id": "kyc_bypass_pay",    "title": "💳 Continue Purchase"},
-            {"id": "kyc_bypass_review", "title": "📋 Review details"},
-            {"id": "kyc_help",          "title": "🆘 Get Help"},
+            {"id": "kyc_bypass_pay",    "title": "1. Continue to payment"},
+            {"id": "kyc_bypass_review", "title": "2. Review trip details"},
+            {"id": "kyc_home",          "title": "3. Main menu"},
         ],
         phone_number_id,
     )
@@ -760,20 +760,20 @@ async def handle_kyc_flow(
                 _other = "NIN" if method == "BVN" else "BVN"
                 await _send_buttons(
                     sender_wa_id,
-                    f"⚠️ *Verification Pending*\n\n"
-                    f"Your {method} could not be verified automatically.\n\n"
-                    f"✅ You can still continue with your policy purchase.\n\n"
-                    f"ℹ️ Verification may be required before any disruption payout is processed.",
+                    f"⚠️ *Verification Incomplete*\n\n"
+                    f"We could not complete verification automatically.\n\n"
+                    f"Please review and resubmit your trip details and ensure the name of the main passenger or purchaser matches the Biometric ID details. This will help avoid delays to any future payout.\n\n"
+                    f"What would you like to do next?",
                     [
                         {
                             "id": "kyc_continue_purchase",
-                            "title": "💳 Continue Purchase",
+                            "title": "1. Continue to payment",
                         },
                         {
-                            "id": "kyc_try_another_id",
-                            "title": f"🪪 Try {_other} instead",
+                            "id": "kyc_review",
+                            "title": "2. Review trip details",
                         },
-                        {"id": "kyc_help", "title": "🆘 Get Help"},
+                        {"id": "kyc_home", "title": "3. Main menu"},
                     ],
                     phone_number_id,
                 )
@@ -807,20 +807,20 @@ async def handle_kyc_flow(
                 _other = "NIN" if method == "BVN" else "BVN"
                 await _send_buttons(
                     sender_wa_id,
-                    f"⚠️ *Verification Pending*\n\n"
-                    f"Your {method} could not be verified automatically.\n\n"
-                    f"✅ You can still continue with your policy purchase.\n\n"
-                    f"ℹ️ Verification may be required before any disruption payout is processed.",
+                    f"⚠️ *Verification Incomplete*\n\n"
+                    f"We could not complete verification automatically.\n\n"
+                    f"Please review and resubmit your trip details and ensure the name of the main passenger or purchaser matches the Biometric ID details. This will help avoid delays to any future payout.\n\n"
+                    f"What would you like to do next?",
                     [
                         {
                             "id": "kyc_continue_purchase",
-                            "title": "💳 Continue Purchase",
+                            "title": "1. Continue to payment",
                         },
                         {
-                            "id": "kyc_try_another_id",
-                            "title": f"🪪 Try {_other} instead",
+                            "id": "kyc_review",
+                            "title": "2. Review trip details",
                         },
-                        {"id": "kyc_help", "title": "🆘 Get Help"},
+                        {"id": "kyc_home", "title": "3. Main menu"},
                     ],
                     phone_number_id,
                 )
@@ -1043,20 +1043,20 @@ async def handle_kyc_flow(
             if not reply_id:
                 await _send_buttons(
                     sender_wa_id,
-                    f"⚠️ *Verification Pending*\n\n"
-                    f"Your {method} could not be verified automatically.\n\n"
-                    f"✅ You can still continue with your policy purchase.\n\n"
-                    f"ℹ️ Verification may be required before any disruption payout is processed.",
+                    f"⚠️ *Verification Incomplete*\n\n"
+                    f"We could not complete verification automatically.\n\n"
+                    f"Please review and resubmit your trip details and ensure the name of the main passenger or purchaser matches the Biometric ID details. This will help avoid delays to any future payout.\n\n"
+                    f"What would you like to do next?",
                     [
                         {
                             "id": "kyc_continue_purchase",
-                            "title": "💳 Continue Purchase",
+                            "title": "1. Continue to payment",
                         },
                         {
-                            "id": "kyc_try_another_id",
-                            "title": f"🪪 Try {_other} instead",
+                            "id": "kyc_review",
+                            "title": "2. Review trip details",
                         },
-                        {"id": "kyc_help", "title": "🆘 Get Help"},
+                        {"id": "kyc_home", "title": "3. Main menu"},
                     ],
                     phone_number_id,
                 )
