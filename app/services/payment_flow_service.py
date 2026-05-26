@@ -247,21 +247,19 @@ async def _show_payment_summary(
     except Exception:
         api_types = ["BANK_TRANSFER"]
 
-    # Build buttons in priority order, max 3 (WhatsApp limit)
+    # Build rows in priority order — use list (supports up to 10, no WhatsApp button cap)
     seen_ids: set[str] = set()
-    buttons: list[dict] = []
+    rows: list[dict] = []
     for ptype in _PAYMENT_TYPE_PRIORITY:
         if ptype in api_types:
             btn = _PAYMENT_TYPE_MAP.get(ptype)
             if btn and btn["id"] not in seen_ids:
-                buttons.append(btn)
+                rows.append({"id": btn["id"], "title": btn["title"]})
                 seen_ids.add(btn["id"])
-            if len(buttons) == 3:
-                break
-    if not buttons:
-        buttons = [{"id": "pay_m_bank", "title": "🏦 Bank Transfer"}]
+    if not rows:
+        rows = [{"id": "pay_m_bank", "title": "🏦 Bank Transfer"}]
 
-    await _send_buttons(
+    await _send_list(
         wa_id,
         f"🎫 *You're one step away from activating your cover*\n\n"
         f"🧾 PAYMENT SUMMARY\n"
@@ -272,7 +270,8 @@ async def _show_payment_summary(
         f"🔒 KYC         ✅ Verified\n"
         f"💰 Amount      ₦{amount:,}\n\n"
         f"Choose a payment method below:",
-        buttons,
+        "Select method",
+        [{"title": "Payment Methods", "rows": rows}],
         phone_number_id,
     )
 
@@ -501,13 +500,21 @@ async def start_payment_flow(
         session["user_id"] = wa_id
     await save_session(session)
 
+    # Fetch available payout method types; only show Wallet when API returns a wallet type
+    try:
+        payout_types = await ipurvey_service.get_payout_method_types(country="NG")
+    except Exception:
+        payout_types = ["BANK_ACCOUNT"]
+
+    _WALLET_PAYOUT_TYPES = {"WALLET", "MOBILE_WALLET", "MOBILE_MONEY", "VIRTUAL_WALLET"}
+    payout_buttons = [{"id": "pay_bank", "title": "🏦 Bank transfer"}]
+    if any(pt in _WALLET_PAYOUT_TYPES for pt in payout_types):
+        payout_buttons.append({"id": "pay_wallet_payout", "title": "👛 Wallet"})
+
     await _send_buttons(
         wa_id,
         "Payout options\n\nChoose how you would like to receive money for any future payouts:",
-        [
-            {"id": "pay_bank",          "title": "🏦 Bank transfer"},
-            {"id": "pay_wallet_payout", "title": "👛 Wallet"},
-        ],
+        payout_buttons,
         phone_number_id,
     )
 

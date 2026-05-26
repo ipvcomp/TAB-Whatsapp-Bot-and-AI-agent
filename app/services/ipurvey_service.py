@@ -1220,6 +1220,27 @@ async def get_payment_types(country: str = "NG") -> list[str]:
     return ["CARD", "BANK_TRANSFER"]
 
 
+async def get_payout_method_types(country: str = "NG") -> list[str]:
+    """Fetch available payout method types from /enums/payout-methods?country=<country>."""
+    logger.info(f"[ipurvey] get_payout_method_types country='{country}'")
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(
+                f"{_base()}/enums/payout-methods",
+                params={"country": country},
+            )
+            if r.status_code == 200:
+                body = r.json()
+                data = body.get("data") if isinstance(body, dict) else body
+                if isinstance(data, list):
+                    logger.info(f"[ipurvey] get_payout_method_types → {data}")
+                    return data
+            logger.warning(f"[ipurvey] get_payout_method_types → {r.status_code}: {r.text[:100]}")
+    except Exception as e:
+        logger.error(f"[ipurvey] get_payout_method_types failed: {e}")
+    return ["BANK_ACCOUNT"]
+
+
 async def initiate_payment(
     policy_id: str,
     payment_method: str = "CARD",
