@@ -124,8 +124,8 @@ async def _show_bypass_screen(
         "Please review and resubmit your trip details and ensure the name of the main passenger or purchaser matches the Biometric ID details. This will help avoid delays to any future payout.\n\n"
         "What would you like to do next?",
         [
-            {"id": "kyc_bypass_pay",    "title": "1. Continue to payment"},
-            {"id": "kyc_bypass_review", "title": "2. Review trip details"},
+            {"id": "kyc_bypass_pay",    "title": "1. Continue to pay"},
+            {"id": "kyc_bypass_review", "title": "2. Review my trip"},
             {"id": "kyc_home",          "title": "3. Main menu"},
         ],
         phone_number_id,
@@ -767,11 +767,11 @@ async def handle_kyc_flow(
                     [
                         {
                             "id": "kyc_continue_purchase",
-                            "title": "1. Continue to payment",
+                            "title": "1. Continue to pay",
                         },
                         {
                             "id": "kyc_review",
-                            "title": "2. Review trip details",
+                            "title": "2. Review my trip",
                         },
                         {"id": "kyc_home", "title": "3. Main menu"},
                     ],
@@ -814,11 +814,11 @@ async def handle_kyc_flow(
                     [
                         {
                             "id": "kyc_continue_purchase",
-                            "title": "1. Continue to payment",
+                            "title": "1. Continue to pay",
                         },
                         {
                             "id": "kyc_review",
-                            "title": "2. Review trip details",
+                            "title": "2. Review my trip",
                         },
                         {"id": "kyc_home", "title": "3. Main menu"},
                     ],
@@ -1050,11 +1050,11 @@ async def handle_kyc_flow(
                     [
                         {
                             "id": "kyc_continue_purchase",
-                            "title": "1. Continue to payment",
+                            "title": "1. Continue to pay",
                         },
                         {
                             "id": "kyc_review",
-                            "title": "2. Review trip details",
+                            "title": "2. Review my trip",
                         },
                         {"id": "kyc_home", "title": "3. Main menu"},
                     ],
