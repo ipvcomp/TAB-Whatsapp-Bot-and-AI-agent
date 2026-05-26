@@ -127,7 +127,7 @@ async def _show_bypass_screen(
         [
             {"id": "kyc_bypass_pay",    "title": "1. Continue to pay"},
             {"id": "kyc_bypass_review", "title": "2. Review my trip"},
-            {"id": "kyc_home",          "title": "3. Main menu"},
+            {"id": "kyc_bypass_menu",   "title": "3. Main menu"},
         ],
         phone_number_id,
     )
@@ -1290,6 +1290,48 @@ async def handle_kyc_flow(
                 f"🔒 _Your {_other} is handled securely — only the last 3 digits will be shown for confirmation_",
                 phone_number_id,
             )
+        elif reply_id == "kyc_review":
+            bc_data = (
+                session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
+            )
+            travelers = bc_data.get("travelers", [])
+            traveler_lines = (
+                "\n".join(f"  {i + 1} — {n}" for i, n in enumerate(travelers))
+                if travelers
+                else f"  1 — {bc_data.get('name', '—')}"
+            )
+            dep = bc_data.get("depart_airport", "").split("—")[0].strip() or "—"
+            arr = bc_data.get("arrive_airport", "").split("—")[0].strip() or "—"
+            summary = (
+                "📋 *Trip Summary*\n\n"
+                f"✈️ YOUR TRIP\n"
+                f"Airline: {bc_data.get('airline', '—')}\n"
+                f"Route: {dep} → {arr}\n"
+                f"Flight: {bc_data.get('flight_num', '—')}\n"
+                f"Date: {bc_data.get('date', '—')}\n"
+                f"Departs: {bc_data.get('depart_time', '—')}\n"
+                f"Arrives: {bc_data.get('arrive_time', '—')}\n\n"
+                f"👥 TRAVELLERS\n{traveler_lines}\n\n"
+                f"🛡️ Cover: {bc_data.get('cover', '—')}"
+            )
+            await _send_text(sender_wa_id, summary, phone_number_id)
+            await _send_buttons(
+                sender_wa_id,
+                "What would you like to do next?",
+                [
+                    {"id": "kyc_continue_purchase", "title": "1. Continue to pay"},
+                    {"id": "kyc_review",             "title": "2. Review trip"},
+                    {"id": "kyc_home",               "title": "3. Main menu"},
+                ],
+                phone_number_id,
+            )
+        elif reply_id == "kyc_home":
+            session["temp_data"][KYC_FLOW_KEY] = {}
+            session["temp_data"][BUY_COVER_FLOW_KEY] = {}
+            await save_session(session)
+            from app.services.auto_reply_service import send_main_menu
+
+            await send_main_menu(to=sender_wa_id, phone_number_id=phone_number_id)
         elif reply_id == "kyc_help":
             await _send_help(sender_wa_id, session, phone_number_id)
 
