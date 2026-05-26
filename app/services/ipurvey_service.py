@@ -289,6 +289,9 @@ async def create_user(
             if r.status_code in (200, 201):
                 logger.info(f"[ipurvey] create_user → success ({r.status_code})")
                 return _extract(r.json())
+            if r.status_code == 400 and "already associated" in r.text.lower():
+                logger.warning(f"[ipurvey] create_user → 400 email already associated with another user")
+                return {"_error": "email_conflict"}
             if r.status_code == 409 or (
                 r.status_code == 400
                 and ("already exists" in r.text.lower() or "duplicate" in r.text.lower())

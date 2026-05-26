@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Optional
 
 import app.services.ipurvey_service as ipurvey_service
@@ -665,6 +666,18 @@ async def handle_kyc_flow(
                     identity_type=method,
                     identity_number=id_number,
                 )
+                if user_result and isinstance(user_result, dict) and user_result.get("_error") == "email_conflict":
+                    flow["step"] = "kyc_email_conflict"
+                    await save_session(session)
+                    await _send_text(
+                        sender_wa_id,
+                        f"📧 *Email Already Registered*\n\n"
+                        f"The email address *{email}* is already linked to another account on our system.\n\n"
+                        "Please enter a different email address to continue with your purchase:\n\n"
+                        "_Example: name@example.com_",
+                        phone_number_id,
+                    )
+                    return
                 if user_result and isinstance(user_result, dict):
                     uid = user_result.get("userId") or user_result.get("id")
                     if uid:
@@ -824,6 +837,193 @@ async def handle_kyc_flow(
                     ],
                     phone_number_id,
                 )
+
+    # ── Email conflict — collect a different email and retry KYC ──────────────
+    elif step == "kyc_email_conflict":
+        if not text:
+            await _send_text(
+                sender_wa_id,
+                "Please type a valid email address to continue.",
+                phone_number_id,
+            )
+            return
+
+        if text.strip() == "0":
+            # Back → re-ask for ID number
+            method = data.get("kyc_method", "BVN")
+            supported_types = data.get("kyc_supported_types", [])
+            type_info = next(
+                (t for t in supported_types if t.get("type", "").upper() == method.upper()),
+                None,
+            )
+            min_len: int = type_info["minLength"] if type_info else 11
+            flow["step"] = "kyc_id_input"
+            await save_session(session)
+            await _send_text(
+                sender_wa_id,
+                f"🔏 *Please enter your {min_len}-digit {method}*\n\n"
+                f"_Example: {'1' * min_len}_\n\n"
+                f"🔒 _Your {method} is handled securely — only the last 3 digits will be shown for confirmation_",
+                phone_number_id,
+            )
+            return
+
+        new_email = text.strip()
+        if not re.match(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$", new_email):
+            await _send_text(
+                sender_wa_id,
+                "⚠️ That doesn't look like a valid email address.\n\n"
+                "Please enter a valid email to continue:\n\n"
+                "_Example: name@example.com_",
+                phone_number_id,
+            )
+            return
+
+        # Save new email into buy_cover session data
+        bc_flow = session.setdefault("temp_data", {}).setdefault(BUY_COVER_FLOW_KEY, {})
+        bc_flow.setdefault("data", {})["email"] = new_email
+
+        policy_id = session.get("api_data", {}).get("policy_id")
+        user_id    = session.get("api_data", {}).get("user_id")
+        method     = data.get("kyc_method", "BVN")
+        id_number  = data.get("kyc_id", "")
+        masked     = _mask_id(id_number)
+
+        bc_data  = bc_flow.get("data", {})
+        msisdn   = get_msisdn(sender_wa_id)
+        raw_name = bc_data.get("name", "")
+        parts    = raw_name.strip().split(None, 1)
+        fn       = parts[0] if parts else raw_name
+        ln       = parts[1] if len(parts) > 1 else ""
+
+        await _send_text_plain(
+            sender_wa_id,
+            "⏳ _Updating your details, please wait..._",
+            phone_number_id,
+        )
+
+        # Update policy email on the backend
+        if policy_id:
+            await ipurvey_service.set_policy_email(policy_id, new_email)
+
+        api_verified   = False
+        api_session_id = None
+        api_call_done  = False
+
+        try:
+            user_result = await ipurvey_service.create_user(
+                msisdn=msisdn,
+                first_name=fn,
+                last_name=ln,
+                email=new_email,
+                identity_type=method,
+                identity_number=id_number,
+            )
+            if user_result and isinstance(user_result, dict) and user_result.get("_error") == "email_conflict":
+                # Still conflicts — prompt for another email
+                await save_session(session)
+                await _send_text(
+                    sender_wa_id,
+                    f"📧 *Email Already Registered*\n\n"
+                    f"The email address *{new_email}* is also already linked to another account.\n\n"
+                    "Please enter a different email address:",
+                    phone_number_id,
+                )
+                return
+            if user_result and isinstance(user_result, dict):
+                uid = user_result.get("userId") or user_result.get("id")
+                if uid:
+                    session.setdefault("api_data", {})["user_id"] = uid
+                    user_id = uid
+                    if policy_id:
+                        await ipurvey_service.link_user_to_policy(policy_id, uid)
+            elif user_id and policy_id:
+                await ipurvey_service.link_user_to_policy(policy_id, user_id)
+
+            if user_id:
+                kyc_result = await ipurvey_service.initiate_kyc(user_id, method, id_number)
+                api_call_done = True
+                if kyc_result and isinstance(kyc_result, dict):
+                    sid          = kyc_result.get("sessionId") or kyc_result.get("session_id")
+                    status       = (kyc_result.get("status") or "").upper()
+                    resp_verified = kyc_result.get("verified")
+                    if sid:
+                        api_session_id = sid
+                        session.setdefault("api_data", {})["kyc_session_id"] = sid
+                    if (
+                        status in ("VERIFIED", "SUCCESS", "COMPLETED", "PASSED")
+                        or resp_verified is True
+                    ):
+                        api_verified = True
+                    log_fn = logger.info if api_verified else logger.warning
+                    log_fn(
+                        f"[kyc] email_conflict retry: method={method} status={status} verified={resp_verified}"
+                        + (f" | raw={kyc_result}" if not api_verified else "")
+                    )
+
+            await save_session(session)
+        except Exception as exc:
+            logger.error(f"[kyc] email_conflict API retry failed: {exc}")
+
+        if api_verified:
+            data["kyc_verified"] = True
+            flow["step"] = "kyc_verified"
+            await save_session(session)
+            await _send_buttons(
+                sender_wa_id,
+                f"✅ *Identity Verified*\n_{method}: {masked}_\n\n"
+                "Your identity has been confirmed. You can now continue to payment.\n\n"
+                "What would you like to do next?",
+                [
+                    {"id": "kyc_pay",    "title": "1. Continue to pay"},
+                    {"id": "kyc_review", "title": "2. Review my trip"},
+                    {"id": "kyc_home",   "title": "3. Main menu"},
+                ],
+                phone_number_id,
+            )
+        elif api_session_id and method == "BVN":
+            flow["step"] = "kyc_otp_input"
+            await save_session(session)
+            await _send_buttons(
+                sender_wa_id,
+                "🔐 *OTP Sent*\n"
+                "A one-time PIN has been sent to the phone number linked to your *BVN*.\n\n"
+                "Please enter the *6-digit OTP* to verify your identity:",
+                [
+                    {"id": "kyc_otp_resend", "title": "📲 Resend OTP"},
+                    {"id": "kyc_help",       "title": "🆘 Get help"},
+                ],
+                phone_number_id,
+            )
+        elif api_call_done:
+            data["kyc_verified"] = False
+            tried = data.setdefault("kyc_methods_tried", [])
+            if method not in tried:
+                tried.append(method)
+            flow["step"] = "kyc_failed"
+            await save_session(session)
+            if _both_methods_tried(data):
+                await _show_bypass_screen(sender_wa_id, session, phone_number_id)
+            else:
+                await _send_buttons(
+                    sender_wa_id,
+                    f"⚠️ *Verification Incomplete*\n\n"
+                    f"We could not complete verification automatically.\n\n"
+                    f"Please review and resubmit your trip details and ensure the name of the main passenger or purchaser matches the Biometric ID details. This will help avoid delays to any future payout.\n\n"
+                    f"What would you like to do next?",
+                    [
+                        {"id": "kyc_continue_purchase", "title": "1. Continue to pay"},
+                        {"id": "kyc_review",             "title": "2. Review my trip"},
+                        {"id": "kyc_home",               "title": "3. Main menu"},
+                    ],
+                    phone_number_id,
+                )
+        else:
+            await _send_text(
+                sender_wa_id,
+                "⚠️ We were unable to process your details. Please try again or contact support.",
+                phone_number_id,
+            )
 
     # ── OTP input (after API initiates KYC) ───────────────────────────────────
     elif step == "kyc_otp_input":
