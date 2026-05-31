@@ -183,9 +183,9 @@ async def _ask_upload(wa_id: str, session: dict, flow: dict, pol: dict, phone_nu
     flow["step"] = "bp_awaiting_doc"
     await save_session(session)
     await _send_text(wa_id,
-        "📎 *Please upload a clear image or PDF of your boarding pass*\n\n"
+        "🖇️ *Please upload a clear image or PDF of your boarding pass*\n\n"
         "*Accepted formats:*\n"
-        "JPEG  PDF  GIF  TIFF  PNG\n\n"
+        "`JPEG`  `PDF`  `GIF`  `TIFF`  `PNG`\n\n"
         "📦 *Maximum size: 20 MB*\n\n"
         + UPLOAD_INSTRUCTIONS,
         phone_number_id)
@@ -221,7 +221,11 @@ async def _show_bp_status(
             wa_id,
             f"❌ *Boarding pass rejected*\n\n"
             f"Policy: *{ref}*\n\n"
-            f"Please upload a clearer image. Make sure all details are visible.\n\n"
+            f"Please upload a clearer image.\n\n"
+            "🖇️ *Please upload a clear image or PDF of your boarding pass*\n\n"
+            "*Accepted formats:*\n"
+            "`JPEG`  `PDF`  `GIF`  `TIFF`  `PNG`\n\n"
+            "📦 *Maximum size: 20 MB*\n\n"
             + UPLOAD_INSTRUCTIONS,
             [{"id": "bp_cancel", "title": "❌ Cancel"}],
             phone_number_id,
