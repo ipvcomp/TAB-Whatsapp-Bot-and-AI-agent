@@ -300,23 +300,30 @@ async def _send_success(
     await _send_text(
         wa_id,
         f"✅ *Payment Successful!*\n"
-        f"Your cover is now active 🎉\n\n"
-        f"📋 Policy No:  {policy}\n"
-        f"✈️ Flight:       {flight}\n"
-        f"🗓️ Date:          {date}\n"
-        f"😊 Traveller:   *{name}*",
+        f"_Your cover is now active 🎉_\n"
+        f"──────────────────────────\n"
+        f"🗂️ *Policy No:* {policy}\n"
+        f"✈️ *Flight:* {flight}\n"
+        f"📅 *Date:* {date}\n"
+        f"🧡 *Traveller:* {name}",
         phone_number_id,
     )
-    await _send_buttons(
+    await _send_list(
         wa_id,
-        "📎 *Got your boarding pass handy? Upload it now* 👍\n"
+        "🖇️ *Got your boarding pass handy? Upload it now* 👍\n"
         "If not, no worries — you can upload it later. "
         "We'll just need it before any payout.\n\n"
         "What would you like to do next?",
+        "Choose an option",
         [
-            {"id": "pay_view_doc",  "title": "📄 View policy doc"},
-            {"id": "pay_upload_bp", "title": "📤 Upload boarding"},
-            {"id": "pay_home",      "title": "🏠 Main menu"},
+            {
+                "title": "Next steps",
+                "rows": [
+                    {"id": "pay_view_doc",  "title": "📄 View policy document"},
+                    {"id": "pay_upload_bp", "title": "📤 Upload boarding pass"},
+                    {"id": "pay_home",      "title": "🏠 Main menu"},
+                ],
+            }
         ],
         phone_number_id,
     )
@@ -1283,21 +1290,28 @@ async def handle_payment_flow(
             name    = bc_data.get("name",       "—")
             await _send_text(sender_wa_id,
                 f"✅ *Payment Successful!*\n"
-                f"Your cover is now active 🎉\n\n"
-                f"📋 Policy No:  {pol}\n"
-                f"✈️ Flight:       {flight}\n"
-                f"🗓️ Date:          {date}\n"
-                f"😊 Traveller:   *{name}*",
+                f"_Your cover is now active 🎉_\n"
+                f"──────────────────────────\n"
+                f"🗂️ *Policy No:* {pol}\n"
+                f"✈️ *Flight:* {flight}\n"
+                f"📅 *Date:* {date}\n"
+                f"🧡 *Traveller:* {name}",
                 phone_number_id)
-            await _send_buttons(sender_wa_id,
-                "📎 *Got your boarding pass handy? Upload it now* 👍\n"
+            await _send_list(sender_wa_id,
+                "🖇️ *Got your boarding pass handy? Upload it now* 👍\n"
                 "If not, no worries — you can upload it later. "
                 "We'll just need it before any payout.\n\n"
                 "What would you like to do next?",
+                "Choose an option",
                 [
-                    {"id": "pay_view_doc",  "title": "📄 View policy doc"},
-                    {"id": "pay_upload_bp", "title": "📤 Upload boarding"},
-                    {"id": "pay_home",      "title": "🏠 Main menu"},
+                    {
+                        "title": "Next steps",
+                        "rows": [
+                            {"id": "pay_view_doc",  "title": "📄 View policy document"},
+                            {"id": "pay_upload_bp", "title": "📤 Upload boarding pass"},
+                            {"id": "pay_home",      "title": "🏠 Main menu"},
+                        ],
+                    }
                 ],
                 phone_number_id,
             )
