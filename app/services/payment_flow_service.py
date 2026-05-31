@@ -1242,13 +1242,82 @@ async def handle_payment_flow(
                     reply_id = "pay_upload_bp"
                 elif any(k in ev for k in ("menu", "home", "main", "exit")):
                     reply_id = "pay_home"
-        if reply_id in ("pay_view_policy", "pay_view_doc"):
-            await _send_text(sender_wa_id,
-                f"📄 *Your Policy Document*\n\n"
-                f"🗓️ Policy No:  *{pol}*\n🔑 Reference:  *{ref}*\n"
-                f"💰 Amount:     *₦{amount:,}*\n🛡️ Cover:      *{cname}*\n\n"
-                f"Your policy is active. TravelAssist will monitor your flight automatically.",
-                phone_number_id)
+        if reply_id in ("pay_view_policy", "pay_view_doc", "pay_pol_view_doc"):
+            bc_data_v = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
+            flight_v  = bc_data_v.get("flight_num", "—")
+            date_v    = bc_data_v.get("date", "—")
+            name_v    = bc_data_v.get("name", "—")
+            doc_url_v: Optional[str] = None
+            try:
+                doc_url_v = await ipurvey_service.get_policy_document_url(pol)
+            except Exception:
+                pass
+            card_body_v = (
+                f"*{cname}*\n"
+                f"Policy No: *{pol}*   ✅ Active\n\n"
+                f"🛫 Flight       {flight_v}\n"
+                f"📅 Date          {date_v}\n"
+                f"🧡 Traveller  {name_v}\n"
+            )
+            if doc_url_v:
+                cta_v = {
+                    "messaging_product": "whatsapp",
+                    "recipient_type":    "individual",
+                    "to":                sender_wa_id,
+                    "type":              "interactive",
+                    "interactive": {
+                        "type":   "cta_url",
+                        "header": {"type": "text", "text": "📁 Your Policy Details"},
+                        "body":   {"text": card_body_v},
+                        "action": {
+                            "name": "cta_url",
+                            "parameters": {
+                                "display_text": "📋 Download Policy Document",
+                                "url": doc_url_v,
+                            },
+                        },
+                    },
+                }
+                await send_whatsapp_payload(whatsapp_payload=cta_v, phone_number_id=phone_number_id, source="payment_flow")
+                await send_text_message(to=sender_wa_id, body=_UTILITY, phone_number_id=phone_number_id, source="payment_flow")
+            else:
+                await _send_text(
+                    sender_wa_id,
+                    f"📁 *Your Policy Details*\n\n{card_body_v}",
+                    phone_number_id,
+                )
+            await _send_list(
+                sender_wa_id,
+                "What would you like to do?",
+                "More options",
+                [
+                    {
+                        "title": "Options",
+                        "rows": [
+                            {"id": "pay_pol_alerts", "title": "🔔 Manage alerts"},
+                            {"id": "pay_pol_help",   "title": "🤝 Help"},
+                            {"id": "pay_pol_all",    "title": "🗂️ All my policies"},
+                        ],
+                    }
+                ],
+                phone_number_id,
+            )
+        elif reply_id == "pay_pol_alerts":
+            await _send_text(
+                sender_wa_id,
+                "🔔 *Flight Monitoring Active*\n\n"
+                "TravelAssist is automatically monitoring your flight for delays and cancellations.\n\n"
+                "You will receive alerts on this WhatsApp number if anything changes.",
+                phone_number_id,
+            )
+        elif reply_id == "pay_pol_help":
+            from app.services.help_flow_service import start_help_flow
+            await start_help_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+        elif reply_id == "pay_pol_all":
+            from app.services.check_policy_flow_service import start_check_policy_flow
+            session["temp_data"][PAYMENT_FLOW_KEY] = {}
+            await save_session(session)
+            await start_check_policy_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
         elif reply_id == "pay_upload_bp":
             from app.services.bp_link_flow_service import start_bp_link_flow
             flow["active"] = False

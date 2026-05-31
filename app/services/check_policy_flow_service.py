@@ -706,11 +706,11 @@ async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Op
         f"*{p['name']}*\n"
         f"Policy No: *{p['ref']}*   {status_emoji} {status_label}\n\n"
         f"✈️ Airline      {p['airline'] or '—'}\n"
-        f"✈️ Flight         {p['flight'] or '—'}\n"
-        f"📅 Dep Date   {p['date'] or '—'}\n"
+        f"🛫 Flight         {p['flight'] or '—'}\n"
+        f"📅 Date            {p['date'] or '—'}\n"
         + (f"🕐 Dep Time  {dep_time_display}\n" if dep_time_display else "")
         + (f"🕐 Arr Time   {arr_time_display}\n" if arr_time_display else "")
-        + f"👤 Traveller   {traveler}\n"
+        + f"🧡 Traveller   {traveler}\n"
     )
 
     if p.get("doc_url"):
@@ -721,12 +721,12 @@ async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Op
             "type":              "interactive",
             "interactive": {
                 "type":   "cta_url",
-                "header": {"type": "text", "text": "Policy Details"},
+                "header": {"type": "text", "text": "📁 Your Policy Details"},
                 "body":   {"text": card_body},
                 "action": {
                     "name": "cta_url",
                     "parameters": {
-                        "display_text": "Download Policy Document",
+                        "display_text": "📋 Download Policy Document",
                         "url": p["doc_url"],
                     },
                 },
@@ -740,18 +740,24 @@ async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Op
     else:
         await send_text_message(
             to=wa_id,
-            body=f"🛡️ *Policy Details*\n\n{card_body}\n_Policy document not yet available._",
+            body=f"📁 *Your Policy Details*\n\n{card_body}\n_Policy document not yet available._",
             phone_number_id=phone_number_id,
             source="check_policy_flow",
         )
 
-    await _send_buttons(
+    await _send_list(
         wa_id,
         "What would you like to do?",
+        "More options",
         [
-            {"id": "pol_manage_alerts", "title": "🔔 Manage alerts"},
-            {"id": "pol_help",          "title": "🤝 Help"},
-            {"id": "pol_all",           "title": "📋 All my policies"},
+            {
+                "title": "Options",
+                "rows": [
+                    {"id": "pol_manage_alerts", "title": "🔔 Manage alerts"},
+                    {"id": "pol_help",          "title": "🤝 Help"},
+                    {"id": "pol_all",           "title": "🗂️ All my policies"},
+                ],
+            }
         ],
         phone_number_id,
     )
