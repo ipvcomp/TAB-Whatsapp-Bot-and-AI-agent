@@ -1157,6 +1157,12 @@ async def handle_payment_flow(
                             or status_result.get("status")
                             or ""
                         ).upper()
+                        pay_ref_log = status_result.get("paymentReference", "—")
+                        logger.info(
+                            f"[payment] payment-status response | "
+                            f"paymentStatus={status_val!r} | "
+                            f"paymentReference={pay_ref_log!r}"
+                        )
                         if status_val in ("PAID", "SUCCESS", "COMPLETED", "CONFIRMED"):
                             payment_confirmed = True
                             policy_ref = (

@@ -1277,8 +1277,14 @@ async def get_payment_status(policy_id: str, msisdn: str) -> Optional[dict]:
                 params={"msisdn": msisdn},
             )
             if r.status_code == 200:
-                logger.info(f"[ipurvey] get_payment_status → found (200)")
-                return _extract(r.json())
+                data = _extract(r.json())
+                pay_ref = (data or {}).get("paymentReference", "—")
+                pay_status = (data or {}).get("paymentStatus", "—")
+                logger.info(
+                    f"[ipurvey] get_payment_status → found (200) | "
+                    f"paymentStatus={pay_status!r} | paymentReference={pay_ref!r}"
+                )
+                return data
             logger.info(f"[ipurvey] get_payment_status → {r.status_code}")
             return None
     except Exception as e:
