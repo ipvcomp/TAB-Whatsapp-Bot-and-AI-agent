@@ -1257,9 +1257,11 @@ async def handle_payment_flow(
                 f"Policy No: *{pol}*   ✅ Active\n\n"
                 f"🛫 Flight       {flight_v}\n"
                 f"📅 Date          {date_v}\n"
-                f"🧡 Traveller  {name_v}\n"
+                f"🧑 Traveller  {name_v}\n"
             )
             if doc_url_v:
+                data["pay_doc_url"] = doc_url_v
+                await save_session(session)
                 cta_v = {
                     "messaging_product": "whatsapp",
                     "recipient_type":    "individual",
@@ -1280,28 +1282,67 @@ async def handle_payment_flow(
                 }
                 await send_whatsapp_payload(whatsapp_payload=cta_v, phone_number_id=phone_number_id, source="payment_flow")
                 await send_text_message(to=sender_wa_id, body=_UTILITY, phone_number_id=phone_number_id, source="payment_flow")
+                await _send_buttons(
+                    sender_wa_id,
+                    "What would you like to do?",
+                    [
+                        {"id": "pay_pol_download", "title": "📥 Download Policy"},
+                        {"id": "pay_pol_alerts",   "title": "🔔 Manage alerts"},
+                        {"id": "pay_pol_all",      "title": "📋 All my policies"},
+                    ],
+                    phone_number_id,
+                )
             else:
                 await _send_text(
                     sender_wa_id,
                     f"📁 *Your Policy Details*\n\n{card_body_v}",
                     phone_number_id,
                 )
-            await _send_list(
-                sender_wa_id,
-                "What would you like to do?",
-                "More options",
-                [
-                    {
-                        "title": "Options",
-                        "rows": [
-                            {"id": "pay_pol_alerts", "title": "🔔 Manage alerts"},
-                            {"id": "pay_pol_help",   "title": "🤝 Help"},
-                            {"id": "pay_pol_all",    "title": "🗂️ All my policies"},
-                        ],
-                    }
-                ],
-                phone_number_id,
-            )
+                await _send_buttons(
+                    sender_wa_id,
+                    "What would you like to do?",
+                    [
+                        {"id": "pay_pol_alerts", "title": "🔔 Manage alerts"},
+                        {"id": "pay_pol_help",   "title": "🙋 Help"},
+                        {"id": "pay_pol_all",    "title": "📋 All my policies"},
+                    ],
+                    phone_number_id,
+                )
+        elif reply_id == "pay_pol_download":
+            cached_url = data.get("pay_doc_url", "")
+            if not cached_url:
+                try:
+                    cached_url = await ipurvey_service.get_policy_document_url(data.get("pay_policy", pol))
+                except Exception:
+                    cached_url = ""
+            if cached_url:
+                cta_dl = {
+                    "messaging_product": "whatsapp",
+                    "recipient_type":    "individual",
+                    "to":                sender_wa_id,
+                    "type":              "interactive",
+                    "interactive": {
+                        "type":   "cta_url",
+                        "header": {"type": "text", "text": "📁 Policy Document"},
+                        "body":   {"text": f"*{cname}*\nPolicy No: *{pol}*\n\nTap the button to download your policy document."},
+                        "action": {
+                            "name": "cta_url",
+                            "parameters": {
+                                "display_text": "📋 Download Policy Document",
+                                "url": cached_url,
+                            },
+                        },
+                    },
+                }
+                await send_whatsapp_payload(whatsapp_payload=cta_dl, phone_number_id=phone_number_id, source="payment_flow")
+                await send_text_message(to=sender_wa_id, body=_UTILITY, phone_number_id=phone_number_id, source="payment_flow")
+            else:
+                await _send_text(
+                    sender_wa_id,
+                    "⚠️ *Policy document not yet available.*\n\n"
+                    "Your document will be ready shortly. Please check back later.",
+                    phone_number_id,
+                )
         elif reply_id == "pay_pol_alerts":
             await _send_text(
                 sender_wa_id,

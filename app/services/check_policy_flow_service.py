@@ -710,7 +710,7 @@ async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Op
         f"📅 Date            {p['date'] or '—'}\n"
         + (f"🕐 Dep Time  {dep_time_display}\n" if dep_time_display else "")
         + (f"🕐 Arr Time   {arr_time_display}\n" if arr_time_display else "")
-        + f"🧡 Traveller   {traveler}\n"
+        + f"🧑 Traveller   {traveler}\n"
     )
 
     if p.get("doc_url"):
@@ -737,6 +737,16 @@ async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Op
             phone_number_id=phone_number_id,
             source="check_policy_flow",
         )
+        await _send_buttons(
+            wa_id,
+            "What would you like to do?",
+            [
+                {"id": "pol_download",      "title": "📥 Download Policy"},
+                {"id": "pol_manage_alerts", "title": "🔔 Manage alerts"},
+                {"id": "pol_all",           "title": "📋 All my policies"},
+            ],
+            phone_number_id,
+        )
     else:
         await send_text_message(
             to=wa_id,
@@ -744,23 +754,16 @@ async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Op
             phone_number_id=phone_number_id,
             source="check_policy_flow",
         )
-
-    await _send_list(
-        wa_id,
-        "What would you like to do?",
-        "More options",
-        [
-            {
-                "title": "Options",
-                "rows": [
-                    {"id": "pol_manage_alerts", "title": "🔔 Manage alerts"},
-                    {"id": "pol_help",          "title": "🤝 Help"},
-                    {"id": "pol_all",           "title": "🗂️ All my policies"},
-                ],
-            }
-        ],
-        phone_number_id,
-    )
+        await _send_buttons(
+            wa_id,
+            "What would you like to do?",
+            [
+                {"id": "pol_manage_alerts", "title": "🔔 Manage alerts"},
+                {"id": "pol_help",          "title": "🙋 Help"},
+                {"id": "pol_all",           "title": "📋 All my policies"},
+            ],
+            phone_number_id,
+        )
 
 
 async def _show_all_policies(
