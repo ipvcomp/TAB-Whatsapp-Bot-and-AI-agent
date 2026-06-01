@@ -297,33 +297,34 @@ async def _send_success(
     flow["step"] = "pay_success"
     await save_session(session)
 
-    await _send_text(
-        wa_id,
-        f"✅ *Payment Successful!*\n"
-        f"_Your cover is now active 🎉_\n"
-        f"──────────────────────────\n"
-        f"📋 *Policy No:* {policy}\n"
-        f"✈️ *Flight:* {flight}\n"
-        f"📅 *Date:* {date}\n"
-        f"😊 *Traveller:* {name}",
-        phone_number_id,
+    await send_text_message(
+        to=wa_id,
+        body=(
+            f"✅ *Payment Successful!*\n"
+            f"_Your cover is now active 🎉_\n"
+            f"──────────────────────────\n"
+            f"📋 *Policy No:* {policy}\n"
+            f"✈️ *Flight:* {flight}\n"
+            f"📅 *Date:* {date}\n"
+            f"😊 *Traveller:* {name}\n\n"
+            f"📢 *WHAT'S NEXT?*\n"
+            f"We will continue to monitor your flight for any travel disruption. "
+            f"If the extent of disruption meets the policy terms, you will be notified "
+            f"of a payout. If not, we will advise you accordingly."
+        ),
+        phone_number_id=phone_number_id,
+        source="payment_flow",
     )
-    await _send_list(
+    await _send_buttons(
         wa_id,
         "🖇️ *Got your boarding pass handy? Upload it now* 👍\n"
         "If not, no worries — you can upload it later. "
         "We'll just need it before any payout.\n\n"
         "What would you like to do next?",
-        "Choose an option",
         [
-            {
-                "title": "Next steps",
-                "rows": [
-                    {"id": "pay_view_doc",  "title": "📄 View policy document"},
-                    {"id": "pay_upload_bp", "title": "📤 Upload boarding pass"},
-                    {"id": "pay_home",      "title": "🏠 Main menu"},
-                ],
-            }
+            {"id": "pay_view_doc",  "title": "📄 View policy doc"},
+            {"id": "pay_upload_bp", "title": "📤 Upload boarding"},
+            {"id": "pay_home",      "title": "🏠 Main menu"},
         ],
         phone_number_id,
     )
@@ -1404,30 +1405,33 @@ async def handle_payment_flow(
             flight  = bc_data.get("flight_num", "—")
             date    = bc_data.get("date",       "—")
             name    = bc_data.get("name",       "—")
-            await _send_text(sender_wa_id,
-                f"✅ *Payment Successful!*\n"
-                f"_Your cover is now active 🎉_\n"
-                f"──────────────────────────\n"
-                f"📋 *Policy No:* {pol}\n"
-                f"✈️ *Flight:* {flight}\n"
-                f"📅 *Date:* {date}\n"
-                f"😊 *Traveller:* {name}",
-                phone_number_id)
-            await _send_list(sender_wa_id,
+            await send_text_message(
+                to=sender_wa_id,
+                body=(
+                    f"✅ *Payment Successful!*\n"
+                    f"_Your cover is now active 🎉_\n"
+                    f"──────────────────────────\n"
+                    f"📋 *Policy No:* {pol}\n"
+                    f"✈️ *Flight:* {flight}\n"
+                    f"📅 *Date:* {date}\n"
+                    f"😊 *Traveller:* {name}\n\n"
+                    f"📢 *WHAT'S NEXT?*\n"
+                    f"We will continue to monitor your flight for any travel disruption. "
+                    f"If the extent of disruption meets the policy terms, you will be notified "
+                    f"of a payout. If not, we will advise you accordingly."
+                ),
+                phone_number_id=phone_number_id,
+                source="payment_flow",
+            )
+            await _send_buttons(sender_wa_id,
                 "🖇️ *Got your boarding pass handy? Upload it now* 👍\n"
                 "If not, no worries — you can upload it later. "
                 "We'll just need it before any payout.\n\n"
                 "What would you like to do next?",
-                "Choose an option",
                 [
-                    {
-                        "title": "Next steps",
-                        "rows": [
-                            {"id": "pay_view_doc",  "title": "📄 View policy document"},
-                            {"id": "pay_upload_bp", "title": "📤 Upload boarding pass"},
-                            {"id": "pay_home",      "title": "🏠 Main menu"},
-                        ],
-                    }
+                    {"id": "pay_view_doc",  "title": "📄 View policy doc"},
+                    {"id": "pay_upload_bp", "title": "📤 Upload boarding"},
+                    {"id": "pay_home",      "title": "🏠 Main menu"},
                 ],
                 phone_number_id,
             )
