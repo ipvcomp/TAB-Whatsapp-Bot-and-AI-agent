@@ -250,8 +250,8 @@ async def _show_upload_confirmed(wa_id: str, session: dict, flow: dict, phone_nu
         f"Policy No: {ref}   ✅ Active\n\n"
         f"✈️ Airline      {airline}\n"
         f"🛫 Flight        {flight}\n"
-        f"🗓️ Date           {date}\n"
-        f"🧑 Traveller   {traveler}\n\n"
+        f"📅 Date           {date}\n"
+        f"😊 Traveller   {traveler}\n\n"
         f"What would you like to do next?",
         [
             {"id": "bp_eligibility", "title": "📋 Check eligibility"},
@@ -330,7 +330,7 @@ async def _show_policy_card(wa_id: str, session: dict, flow: dict, phone_number_
         f"✈️  Airline:    {airline}\n"
         f"🛫  Flight:     {flight}\n"
         f"📅  Date:       {date}\n"
-        f"👤  Traveller: {traveler}",
+        f"😊  Traveller: {traveler}",
         [
             {"id": "bp_home", "title": "🏠 Main menu"},
         ],
@@ -756,11 +756,6 @@ async def handle_bp_link_flow(
 
             if media_id and (pol_id or pol_code):
                 try:
-                    await _send_text(
-                        sender_wa_id,
-                        "⏳ *Uploading your boarding pass...*\n_Please wait a moment_",
-                        phone_number_id,
-                    )
                     media_result  = await download_whatsapp_media(media_id)
                     file_bytes    = media_result["bytes"] if media_result else None
                     detected_mime = media_result.get("mime_type", "") if media_result else ""

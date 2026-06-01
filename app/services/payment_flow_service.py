@@ -302,10 +302,10 @@ async def _send_success(
         f"✅ *Payment Successful!*\n"
         f"_Your cover is now active 🎉_\n"
         f"──────────────────────────\n"
-        f"🗂️ *Policy No:* {policy}\n"
+        f"📋 *Policy No:* {policy}\n"
         f"✈️ *Flight:* {flight}\n"
         f"📅 *Date:* {date}\n"
-        f"🧡 *Traveller:* {name}",
+        f"😊 *Traveller:* {name}",
         phone_number_id,
     )
     await _send_list(
@@ -1408,10 +1408,10 @@ async def handle_payment_flow(
                 f"✅ *Payment Successful!*\n"
                 f"_Your cover is now active 🎉_\n"
                 f"──────────────────────────\n"
-                f"🗂️ *Policy No:* {pol}\n"
+                f"📋 *Policy No:* {pol}\n"
                 f"✈️ *Flight:* {flight}\n"
                 f"📅 *Date:* {date}\n"
-                f"🧡 *Traveller:* {name}",
+                f"😊 *Traveller:* {name}",
                 phone_number_id)
             await _send_list(sender_wa_id,
                 "🖇️ *Got your boarding pass handy? Upload it now* 👍\n"
