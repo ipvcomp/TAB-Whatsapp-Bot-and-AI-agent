@@ -251,7 +251,7 @@ async def _show_upload_confirmed(wa_id: str, session: dict, flow: dict, phone_nu
         f"✈️ Airline      {airline}\n"
         f"🛫 Flight        {flight}\n"
         f"📅 Date           {date}\n"
-        f"😊 Traveller   {traveler}\n\n"
+        f"🧑 Traveller   {traveler}\n\n"
         f"What would you like to do next?",
         [
             {"id": "bp_eligibility", "title": "📋 Check eligibility"},
