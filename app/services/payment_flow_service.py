@@ -308,9 +308,11 @@ async def _send_success(
             f"📅 *Date:* {date}\n"
             f"😊 *Traveller:* {name}\n\n"
             f"📢 *WHAT'S NEXT?*\n"
-            f"We will continue to monitor your flight for any travel disruption. "
-            f"If the extent of disruption meets the policy terms, you will be notified "
-            f"of a payout. If not, we will advise you accordingly."
+            f"We will continue to monitor your flight\n"
+            f"for any travel disruption. If the extent\n"
+            f"of disruption meets the policy terms,\n"
+            f"you will be notified of a payout.\n"
+            f"If not, we will advise you accordingly."
         ),
         phone_number_id=phone_number_id,
         source="payment_flow",
@@ -1416,9 +1418,11 @@ async def handle_payment_flow(
                     f"📅 *Date:* {date}\n"
                     f"😊 *Traveller:* {name}\n\n"
                     f"📢 *WHAT'S NEXT?*\n"
-                    f"We will continue to monitor your flight for any travel disruption. "
-                    f"If the extent of disruption meets the policy terms, you will be notified "
-                    f"of a payout. If not, we will advise you accordingly."
+                    f"We will continue to monitor your flight\n"
+                    f"for any travel disruption. If the extent\n"
+                    f"of disruption meets the policy terms,\n"
+                    f"you will be notified of a payout.\n"
+                    f"If not, we will advise you accordingly."
                 ),
                 phone_number_id=phone_number_id,
                 source="payment_flow",
