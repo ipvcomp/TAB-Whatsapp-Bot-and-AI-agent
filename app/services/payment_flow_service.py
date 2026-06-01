@@ -1559,7 +1559,60 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         await _bc_resume(wa_id=wa_id, phone_number_id=phone_number_id)
         return
 
-    if not prev or step in ("pay_m_bank_pending", "pay_success", "pay_submit_retry"):
+    if step == "pay_success":
+        # Back from the success screen → re-check payment status via API
+        # and show whichever screen matches the current status.
+        api_data_ = session.get("api_data", {})
+        policy_code_for_status = api_data_.get("policy_code") or api_data_.get("policy_id")
+        ref_back  = data.get("pay_ref", "—")
+        amount_back = data.get("pay_amount", 0)
+        shown = False
+        if policy_code_for_status:
+            msisdn_back = get_msisdn(wa_id)
+            try:
+                status_result = await ipurvey_service.get_payment_status(
+                    policy_id=policy_code_for_status, msisdn=msisdn_back
+                )
+                if status_result and isinstance(status_result, dict):
+                    status_val = (
+                        status_result.get("paymentStatus")
+                        or status_result.get("status")
+                        or ""
+                    ).upper()
+                    logger.info(
+                        f"[payment] go_back pay_success → status={status_val!r} | "
+                        f"ref={ref_back!r}"
+                    )
+                    if status_val in ("PAID", "SUCCESS", "COMPLETED", "CONFIRMED"):
+                        policy_ref_back = (
+                            api_data_.get("policy_code")
+                            or api_data_.get("policy_id")
+                            or ref_back
+                        )
+                        await _send_success(
+                            wa_id, session, flow,
+                            amount_back, ref_back, policy_ref_back, "",
+                            phone_number_id,
+                        )
+                        shown = True
+                    elif status_val == "PENDING":
+                        await _show_payment_pending_screen(
+                            wa_id, session, data, ref_back, phone_number_id
+                        )
+                        shown = True
+                    else:
+                        await _show_payment_failed_screen(
+                            wa_id, session, data, ref_back, phone_number_id
+                        )
+                        shown = True
+            except Exception as exc:
+                logger.error(f"[payment] go_back pay_success status check failed: {exc}")
+        if not shown:
+            # Fallback: show the pending screen (safe default)
+            await _show_payment_pending_screen(wa_id, session, data, ref_back, phone_number_id)
+        return
+
+    if not prev or step in ("pay_m_bank_pending", "pay_submit_retry"):
         await start_payment_flow(wa_id=wa_id, phone_number_id=phone_number_id)
         return
 
