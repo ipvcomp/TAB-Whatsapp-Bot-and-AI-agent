@@ -9,9 +9,7 @@ from app.services.whatsapp_service import (
     get_welcome_image_media_id,
 )
 from app.core.test_overrides import get_msisdn
-from app.services.session_service import get_session
 from app.services.contact_service import get_contact_by_wa_id
-import app.services.ipurvey_service as _ipurvey_svc
 
 logger = logging.getLogger(__name__)
 
