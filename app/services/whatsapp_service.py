@@ -281,11 +281,16 @@ async def send_policy_document_message(
                 "caption": f"📄 Policy document — {display_name}",
             },
         }
-        await send_whatsapp_payload(
+        result = await send_whatsapp_payload(
             whatsapp_payload=payload,
             phone_number_id=phone_number_id,
             source="policy_doc",
         )
+        if result is None:
+            logger.error(
+                f"[policy_doc] send_whatsapp_payload returned None for policy={policy_code} — message not delivered"
+            )
+            return False
         logger.info(f"[policy_doc] Document message sent to {to[:4]}**** for policy={policy_code}")
         return True
 
