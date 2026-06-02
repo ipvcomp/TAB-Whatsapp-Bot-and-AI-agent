@@ -142,36 +142,17 @@ async def _send_cta_document(
     pol: dict,
     phone_number_id: Optional[str],
 ):
-    ref      = pol.get("ref", "")
-    name     = pol.get("name", "Policy")
-    doc_url  = pol.get("doc_url", "")
-    filename = f"Policy_{ref}.pdf"
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type":    "individual",
-        "to":                to,
-        "type":              "interactive",
-        "interactive": {
-            "type": "cta_url",
-            "header": {"type": "text", "text": f"📄 {filename}"},
-            "body": {
-                "text": (
-                    f"*{name}*\n"
-                    f"Policy No: *{ref}*\n\n"
-                    "Tap the button below to view or download your full policy document."
-                )
-            },
-            "action": {
-                "name": "cta_url",
-                "parameters": {
-                    "display_text": "Download Policy Document",
-                    "url": doc_url,
-                },
-            },
-        },
-    }
-    await send_whatsapp_payload(
-        whatsapp_payload=payload,
+    ref     = pol.get("ref", "")
+    name    = pol.get("name", "Policy")
+    doc_url = pol.get("doc_url", "")
+    await send_text_message(
+        to=to,
+        body=(
+            f"📄 *Policy Document*\n\n"
+            f"*{name}*\n"
+            f"Policy No: *{ref}*\n\n"
+            f"{doc_url}"
+        ),
         phone_number_id=phone_number_id,
         source="check_policy_flow",
     )
@@ -713,57 +694,22 @@ async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Op
         + f"🧑 Traveller   {traveler}\n"
     )
 
-    if p.get("doc_url"):
-        cta_payload = {
-            "messaging_product": "whatsapp",
-            "recipient_type":    "individual",
-            "to":                wa_id,
-            "type":              "interactive",
-            "interactive": {
-                "type":   "cta_url",
-                "header": {"type": "text", "text": "📁 Your Policy Details"},
-                "body":   {"text": card_body},
-                "action": {
-                    "name": "cta_url",
-                    "parameters": {
-                        "display_text": "📋 Download Policy Document",
-                        "url": p["doc_url"],
-                    },
-                },
-            },
-        }
-        await send_whatsapp_payload(
-            whatsapp_payload=cta_payload,
-            phone_number_id=phone_number_id,
-            source="check_policy_flow",
-        )
-        await _send_buttons(
-            wa_id,
-            "What would you like to do?",
-            [
-                {"id": "pol_download",      "title": "📥 Download Policy"},
-                {"id": "pol_manage_alerts", "title": "🔔 Manage alerts"},
-                {"id": "pol_all",           "title": "📋 All my policies"},
-            ],
-            phone_number_id,
-        )
-    else:
-        await send_text_message(
-            to=wa_id,
-            body=f"📁 *Your Policy Details*\n\n{card_body}\n_Policy document not yet available._",
-            phone_number_id=phone_number_id,
-            source="check_policy_flow",
-        )
-        await _send_buttons(
-            wa_id,
-            "What would you like to do?",
-            [
-                {"id": "pol_manage_alerts", "title": "🔔 Manage alerts"},
-                {"id": "pol_help",          "title": "🙋 Help"},
-                {"id": "pol_all",           "title": "📋 All my policies"},
-            ],
-            phone_number_id,
-        )
+    await send_text_message(
+        to=wa_id,
+        body=f"📁 *Your Policy Details*\n\n{card_body}",
+        phone_number_id=phone_number_id,
+        source="check_policy_flow",
+    )
+    await _send_buttons(
+        wa_id,
+        "What would you like to do?",
+        [
+            {"id": "pol_download",      "title": "📥 Download Policy"},
+            {"id": "pol_manage_alerts", "title": "🔔 Manage alerts"},
+            {"id": "pol_all",           "title": "📋 All my policies"},
+        ],
+        phone_number_id,
+    )
 
 
 async def _show_all_policies(
@@ -816,8 +762,19 @@ async def _show_document(session: dict, wa_id: str, pol: dict, phone_number_id: 
     await _set_step(session, "pol_download")
     p = _normalize_policy(pol)
 
-    if p.get("doc_url"):
-        await _send_cta_document(wa_id, p, phone_number_id)
+    doc_url: str = ""
+    try:
+        doc_url = await ipurvey_service.get_policy_document_url(p["ref"]) or ""
+    except Exception:
+        pass
+
+    if doc_url:
+        await _send_text(wa_id,
+            f"📄 *Policy Document*\n\n"
+            f"*{p['name']}*\n"
+            f"Policy No: *{p['ref']}*\n\n"
+            f"{doc_url}",
+            phone_number_id)
     else:
         await _send_text(wa_id,
             f"📄 *Policy Document*\n\n"
