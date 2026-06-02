@@ -38,6 +38,9 @@ from app.services.check_policy_flow_service import (
 from app.services.update_details_flow_service import (
     is_in_update_details_flow, handle_update_details_flow, start_update_details_flow,
 )
+from app.services.draft_policies_flow_service import (
+    is_in_draft_policies_flow, start_draft_policies_flow, handle_draft_policies_input,
+)
 
 WELCOME_BUTTON_IDS = {
     "welcome_purchase_policy", "welcome_submit_boarding", "welcome_get_support",
@@ -45,6 +48,7 @@ WELCOME_BUTTON_IDS = {
     "boarding_pass", "help", "restart_buy", "go_main",
     "welcome_continue_draft", "welcome_discard_draft",
     "welcome_resume_application",
+    "welcome_draft_policies",
 }
 
 _CX_CONFIRM_IDS = frozenset({
@@ -276,6 +280,9 @@ async def _process_change(entry_id: str, change):
                         "get support": "welcome_get_support",
                         "resume application": "welcome_resume_application",
                         "resume": "welcome_resume_application",
+                        "draft policies": "welcome_draft_policies",
+                        "my drafts": "welcome_draft_policies",
+                        "view drafts": "welcome_draft_policies",
                     }
                     matched_welcome = welcome_text_map.get(text_norm)
                     _no_active_flow = (
@@ -286,6 +293,7 @@ async def _process_change(entry_id: str, change):
                         and not is_in_help_flow(user_session)
                         and not is_in_check_policy_flow(user_session)
                         and not is_in_update_details_flow(user_session)
+                        and not is_in_draft_policies_flow(user_session)
                     )
                     if matched_welcome and _no_active_flow:
                         await _handle_welcome_button(
@@ -559,7 +567,15 @@ async def _process_change(entry_id: str, change):
                     continue
                 # ═══════════════════════════════════════════════════════════════
 
-                if is_in_update_details_flow(user_session):
+                if is_in_draft_policies_flow(user_session):
+                    log_event("FLOW", {"from": sender_wa_id, "trigger": "DRAFT_POLICIES"})
+                    await handle_draft_policies_input(
+                        message=message,
+                        sender_wa_id=sender_wa_id,
+                        phone_number_id=msg_phone_number_id,
+                        in_reply_to=message.id,
+                    )
+                elif is_in_update_details_flow(user_session):
                     log_event("FLOW", {"from": sender_wa_id, "trigger": "UPDATE_DETAILS"})
                     await handle_update_details_flow(
                         message=message,
@@ -960,9 +976,9 @@ async def _handle_welcome_button(
             in_reply_to=in_reply_to,
             wa_id=sender_wa_id,
         )
-    elif reply_id == "check_eligibility":
-        log_event("WELCOME_BUTTON", {"action": "check_eligibility", "from": sender_wa_id})
-        await start_eligibility_check_flow(
+    elif reply_id in ("welcome_draft_policies", "check_eligibility"):
+        log_event("WELCOME_BUTTON", {"action": "draft_policies", "from": sender_wa_id})
+        await start_draft_policies_flow(
             wa_id=sender_wa_id,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
@@ -995,38 +1011,12 @@ async def _handle_welcome_button(
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
         )
-    elif reply_id == "welcome_continue_draft":
-        log_event("WELCOME_BUTTON", {"action": "continue_draft", "from": sender_wa_id})
-        await start_buy_cover_flow(
+    elif reply_id in ("welcome_continue_draft", "welcome_discard_draft"):
+        log_event("WELCOME_BUTTON", {"action": "draft_policies", "from": sender_wa_id})
+        await start_draft_policies_flow(
             wa_id=sender_wa_id,
             phone_number_id=phone_number_id,
             in_reply_to=in_reply_to,
-        )
-    elif reply_id == "welcome_discard_draft":
-        log_event("WELCOME_BUTTON", {"action": "discard_draft", "from": sender_wa_id})
-        from app.core.test_overrides import get_msisdn
-        from app.services.session_service import get_session, save_session
-        import app.services.ipurvey_service as _ipurvey_svc_wh
-        _msisdn = get_msisdn(sender_wa_id)
-        _draft = await _ipurvey_svc_wh.resume_draft_policy(_msisdn)
-        if _draft and _draft.get("policy_id"):
-            await _ipurvey_svc_wh.cancel_draft_policy(_draft["policy_id"])
-            logger.info(f"[welcome_discard] cancelled draft {_draft['policy_id']} for {sender_wa_id}")
-        # Clear any lingering session flow state
-        _disc_session = await get_session(sender_wa_id)
-        if _disc_session:
-            _disc_session.setdefault("temp_data", {}).update({
-                "buy_cover_flow": {}, "kyc_flow": {}, "payment_flow": {},
-            })
-            _disc_session.pop("api_data", None)
-            _disc_session.pop("paused_context", None)
-            await save_session(_disc_session)
-        from app.services.auto_reply_service import send_welcome_message
-        await send_welcome_message(
-            to=sender_wa_id,
-            phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
-            wa_id=sender_wa_id,
         )
 
 

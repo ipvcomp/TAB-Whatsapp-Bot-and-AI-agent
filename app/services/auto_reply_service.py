@@ -29,14 +29,14 @@ WELCOME_TEXT = (
 
 MENU_GROUP1_BUTTONS = [
     {"type": "reply", "reply": {"id": "buy_cover",    "title": "✈️ Buy Cover"}},
-    {"type": "reply", "reply": {"id": "boarding_pass","title": "🛫 Boarding Pass"}},
+    {"type": "reply", "reply": {"id": "boarding_pass","title": "🛂 Boarding Pass"}},
     {"type": "reply", "reply": {"id": "check_policy", "title": "📋 Check My Policy"}},
 ]
 
 MENU_GROUP2_BUTTONS = [
-    {"type": "reply", "reply": {"id": "check_eligibility", "title": "🔍 Check Eligibility"}},
-    {"type": "reply", "reply": {"id": "update_details",    "title": "✏️ Update Details"}},
-    {"type": "reply", "reply": {"id": "help",              "title": "🆘 Help"}},
+    {"type": "reply", "reply": {"id": "welcome_draft_policies", "title": "📑 Draft Policies"}},
+    {"type": "reply", "reply": {"id": "update_details",         "title": "✏️ Update Details"}},
+    {"type": "reply", "reply": {"id": "help",                   "title": "🙋 Help"}},
 ]
 
 UTILITY_TEXT = (
@@ -169,169 +169,77 @@ async def send_welcome_message(
         )
         await asyncio.sleep(1.5)
 
-    # 2. Determine user existence (contact DB), draft status, and local session in parallel
-    lookup_id        = wa_id or to
+    # 2. Determine user existence and ACTIVE policy
+    lookup_id = wa_id or to
     is_existing_user = False
-    has_draft        = False
-    draft_policy_id  = ""
-    draft_info: dict | None = None
-    local_session: dict = {}
+    active_policy: dict | None = None
+
     if lookup_id:
         try:
             msisdn = get_msisdn(lookup_id)
-            results = await asyncio.gather(
-                get_contact_by_wa_id(lookup_id),
-                _ipurvey_svc.resume_draft_policy(msisdn),
-                get_session(lookup_id),
-                return_exceptions=True,
-            )
-            contact_rec  = results[0] if not isinstance(results[0], Exception) else None
-            draft_info   = results[1] if not isinstance(results[1], Exception) else None
-            local_session = results[2] if not isinstance(results[2], Exception) and isinstance(results[2], dict) else {}
-
-            # Existing user = contact record found in DB
+            contact_rec = await get_contact_by_wa_id(lookup_id)
             is_existing_user = bool(contact_rec)
 
-            if draft_info and isinstance(draft_info, dict):
-                draft_policy_id = draft_info.get("policy_id") or ""
-                has_draft       = bool(draft_policy_id)
-                # Fallback: treat as existing if only draft found (first-time edge case)
-                if not is_existing_user and has_draft:
-                    is_existing_user = True
-
-            logger.info(
-                f"[welcome] is_existing={is_existing_user} has_draft={has_draft} "
-                f"draft_id={draft_policy_id!r}"
-            )
+            if is_existing_user:
+                try:
+                    from app.services.ipurvey_api import fetch_policies_by_msisdn as _fetch_pols
+                    policies = await _fetch_pols(msisdn)
+                    active_pols = [
+                        p for p in (policies or [])
+                        if (p.get("status") or "").upper() in ("ACTIVE", "APPROVED", "ISSUED")
+                    ]
+                    if active_pols:
+                        active_policy = active_pols[0]
+                except Exception as exc:
+                    logger.warning(f"[welcome] policy fetch failed for {lookup_id}: {exc}")
         except Exception as exc:
             logger.warning(f"[welcome] lookup failed for {lookup_id}: {exc}")
 
-    # Local buy-cover session data — used as fallback when the remote draft API
-    # doesn't yet have the fields (e.g. user exited before submit_itinerary was called)
-    local_bc: dict = (local_session or {}).get("temp_data", {}).get("buy_cover_flow", {}).get("data", {})
-
-    # Check if user has a locally-paused buy-cover/kyc/payment flow
-    _paused_ctx: dict = (local_session or {}).get("paused_context") or {}
-    has_paused_ctx: bool = bool(_paused_ctx.get("policy_id"))
-
-    def _local_airport_display(raw: str) -> str:
-        """Convert 'LOS — Lagos Murtala Muhammed' → 'LOS (Lagos Murtala Muhammed)'."""
-        if not raw:
-            return ""
-        if "—" in raw:
-            parts = raw.split("—", 1)
-            code = parts[0].strip()
-            name = parts[1].strip()
-            return f"{code} ({name})" if name else code
-        return raw.strip()
-
-    def _local_trip_label(raw: str) -> str:
-        """Normalise session trip_type ('One-way 🗺️' / 'Return 🔄') → display label."""
-        if not raw:
-            return ""
-        if "one" in raw.lower() or "1" in raw:
-            return "One Way"
-        if "return" in raw.lower():
-            return "Return"
-        return raw
-
-    # 2b. Build card data (draft fields if available, else all — for existing users)
-    card_data: dict | None = None
-    if is_existing_user:
-        if has_draft and draft_info:
-            itinerary = draft_info.get("itinerary") or {}
-            legs      = itinerary.get("legs", [])
-            leg       = legs[0] if legs else {}
-            pax_list  = draft_info.get("passengers") or []
-            pax_names = [
-                f"{p.get('firstName', '')} {p.get('surname', '')}".strip()
-                for p in pax_list
-                if p.get("firstName") or p.get("surname")
-            ]
-            trip_raw  = draft_info.get("trip_type", "")
-            dep_date  = leg.get("departureDate", "") or local_bc.get("date", "")
-            dep_time  = leg.get("departureTime", "") or local_bc.get("depart_time", "")
-
-            # Format departure as "15 May 2026 · 04:30 PM"
-            if dep_date and dep_time:
-                try:
-                    from datetime import datetime as _dt
-                    formatted_time = _dt.strptime(dep_time, "%H:%M").strftime("%I:%M %p")
-                except (ValueError, TypeError):
-                    formatted_time = dep_time
-                try:
-                    dep_display = _dt.strptime(dep_date, "%Y-%m-%d").strftime("%d %b %Y") + f" · {formatted_time}"
-                except ValueError:
-                    dep_display = f"{dep_date} · {formatted_time}"
-            elif dep_date:
-                try:
-                    from datetime import datetime as _dt
-                    dep_display = _dt.strptime(dep_date, "%Y-%m-%d").strftime("%d %b %Y")
-                except ValueError:
-                    dep_display = dep_date
-            else:
-                dep_display = ""
-
-            trip_label = (
-                "One Way" if trip_raw and "ONE" in trip_raw.upper()
-                else "Return" if trip_raw
-                else _local_trip_label(local_bc.get("trip_type", ""))
-            )
-
-            dep_code = leg.get("departureAirport", "")
-            dep_name = leg.get("departureAirportName", "")
-            arr_code = leg.get("arrivalAirport", "")
-            arr_name = leg.get("arrivalAirportName", "")
-            origin_display = (
-                f"{dep_code} ({dep_name})" if dep_name
-                else dep_code
-                or _local_airport_display(local_bc.get("depart_airport", ""))
-            )
-            dest_display = (
-                f"{arr_code} ({arr_name})" if arr_name
-                else arr_code
-                or _local_airport_display(local_bc.get("arrive_airport", ""))
-            )
-
-            # Booking ref and flight number — API first, local session as fallback
-            booking_ref = (
-                itinerary.get("bookingReference", "")
-                or local_bc.get("booking_ref", "")
-            )
-            flight_num = (
-                leg.get("flightNumber", "")
-                or local_bc.get("flight_num", "")
-            )
-
-            card_data = {
-                "policy_id":   draft_policy_id,
-                "booking_ref": booking_ref,
-                "flight_num":  flight_num,
-                "trip_type":   trip_label,
-                "origin":      origin_display,
-                "dest":        dest_display,
-                "departure":   dep_display,
-                "passengers":  pax_names,
-                "status":      "DRAFT",
-            }
-        # else: existing user but no draft — leave card_data as None → generic welcome
-
-    # 2c. Build welcome body
-    if is_existing_user and has_draft and card_data:
-        welcome_body = (
-            "👋 *Welcome back!*\n"
-            "*Welcome back to TravelAssist*\n"
-            "We've resumed your saved policy draft.\n\n"
-            + _format_policy_card(card_data)
+    # 3. Build welcome body
+    if is_existing_user and active_policy:
+        pol_code = active_policy.get("policyCode") or active_policy.get("policyReference") or ""
+        product = active_policy.get("productName") or ""
+        dep = active_policy.get("departureAirport") or ""
+        arr = active_policy.get("arrivalAirport") or ""
+        flight = active_policy.get("flightNumber") or ""
+        dep_date_raw = (
+            active_policy.get("departureDateLocal")
+            or active_policy.get("departureDate")
+            or ""
         )
-    elif is_existing_user and card_data:
+        dep_date_fmt = dep_date_raw
+        if dep_date_raw:
+            for fmt in ("%d-%m-%Y", "%Y-%m-%d", "%d/%m/%Y"):
+                try:
+                    from datetime import datetime as _dt
+                    dep_date_fmt = _dt.strptime(dep_date_raw, fmt).strftime("%d %b %Y")
+                    break
+                except ValueError:
+                    pass
+
+        card_lines = ["*YOUR LATEST POLICY*", ""]
+        if pol_code:
+            card_lines.append(f"Policy No.  {pol_code}")
+        if product:
+            card_lines.append(f"Product     {product}")
+        if dep and arr:
+            card_lines.append(f"Route       {dep} → {arr}")
+        if flight:
+            card_lines.append(f"Flight      {flight}")
+        if dep_date_fmt:
+            card_lines.append(f"Date        {dep_date_fmt}")
+        card_lines.append("")
+        card_lines.append("✅ Active")
+
         welcome_body = (
             "👋 *Welcome back!*\n"
             "*Welcome back to TravelAssist*\n\n"
-            + _format_policy_card(card_data)
+            + "\n".join(card_lines)
         )
+        logger.info(f"[welcome] is_existing=True active_policy={pol_code!r}")
     else:
         welcome_body = WELCOME_TEXT
+        logger.info(f"[welcome] is_existing={is_existing_user} active_policy=None")
 
     await send_text_message(
         to=to,
@@ -340,32 +248,7 @@ async def send_welcome_message(
         source="auto_reply",
     )
 
-    # 3. When draft exists: show Continue / Discard buttons instead of main menu
-    if is_existing_user and has_draft:
-        draft_action_payload = {
-            "messaging_product": "whatsapp",
-            "recipient_type": "individual",
-            "to": to,
-            "type": "interactive",
-            "interactive": {
-                "type": "button",
-                "body": {"text": "What would you like to do?"},
-                "action": {
-                    "buttons": [
-                        {"type": "reply", "reply": {"id": "welcome_continue_draft", "title": "▶️ Continue"}},
-                        {"type": "reply", "reply": {"id": "welcome_discard_draft",  "title": "🗑 Discard Draft"}},
-                    ]
-                },
-            },
-        }
-        result = await send_whatsapp_payload(
-            whatsapp_payload=draft_action_payload,
-            phone_number_id=phone_number_id,
-            source="auto_reply",
-        )
-        return result
-
-    # 4. No draft: send full main menu (group 1 + group 2 + utility)
+    # 4. Send full main menu buttons (always shown)
     group1_payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
@@ -406,32 +289,6 @@ async def send_welcome_message(
         phone_number_id=phone_number_id,
         source="auto_reply",
     )
-
-    # 5. Paused context: show Resume Application button when user has a locally
-    #    paused buy-cover / kyc / payment flow (and no remote API draft was found,
-    #    since that case already shows Continue / Discard buttons above).
-    if has_paused_ctx:
-        logger.info(f"[welcome] paused_ctx found for {lookup_id} — showing resume button")
-        resume_payload = {
-            "messaging_product": "whatsapp",
-            "recipient_type": "individual",
-            "to": to,
-            "type": "interactive",
-            "interactive": {
-                "type": "button",
-                "body": {"text": "📋 You have an unfinished policy application. Pick up where you left off?"},
-                "action": {
-                    "buttons": [
-                        {"type": "reply", "reply": {"id": "welcome_resume_application", "title": "▶️ Resume Application"}},
-                    ]
-                },
-            },
-        }
-        result = await send_whatsapp_payload(
-            whatsapp_payload=resume_payload,
-            phone_number_id=phone_number_id,
-            source="auto_reply",
-        )
 
     return result
 

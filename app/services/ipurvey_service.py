@@ -358,6 +358,11 @@ async def create_draft_policy(msisdn: str) -> Optional[dict]:
                         "existing": existing,
                         "creation_state": creation_state,
                     }
+            if r.status_code == 400:
+                body_text = r.text.lower()
+                if "max" in body_text or "maximum" in body_text or "limit" in body_text:
+                    logger.warning(f"[ipurvey] create_draft_policy → 400 max drafts reached")
+                    return {"_error": "max_drafts"}
             logger.error(f"[ipurvey] create_draft_policy {r.status_code}: {r.text[:200]}")
             return None
     except Exception as e:
@@ -548,6 +553,40 @@ async def cancel_draft_policy(policy_id: str) -> bool:
     except Exception as e:
         logger.error(f"[ipurvey] cancel_draft_policy failed: {e}")
         return False
+
+
+async def resume_all_drafts(msisdn: str) -> list:
+    """GET /api/tab-plc/policies/draft/resume?msisdn={msisdn}
+
+    Returns the full raw list of draft dicts as returned by the API.
+    Both list and single-dict response shapes are handled.
+    Returns [] on error, empty response, or 404.
+    """
+    logger.info(f"[ipurvey] resume_all_drafts msisdn='{msisdn}'")
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(
+                f"{_base()}/api/tab-plc/policies/draft/resume",
+                params={"msisdn": msisdn},
+            )
+            if r.status_code in (200, 201):
+                body = r.json()
+                data = _extract(body)
+                if isinstance(data, list):
+                    logger.info(f"[ipurvey] resume_all_drafts → {len(data)} draft(s)")
+                    return data
+                if isinstance(data, dict) and data:
+                    logger.info("[ipurvey] resume_all_drafts → 1 draft (dict format)")
+                    return [data]
+                return []
+            elif r.status_code == 404:
+                logger.info("[ipurvey] resume_all_drafts → 404 (no drafts)")
+                return []
+            logger.warning(f"[ipurvey] resume_all_drafts {r.status_code}: {r.text[:200]}")
+            return []
+    except Exception as e:
+        logger.error(f"[ipurvey] resume_all_drafts failed: {e}")
+        return []
 
 
 async def set_traveler_count(policy_id: str, count: int) -> Optional[list]:

@@ -988,7 +988,79 @@ async def start_buy_cover_flow(
     session = await get_session(wa_id) or {}
     msisdn = get_msisdn(wa_id)
 
-    # ── 1. Paused context: user came back after 00 / help shortcut ───────────
+    # ── Set up fresh flow state ────────────────────────────────────────────────
+    session.setdefault("temp_data", {})[BUY_COVER_FLOW_KEY] = {
+        "active": True,
+        "step": "buy_cover_who",
+        "data": {},
+    }
+    if "user_id" not in session:
+        session["user_id"] = wa_id
+    session["api_data"] = {}
+    await save_session(session)
+
+    try:
+        api_data = session.setdefault("api_data", {})
+        user = await ipurvey_service.check_user_exists(msisdn)
+        if user and isinstance(user, dict):
+            uid = user.get("userId") or user.get("id") or user.get("user_id")
+            api_data["user_id"] = uid
+            api_data["user_exists"] = True
+        else:
+            api_data["user_exists"] = False
+
+        draft = await ipurvey_service.create_draft_policy(msisdn)
+        if draft:
+            if draft.get("_error") == "max_drafts":
+                session["temp_data"][BUY_COVER_FLOW_KEY] = {}
+                await save_session(session)
+                await _send_buttons(
+                    wa_id,
+                    "⚠️ *Maximum drafts reached*\n\n"
+                    "You have reached the maximum of 5 draft policies.\n\n"
+                    "Please delete an existing draft before starting a new one.",
+                    [{"id": "welcome_draft_policies", "title": "📑 View my drafts"}],
+                    phone_number_id,
+                )
+                return
+            pid = draft.get("policy_id")
+            if pid:
+                api_data["policy_id"] = pid
+        await save_session(session)
+    except Exception as exc:
+        logger.error(f"[buy_cover] start API calls failed: {exc}")
+
+    await _send_buttons(
+        to=wa_id,
+        body=(
+            "✈️ Great choice — let's protect your trip!\n"
+            "This will only take a few steps 😊\n\n"
+            "Is this cover for:"
+        ),
+        buttons=[
+            {"id": "cover_just_me", "title": "1. 🧑 Just me"},
+            {"id": "cover_others", "title": "2. 👥 Me & Others"},
+        ],
+        phone_number_id=phone_number_id,
+    )
+
+
+async def _DEAD_CODE_DELETED(
+    wa_id: str,
+    phone_number_id: Optional[str],
+    in_reply_to: Optional[str] = None,
+):
+    """Removed in Task #85 — kept as tombstone so git diff is readable."""
+    pass
+
+
+async def _DEAD_CODE_BODY_PLACEHOLDER(
+    wa_id: str,
+    phone_number_id: Optional[str],
+    in_reply_to: Optional[str] = None,
+):
+    session = await get_session(wa_id) or {}
+    msisdn = get_msisdn(wa_id)
     paused = session.get("paused_context")
     if paused and paused.get("policy_id"):
         resumed_api = None
