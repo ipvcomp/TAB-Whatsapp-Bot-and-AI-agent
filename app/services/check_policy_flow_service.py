@@ -772,12 +772,21 @@ async def _show_document(session: dict, wa_id: str, pol: dict, phone_number_id: 
         pass
 
     if doc_url:
-        await _send_text(wa_id,
-            f"📄 *Policy Document*\n\n"
-            f"*{p['name']}*\n"
-            f"Policy No: *{p['ref']}*\n\n"
-            f"{doc_url}",
-            phone_number_id)
+        from app.services.whatsapp_service import send_policy_document_message
+        sent = await send_policy_document_message(
+            to=wa_id,
+            doc_url=doc_url,
+            policy_code=p["ref"],
+            display_name=p["name"],
+            phone_number_id=phone_number_id,
+        )
+        if not sent:
+            await _send_text(wa_id,
+                f"📄 *Policy Document*\n\n"
+                f"*{p['name']}*\n"
+                f"Policy No: *{p['ref']}*\n\n"
+                f"{doc_url}",
+                phone_number_id)
         await _send_buttons(wa_id,
             "What would you like to do next?",
             [

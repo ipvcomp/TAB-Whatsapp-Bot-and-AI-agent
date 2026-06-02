@@ -76,18 +76,27 @@ async def _poll_document(
                     policy_code,
                     masked,
                 )
-                body = (
-                    f"📄 *Policy Document Ready* ✅\n\n"
-                    f"*{display_name}*\n"
-                    f"Policy No: *{policy_code}*\n\n"
-                    f"Your document is now available:\n{doc_url}"
-                )
-                await send_text_message(
+                from app.services.whatsapp_service import send_policy_document_message
+                sent = await send_policy_document_message(
                     to=wa_id,
-                    body=body,
+                    doc_url=doc_url,
+                    policy_code=policy_code,
+                    display_name=display_name,
                     phone_number_id=phone_number_id,
-                    source=source,
                 )
+                if not sent:
+                    body = (
+                        f"📄 *Policy Document Ready* ✅\n\n"
+                        f"*{display_name}*\n"
+                        f"Policy No: *{policy_code}*\n\n"
+                        f"Your document is now available:\n{doc_url}"
+                    )
+                    await send_text_message(
+                        to=wa_id,
+                        body=body,
+                        phone_number_id=phone_number_id,
+                        source=source,
+                    )
                 return
 
         logger.info(

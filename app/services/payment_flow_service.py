@@ -1272,12 +1272,21 @@ async def handle_payment_flow(
             if doc_url_v:
                 data["pay_doc_url"] = doc_url_v
                 await save_session(session)
-                await _send_text(
-                    sender_wa_id,
-                    f"📁 *Your Policy Details*\n\n{card_body_v}\n"
-                    f"📄 *Policy Document:*\n{doc_url_v}",
-                    phone_number_id,
+                from app.services.whatsapp_service import send_policy_document_message
+                sent = await send_policy_document_message(
+                    to=sender_wa_id,
+                    doc_url=doc_url_v,
+                    policy_code=pol,
+                    display_name=cname,
+                    phone_number_id=phone_number_id,
                 )
+                if not sent:
+                    await _send_text(
+                        sender_wa_id,
+                        f"📁 *Your Policy Details*\n\n{card_body_v}\n"
+                        f"📄 *Policy Document:*\n{doc_url_v}",
+                        phone_number_id,
+                    )
             else:
                 await _send_text(
                     sender_wa_id,
@@ -1302,13 +1311,22 @@ async def handle_payment_flow(
                 except Exception:
                     cached_url = ""
             if cached_url:
-                await _send_text(
-                    sender_wa_id,
-                    f"📄 *Policy Document*\n\n"
-                    f"*{cname}*\nPolicy No: *{pol}*\n\n"
-                    f"{cached_url}",
-                    phone_number_id,
+                from app.services.whatsapp_service import send_policy_document_message
+                sent = await send_policy_document_message(
+                    to=sender_wa_id,
+                    doc_url=cached_url,
+                    policy_code=pol,
+                    display_name=cname,
+                    phone_number_id=phone_number_id,
                 )
+                if not sent:
+                    await _send_text(
+                        sender_wa_id,
+                        f"📄 *Policy Document*\n\n"
+                        f"*{cname}*\nPolicy No: *{pol}*\n\n"
+                        f"{cached_url}",
+                        phone_number_id,
+                    )
             else:
                 await _send_text(
                     sender_wa_id,

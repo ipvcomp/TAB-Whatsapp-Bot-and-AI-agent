@@ -192,6 +192,108 @@ async def upload_media_to_whatsapp(file_path: str, mime_type: str = "image/jpeg"
         return None
 
 
+async def upload_bytes_to_whatsapp(
+    content: bytes,
+    mime_type: str,
+    filename: str,
+    phone_number_id: Optional[str] = None,
+) -> Optional[str]:
+    """Upload raw bytes to the WhatsApp Media API and return the media_id.
+
+    Mirrors upload_media_to_whatsapp but accepts bytes directly instead of a
+    file path, so callers that have already fetched a remote file in memory do
+    not need to write it to disk first.
+    """
+    settings = get_settings()
+    token = settings.WHATSAPP_API_TOKEN
+    pid = phone_number_id or settings.WHATSAPP_PHONE_NUMBER_ID
+    if not token or not pid:
+        logger.error("WhatsApp credentials not configured for bytes media upload")
+        return None
+
+    url = f"https://graph.facebook.com/v22.0/{pid}/media"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                url,
+                headers=headers,
+                data={"messaging_product": "whatsapp", "type": mime_type},
+                files={"file": (filename, content, mime_type)},
+            )
+            if response.status_code == 200:
+                media_id = response.json().get("id")
+                logger.info(f"Uploaded bytes '{filename}' to WhatsApp, media_id={media_id}")
+                return media_id
+            logger.error(f"Bytes media upload failed: HTTP {response.status_code} — {response.text}")
+            return None
+    except Exception as e:
+        logger.error(f"Bytes media upload error: {e}")
+        return None
+
+
+async def send_policy_document_message(
+    to: str,
+    doc_url: str,
+    policy_code: str,
+    display_name: str,
+    phone_number_id: Optional[str] = None,
+) -> bool:
+    """Download the policy PDF from doc_url, upload to WhatsApp Media API, and
+    send it as a native WhatsApp document message (shows Open / Save as buttons).
+
+    Returns True on success. Returns False on any failure so callers can fall
+    back to sending the plain-text URL instead.
+    """
+    try:
+        logger.info(f"[policy_doc] Downloading PDF for policy={policy_code}")
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            resp = await client.get(doc_url)
+            if resp.status_code != 200:
+                logger.error(f"[policy_doc] PDF download failed: HTTP {resp.status_code}")
+                return False
+            pdf_bytes = resp.content
+            if not pdf_bytes:
+                logger.error("[policy_doc] PDF download returned empty content")
+                return False
+
+        filename = f"Policy_{policy_code}.pdf"
+        logger.info(f"[policy_doc] Uploading {len(pdf_bytes)} bytes to WhatsApp as '{filename}'")
+        media_id = await upload_bytes_to_whatsapp(
+            content=pdf_bytes,
+            mime_type="application/pdf",
+            filename=filename,
+            phone_number_id=phone_number_id,
+        )
+        if not media_id:
+            logger.error("[policy_doc] Media upload returned no media_id")
+            return False
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": to,
+            "type": "document",
+            "document": {
+                "id": media_id,
+                "filename": filename,
+                "caption": f"📄 Policy document — {display_name}",
+            },
+        }
+        await send_whatsapp_payload(
+            whatsapp_payload=payload,
+            phone_number_id=phone_number_id,
+            source="policy_doc",
+        )
+        logger.info(f"[policy_doc] Document message sent to {to[:4]}**** for policy={policy_code}")
+        return True
+
+    except Exception as e:
+        logger.error(f"[policy_doc] send_policy_document_message failed: {e}")
+        return False
+
+
 async def get_welcome_image_media_id() -> Optional[str]:
     global _welcome_image_media_id
     if _welcome_image_media_id:
