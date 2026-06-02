@@ -40,6 +40,7 @@ from app.services.update_details_flow_service import (
 )
 from app.services.draft_policies_flow_service import (
     is_in_draft_policies_flow, start_draft_policies_flow, handle_draft_policies_input,
+    go_back_one_step as _draft_go_back,
 )
 
 WELCOME_BUTTON_IDS = {
@@ -368,7 +369,8 @@ async def _process_change(entry_id: str, change):
                             # Clear other flows entirely (not resumable)
                             td = user_session.setdefault("temp_data", {})
                             for fk in ("bp_link_flow", "help_flow",
-                                       "check_policy_flow", "update_details_flow"):
+                                       "check_policy_flow", "update_details_flow",
+                                       "draft_policies_flow"):
                                 if td.get(fk, {}).get("active"):
                                     td[fk] = {}
                             await save_session(user_session)
@@ -405,7 +407,8 @@ async def _process_change(entry_id: str, change):
                             await pause_buy_cover_flow(sender_wa_id)
                             user_session = await get_session(sender_wa_id) or user_session
                             td = user_session.setdefault("temp_data", {})
-                            for fk in ("bp_link_flow", "check_policy_flow", "update_details_flow"):
+                            for fk in ("bp_link_flow", "check_policy_flow",
+                                       "update_details_flow", "draft_policies_flow"):
                                 if td.get(fk, {}).get("active"):
                                     td[fk] = {}
                             await save_session(user_session)
@@ -463,6 +466,12 @@ async def _process_change(entry_id: str, change):
                                 phone_number_id=msg_phone_number_id,
                             )
                             log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "update_details"})
+                        elif is_in_draft_policies_flow(user_session):
+                            await _draft_go_back(
+                                wa_id=sender_wa_id,
+                                phone_number_id=msg_phone_number_id,
+                            )
+                            log_event("SHORTCUT_BACK", {"to": sender_wa_id, "flow": "draft_policies"})
                         elif is_in_buy_cover_flow(user_session):
                             from app.services.buy_cover_flow_service import go_back_one_step as _bc_back
                             await _bc_back(

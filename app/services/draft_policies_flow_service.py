@@ -11,6 +11,12 @@ logger = logging.getLogger(__name__)
 
 DRAFT_POLICIES_FLOW_KEY = "draft_policies_flow"
 
+_UTILITY = (
+    "*Utility options:*\n"
+    "0 ↩️ Back  |  9 🆘 Help  |  00 🏠 Main menu\n"
+    "99 ❌ Cancel/Exit"
+)
+
 
 def is_in_draft_policies_flow(session: Optional[dict]) -> bool:
     if not session:
@@ -96,12 +102,6 @@ def _extract_policy_code(draft: dict) -> str:
 
 
 def _fmt_draft_entry(draft: dict, idx: int) -> str:
-    """Format one draft entry exactly per spec:
-    1. TA-NG-TAIN-260522-00FFB8
-       ✈️ PA220  🗓️ 23-May-2026
-       😊 Samuel Olamide
-       Last saved: 20 May 2025, 10:30 AM
-    """
     code = _extract_policy_code(draft)
     flight, dep_date = _extract_flight_date(draft)
     traveller = _extract_traveller(draft)
@@ -109,7 +109,7 @@ def _fmt_draft_entry(draft: dict, idx: int) -> str:
     return (
         f"{idx}. {code}\n"
         f"   ✈️ {flight}  🗓️ {dep_date}\n"
-        f"   😊 {traveller}\n"
+        f"   🧑 {traveller}\n"
         f"   Last saved: {last_saved}"
     )
 
@@ -117,22 +117,12 @@ def _fmt_draft_entry(draft: dict, idx: int) -> str:
 def _build_list_body(drafts: list) -> str:
     """Build the full numbered-list message body per spec."""
     n = len(drafts)
-    header = f"You have {n} draft policy{'ies' if n != 1 else ''}.\nWhich one would you like to resume?"
+    header = f"You have {n} draft {'policy' if n == 1 else 'policies'}.\nWhich one would you like to resume?"
     entries = "\n\n".join(_fmt_draft_entry(d, i) for i, d in enumerate(drafts, 1))
     return f"{header}\n\n{entries}\n\nReply with the number of the policy."
 
 
 def _build_detail_card(draft: dict) -> str:
-    """Build plain-text detail card per spec:
-    You selected:
-
-    TA-NG-TAIN-260533-00UB8
-    ✈️ PA1222  🗓️ 20-May-2026
-    😊 Samuel Olamide
-    Last saved: 18 May 2025, 04:15 PM
-
-    What would you like to do?
-    """
     code = _extract_policy_code(draft)
     flight, dep_date = _extract_flight_date(draft)
     traveller = _extract_traveller(draft)
@@ -141,7 +131,7 @@ def _build_detail_card(draft: dict) -> str:
         f"You selected:\n\n"
         f"{code}\n"
         f"✈️ {flight}  🗓️ {dep_date}\n"
-        f"😊 {traveller}\n"
+        f"🧑 {traveller}\n"
         f"Last saved: {last_saved}\n\n"
         f"What would you like to do?"
     )
@@ -176,12 +166,35 @@ async def _send_buttons(
     )
 
 
+async def _send_utility(wa_id: str, phone_number_id: Optional[str]) -> None:
+    await send_text_message(
+        to=wa_id,
+        body=_UTILITY,
+        phone_number_id=phone_number_id,
+        source="draft_policies_flow",
+    )
+
+
 async def _send_list(wa_id: str, drafts: list, phone_number_id: Optional[str]) -> None:
     await send_text_message(
         to=wa_id,
         body=_build_list_body(drafts),
         phone_number_id=phone_number_id,
         source="draft_policies_flow",
+    )
+    await _send_utility(wa_id, phone_number_id)
+
+
+async def _send_no_drafts(wa_id: str, phone_number_id: Optional[str]) -> None:
+    """Send the 'no drafts' screen with Buy Cover + Main Menu buttons."""
+    await _send_buttons(
+        wa_id,
+        "You have no draft policies.\n\nStart a new cover or return to the main menu.",
+        [
+            {"id": "welcome_purchase_policy", "title": "✈️ Buy Cover"},
+            {"id": "go_main", "title": "🏠 Main Menu"},
+        ],
+        phone_number_id,
     )
 
 
@@ -197,12 +210,7 @@ async def start_draft_policies_flow(
     if not drafts:
         session.setdefault("temp_data", {})[DRAFT_POLICIES_FLOW_KEY] = {}
         await save_session(session)
-        await send_text_message(
-            to=wa_id,
-            body="You have no draft policies. Start a new cover with ✈️ Buy Cover.",
-            phone_number_id=phone_number_id,
-            source="draft_policies_flow",
-        )
+        await _send_no_drafts(wa_id, phone_number_id)
         return
 
     session.setdefault("temp_data", {})[DRAFT_POLICIES_FLOW_KEY] = {
@@ -251,12 +259,7 @@ async def handle_draft_policies_input(
         if not drafts:
             flow["active"] = False
             await save_session(session)
-            await send_text_message(
-                to=wa_id,
-                body="You have no draft policies. Start a new cover with ✈️ Buy Cover.",
-                phone_number_id=phone_number_id,
-                source="draft_policies_flow",
-            )
+            await _send_no_drafts(wa_id, phone_number_id)
             return
 
         n = len(drafts)
@@ -278,6 +281,7 @@ async def handle_draft_policies_input(
                 phone_number_id=phone_number_id,
                 source="draft_policies_flow",
             )
+            await _send_utility(wa_id, phone_number_id)
             return
 
         selected = drafts[chosen_idx - 1]
@@ -294,6 +298,7 @@ async def handle_draft_policies_input(
             ],
             phone_number_id,
         )
+        await _send_utility(wa_id, phone_number_id)
         return
 
     # ── Step: draft_action ─────────────────────────────────────────────────────
@@ -320,7 +325,6 @@ async def handle_draft_policies_input(
                 or selected_raw.get("policy_id")
             )
 
-            # Show loading text with the policy card first
             code = _extract_policy_code(selected_raw)
             flight, dep_date = _extract_flight_date(selected_raw)
             traveller = _extract_traveller(selected_raw)
@@ -328,7 +332,7 @@ async def handle_draft_policies_input(
             policy_card = (
                 f"{code}\n"
                 f"✈️ {flight}  🗓️ {dep_date}\n"
-                f"😊 {traveller}\n"
+                f"🧑 {traveller}\n"
                 f"Last saved: {last_saved}"
             )
             await send_text_message(
@@ -343,7 +347,6 @@ async def handle_draft_policies_input(
                 source="draft_policies_flow",
             )
 
-            # Re-call resume API for fresh data on the selected policy
             msisdn = get_msisdn(wa_id)
             fresh_raw = await _ipurvey_svc.resume_draft_policy(msisdn, preferred_id=policy_id)
             if fresh_raw:
@@ -406,7 +409,6 @@ async def handle_draft_policies_input(
 
             from app.services.buy_cover_flow_service import BUY_COVER_FLOW_KEY, resume_at_current_step
 
-            # Determine the correct step using the same mapping as section B
             if creation_state in ("AWAITING_KYC", "DETAILS_COLLECTED"):
                 target_step = "buy_cover_select_cover"
             elif creation_state == "AWAITING_ITINERARY":
@@ -426,7 +428,6 @@ async def handle_draft_policies_input(
             session["temp_data"][DRAFT_POLICIES_FLOW_KEY] = {}
             await save_session(session)
 
-            # resume_at_current_step re-displays the step (handles quotes re-fetch for select_cover)
             await resume_at_current_step(wa_id, phone_number_id)
             return
 
@@ -476,12 +477,7 @@ async def handle_draft_policies_input(
                 else:
                     flow["active"] = False
                     await save_session(session)
-                    await send_text_message(
-                        to=wa_id,
-                        body="You have no draft policies. Start a new cover with ✈️ Buy Cover.",
-                        phone_number_id=phone_number_id,
-                        source="draft_policies_flow",
-                    )
+                    await _send_no_drafts(wa_id, phone_number_id)
             else:
                 await send_text_message(
                     to=wa_id,
@@ -489,6 +485,7 @@ async def handle_draft_policies_input(
                     phone_number_id=phone_number_id,
                     source="draft_policies_flow",
                 )
+                await _send_utility(wa_id, phone_number_id)
             return
 
         # Unknown input at draft_action — re-show action buttons for selected draft
@@ -502,6 +499,7 @@ async def handle_draft_policies_input(
                 ],
                 phone_number_id,
             )
+            await _send_utility(wa_id, phone_number_id)
         return
 
     # Unknown step — restart flow
@@ -515,9 +513,43 @@ async def handle_draft_policies_input(
     else:
         flow["active"] = False
         await save_session(session)
-        await send_text_message(
-            to=wa_id,
-            body="You have no draft policies. Start a new cover with ✈️ Buy Cover.",
-            phone_number_id=phone_number_id,
-            source="draft_policies_flow",
-        )
+        await _send_no_drafts(wa_id, phone_number_id)
+
+
+async def go_back_one_step(
+    wa_id: str,
+    phone_number_id: Optional[str],
+) -> None:
+    """Handle 0 / #back within the draft policies flow.
+
+    select_draft → exit flow, show main menu
+    draft_action → go back to select_draft, re-show list
+    """
+    session = await get_session(wa_id) or {}
+    flow = session.setdefault("temp_data", {}).setdefault(DRAFT_POLICIES_FLOW_KEY, {})
+    step = flow.get("step", "select_draft")
+    data = flow.get("data", {})
+
+    if step == "draft_action":
+        flow["step"] = "select_draft"
+        data.pop("selected_idx", None)
+        await save_session(session)
+        drafts = data.get("drafts") or []
+        if not drafts:
+            msisdn = get_msisdn(wa_id)
+            drafts = await _ipurvey_svc.resume_all_drafts(msisdn)
+            data["drafts"] = drafts
+            await save_session(session)
+        if drafts:
+            await _send_list(wa_id, drafts, phone_number_id)
+        else:
+            flow["active"] = False
+            await save_session(session)
+            await _send_no_drafts(wa_id, phone_number_id)
+        return
+
+    # select_draft or any other step → exit to main menu
+    flow["active"] = False
+    await save_session(session)
+    from app.services.auto_reply_service import send_main_menu
+    await send_main_menu(to=wa_id, phone_number_id=phone_number_id, wa_id=wa_id)
