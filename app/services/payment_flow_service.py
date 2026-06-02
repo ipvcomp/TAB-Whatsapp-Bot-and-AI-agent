@@ -4,6 +4,7 @@ from typing import Optional
 import app.services.ipurvey_service as ipurvey_service
 
 from app.core.test_overrides import get_msisdn
+from app.services.document_poll_service import schedule_document_poll
 from app.services.llm_service import call_extract, call_generic, call_policy_flow_validate
 from app.services.session_service import get_session, save_session, invalidate_policy_cache
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
@@ -1313,7 +1314,8 @@ async def handle_payment_flow(
                     sender_wa_id,
                     "⏳ *Policy document not yet available.*\n\n"
                     "Your document is still being generated. "
-                    "Tap *Try again* in a moment to check if it's ready.",
+                    "Tap *Try again* in a moment to check if it's ready, "
+                    "or we'll send it to you automatically once it's ready.",
                     phone_number_id,
                 )
                 await _send_buttons(
@@ -1325,6 +1327,13 @@ async def handle_payment_flow(
                         {"id": "pay_home",         "title": "🏠 Main Menu"},
                     ],
                     phone_number_id,
+                )
+                schedule_document_poll(
+                    wa_id=sender_wa_id,
+                    policy_code=data.get("pay_policy", pol),
+                    display_name=cname,
+                    phone_number_id=phone_number_id,
+                    source="payment_flow",
                 )
         elif reply_id == "pay_pol_alerts":
             await _send_text(

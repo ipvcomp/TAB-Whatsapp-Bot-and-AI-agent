@@ -5,6 +5,7 @@ from typing import Optional
 import app.services.ipurvey_service as ipurvey_service
 
 from app.core.test_overrides import get_msisdn
+from app.services.document_poll_service import schedule_document_poll
 from app.services.session_service import (
     get_session,
     save_session,
@@ -790,7 +791,8 @@ async def _show_document(session: dict, wa_id: str, pol: dict, phone_number_id: 
             f"📄 *Policy Document*\n\n"
             f"Policy No: *{p['ref']}*\n\n"
             "⏳ Your policy document is still being prepared. "
-            "Tap *Try again* in a moment to check if it's ready.",
+            "Tap *Try again* in a moment to check if it's ready, "
+            "or we'll send it to you automatically once it's ready.",
             phone_number_id)
         await _send_buttons(wa_id,
             "What would you like to do?",
@@ -800,6 +802,13 @@ async def _show_document(session: dict, wa_id: str, pol: dict, phone_number_id: 
                 {"id": "pol_home",        "title": "🏠 Main Menu"},
             ],
             phone_number_id)
+        schedule_document_poll(
+            wa_id=wa_id,
+            policy_code=p["ref"],
+            display_name=p["name"],
+            phone_number_id=phone_number_id,
+            source="check_policy_flow",
+        )
 
 
 async def _show_manage_alerts(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
