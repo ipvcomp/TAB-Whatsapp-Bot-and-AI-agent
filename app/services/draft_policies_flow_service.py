@@ -21,15 +21,43 @@ def is_in_draft_policies_flow(session: Optional[dict]) -> bool:
     )
 
 
+def _dash(value: str) -> str:
+    """Return value or '—' when empty/None."""
+    return (value or "").strip() or "—"
+
+
+def _fmt_date(raw: str) -> str:
+    if not raw:
+        return "—"
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"):
+        try:
+            from datetime import datetime as _dt
+            return _dt.strptime(raw, fmt).strftime("%d %b %Y")
+        except ValueError:
+            pass
+    return raw
+
+
 def _draft_summary_line(draft: dict, idx: int) -> str:
+    """Format a single line for the draft list screen.
+
+    Format: #{n}. [PolicyCode]  Flight [flt]  Route [dep→arr]  Date [date]  Traveller [name]
+    Nulls shown as —.
+    """
     itin = draft.get("itinerary") or {}
     legs = itin.get("legs", [])
     leg = legs[0] if legs else {}
-    dep = leg.get("departureAirport", "") or leg.get("departure_airport", "")
-    arr = leg.get("arrivalAirport", "") or leg.get("arrival_airport", "")
-    dep_date = leg.get("departureDate", "") or leg.get("departure_date", "")
 
-    pax_name = ""
+    policy_code = _dash(
+        draft.get("policyCode") or draft.get("policyReference") or ""
+    )
+    flight_num = _dash(leg.get("flightNumber", ""))
+    dep = (leg.get("departureAirport", "") or "").strip()
+    arr = (leg.get("arrivalAirport", "") or "").strip()
+    route = f"{dep} → {arr}" if (dep and arr) else "—"
+    dep_date = _fmt_date(leg.get("departureDate", ""))
+
+    pax_name = "—"
     for p in (draft.get("passengers") or []):
         if isinstance(p, dict) and (p.get("firstName") or p.get("surname")):
             pax_name = f"{p.get('firstName', '')} {p.get('surname', '')}".strip()
@@ -43,80 +71,13 @@ def _draft_summary_line(draft: dict, idx: int) -> str:
         "DETAILS_COLLECTED": "📋 Review pending",
         "KYC_COMPLETED": "✅ Ready to pay",
     }
-    state_label = state_labels.get(state, f"📋 {state.replace('_', ' ').title()}")
+    status = state_labels.get(state, f"📋 {state.replace('_', ' ').title()}")
 
-    parts = []
-    if dep and arr:
-        parts.append(f"{dep} → {arr}")
-    if dep_date:
-        try:
-            from datetime import datetime as _dt
-            parts.append(_dt.strptime(dep_date, "%Y-%m-%d").strftime("%d %b %Y"))
-        except ValueError:
-            parts.append(dep_date)
-    if pax_name:
-        parts.append(pax_name)
-
-    detail = "  •  ".join(parts) if parts else "(no details yet)"
-    return f"{idx}. {state_label} — {detail}"
-
-
-def _format_draft_detail(draft: dict, idx: int, total: int) -> str:
-    itin = draft.get("itinerary") or {}
-    legs = itin.get("legs", [])
-    leg = legs[0] if legs else {}
-    dep = leg.get("departureAirport", "") or ""
-    arr = leg.get("arrivalAirport", "") or ""
-    dep_date = leg.get("departureDate", "") or ""
-    dep_time = leg.get("departureTime", "") or ""
-    flight_num = leg.get("flightNumber", "") or ""
-    booking_ref = itin.get("bookingReference", "") or ""
-
-    pax_names = []
-    for p in (draft.get("passengers") or []):
-        if isinstance(p, dict):
-            name = f"{p.get('firstName', '')} {p.get('surname', '')}".strip()
-            if name:
-                pax_names.append(name)
-
-    state = draft.get("creationState") or draft.get("creation_state") or "DRAFT"
-    state_labels = {
-        "DRAFT": "🔄 Draft — just started",
-        "AWAITING_ITINERARY": "✈️ Flight details needed",
-        "AWAITING_KYC": "🔐 Identity verification needed",
-        "DETAILS_COLLECTED": "📋 Awaiting cover selection",
-        "KYC_COMPLETED": "✅ Ready for payment",
-    }
-    state_label = state_labels.get(state, f"📋 {state.replace('_', ' ').title()}")
-
-    lines = [f"📋 *Draft {idx} of {total}*", ""]
-    if dep and arr:
-        lines.append(f"Route        {dep} → {arr}")
-    if flight_num:
-        lines.append(f"Flight       {flight_num}")
-    if booking_ref:
-        lines.append(f"Booking Ref  {booking_ref}")
-    if dep_date:
-        try:
-            from datetime import datetime as _dt
-            dep_date_fmt = _dt.strptime(dep_date, "%Y-%m-%d").strftime("%d %b %Y")
-        except ValueError:
-            dep_date_fmt = dep_date
-        dep_time_fmt = ""
-        if dep_time:
-            try:
-                from datetime import datetime as _dt
-                dep_time_fmt = " · " + _dt.strptime(dep_time, "%H:%M").strftime("%I:%M %p")
-            except ValueError:
-                dep_time_fmt = f" · {dep_time}"
-        lines.append(f"Departure    {dep_date_fmt}{dep_time_fmt}")
-    if pax_names:
-        lines.append(f"Passenger    {pax_names[0]}")
-        for n in pax_names[1:]:
-            lines.append(f"             {n}")
-    lines.append("")
-    lines.append(f"Status       {state_label}")
-    return "\n".join(lines)
+    return (
+        f"*{idx}.* {policy_code}  |  {status}\n"
+        f"   Flight {flight_num}  ·  {route}\n"
+        f"   Date {dep_date}  ·  Traveller {pax_name}"
+    )
 
 
 async def _send_buttons(
@@ -152,19 +113,20 @@ async def _show_draft_list(
     wa_id: str,
     drafts: list,
     phone_number_id: Optional[str],
-    intro: str = "",
+    prefix: str = "",
 ) -> None:
     lines = []
-    if intro:
-        lines.append(intro)
+    if prefix:
+        lines.append(prefix)
         lines.append("")
-    lines.append(f"📑 *Your Draft Policies* ({len(drafts)} found)")
+    lines.append(f"📑 *Your Draft Policies* — {len(drafts)} found")
     lines.append("")
     for i, draft in enumerate(drafts, 1):
         lines.append(_draft_summary_line(draft, i))
+        if i < len(drafts):
+            lines.append("")
     lines.append("")
-    lines.append("Reply with the *number* to select a draft.")
-    lines.append("\nType *#cancel* at any time to exit.")
+    lines.append("Reply with the *number* to select a draft  |  *#cancel* to exit")
     await send_text_message(
         to=wa_id,
         body="\n".join(lines),
@@ -188,9 +150,9 @@ async def start_draft_policies_flow(
         await _send_buttons(
             wa_id,
             "📑 *Draft Policies*\n\n"
-            "You have no saved draft policies.\n\n"
-            "Start a new policy purchase from the main menu.",
-            [{"id": "welcome_purchase_policy", "title": "✈️ Buy Cover"}],
+            "You have no saved draft policies at the moment.\n\n"
+            "Tap below to start a new policy application.",
+            [{"id": "buy_cover", "title": "✈️ Buy Cover"}],
             phone_number_id,
         )
         return
@@ -243,7 +205,7 @@ async def handle_draft_policies_input(
             await save_session(session)
             await send_text_message(
                 to=wa_id,
-                body="You have no saved draft policies.",
+                body="📑 You have no saved draft policies.",
                 phone_number_id=phone_number_id,
                 source="draft_policies_flow",
             )
@@ -252,21 +214,16 @@ async def handle_draft_policies_input(
         try:
             idx = int(text)
         except (ValueError, TypeError):
-            await send_text_message(
-                to=wa_id,
-                body=f"Please reply with a number between 1 and {len(drafts)}.\n"
-                     f"_Example: 1_",
-                phone_number_id=phone_number_id,
-                source="draft_policies_flow",
+            await _show_draft_list(
+                wa_id, drafts, phone_number_id,
+                prefix=f"⚠️ Please reply with a number between 1 and {len(drafts)}.",
             )
             return
 
         if idx < 1 or idx > len(drafts):
-            await send_text_message(
-                to=wa_id,
-                body=f"⚠️ Please choose a number between 1 and {len(drafts)}.",
-                phone_number_id=phone_number_id,
-                source="draft_policies_flow",
+            await _show_draft_list(
+                wa_id, drafts, phone_number_id,
+                prefix=f"⚠️ Please choose a number between 1 and {len(drafts)}.",
             )
             return
 
@@ -275,13 +232,51 @@ async def handle_draft_policies_input(
         flow["step"] = "draft_action"
         await save_session(session)
 
-        detail_text = _format_draft_detail(selected, idx, len(drafts))
+        itin = selected.get("itinerary") or {}
+        legs = itin.get("legs", [])
+        leg = legs[0] if legs else {}
+        policy_code = _dash(
+            selected.get("policyCode") or selected.get("policyReference") or ""
+        )
+        flight_num = _dash(leg.get("flightNumber", ""))
+        dep = (leg.get("departureAirport", "") or "").strip()
+        arr = (leg.get("arrivalAirport", "") or "").strip()
+        route = f"{dep} → {arr}" if (dep and arr) else "—"
+        dep_date = _fmt_date(leg.get("departureDate", ""))
+
+        pax_name = "—"
+        for p in (selected.get("passengers") or []):
+            if isinstance(p, dict) and (p.get("firstName") or p.get("surname")):
+                pax_name = f"{p.get('firstName', '')} {p.get('surname', '')}".strip()
+                break
+
+        state = selected.get("creationState") or selected.get("creation_state") or "DRAFT"
+        state_labels = {
+            "DRAFT": "🔄 Draft — just started",
+            "AWAITING_ITINERARY": "✈️ Flight details needed",
+            "AWAITING_KYC": "🔐 Identity verification needed",
+            "DETAILS_COLLECTED": "📋 Awaiting cover selection",
+            "KYC_COMPLETED": "✅ Ready for payment",
+        }
+        status = state_labels.get(state, f"📋 {state.replace('_', ' ').title()}")
+
+        detail_lines = [
+            f"📋 *Draft {idx} of {len(drafts)}*",
+            "",
+            f"Policy      {policy_code}",
+            f"Flight      {flight_num}",
+            f"Route       {route}",
+            f"Date        {dep_date}",
+            f"Traveller   {pax_name}",
+            "",
+            f"Status      {status}",
+        ]
         await _send_buttons(
             wa_id,
-            detail_text + "\n\nWhat would you like to do?",
+            "\n".join(detail_lines) + "\n\nWhat would you like to do?",
             [
-                {"id": "dp_continue", "title": "✅ Continue"},
-                {"id": "dp_delete", "title": "🗑️ Delete"},
+                {"id": "draft_continue", "title": "▶️ Continue"},
+                {"id": "draft_delete",   "title": "🗑️ Delete"},
             ],
             phone_number_id,
         )
@@ -292,7 +287,7 @@ async def handle_draft_policies_input(
         drafts = data.get("drafts") or []
         idx = data.get("selected_idx", 1)
 
-        if reply_id == "dp_continue":
+        if reply_id == "draft_continue":
             if not drafts or idx < 1 or idx > len(drafts):
                 await send_text_message(
                     to=wa_id,
@@ -323,6 +318,13 @@ async def handle_draft_policies_input(
             )
             primary_id = (primary or {}).get("id") if isinstance(primary, dict) else None
 
+            itin = normalised.get("itinerary") or {}
+            legs_r = itin.get("legs", [])
+            leg_r = legs_r[0] if legs_r else {}
+            trip_raw = normalised.get("trip_type", "ONE_WAY")
+            dep_code = (leg_r.get("departureAirport", "") or "").strip()
+            arr_code = (leg_r.get("arrivalAirport", "") or "").strip()
+
             bc_data: dict = {}
             if pax_names:
                 bc_data["name"] = pax_names[0]
@@ -334,10 +336,16 @@ async def handle_draft_policies_input(
                     bc_data["who"] = "just_me"
             if email:
                 bc_data["email"] = email
+            bc_data["booking_ref"] = itin.get("bookingReference", "")
+            bc_data["flight_num"] = leg_r.get("flightNumber", "")
+            bc_data["depart_airport"] = f"{dep_code} — {dep_code}" if dep_code else ""
+            bc_data["arrive_airport"] = f"{arr_code} — {arr_code}" if arr_code else ""
+            bc_data["date"] = leg_r.get("departureDate", "")
+            bc_data["depart_time"] = leg_r.get("departureTime", "")
+            bc_data["arrive_time"] = leg_r.get("arrivalTime", "")
+            bc_data["trip_type"] = "Return 🔄" if (trip_raw or "").upper() == "RETURN" else "One-way 🗺️"
 
-            # Clear paused_context so resume_yes uses api_data["resume_draft"] (section B)
             session.pop("paused_context", None)
-
             session["api_data"] = {
                 "policy_id": policy_id,
                 "resume_draft": normalised,
@@ -346,64 +354,96 @@ async def handle_draft_policies_input(
                 "user_exists": True,
             }
 
-            itin = normalised.get("itinerary") or {}
-            legs = itin.get("legs", [])
-            leg = legs[0] if legs else {}
-            dep_code = leg.get("departureAirport", "") or ""
-            arr_code = leg.get("arrivalAirport", "") or ""
-            dep_date = leg.get("departureDate", "") or ""
-            flight_num = leg.get("flightNumber", "") or ""
-
-            hint_lines = []
-            if pax_names:
-                hint_lines.append(f"👤 {pax_names[0]}")
-            if flight_num:
-                route_part = f"  •  {dep_code} → {arr_code}" if (dep_code or arr_code) else ""
-                hint_lines.append(f"✈️ {flight_num}{route_part}")
-            elif dep_code or arr_code:
-                hint_lines.append(f"🛫 {dep_code} → {arr_code}")
-            if dep_date:
-                try:
-                    from datetime import datetime as _dt
-                    hint_lines.append(f"📅 {_dt.strptime(dep_date, '%Y-%m-%d').strftime('%d %b %Y')}")
-                except ValueError:
-                    hint_lines.append(f"📅 {dep_date}")
-
-            state_hints = {
-                "AWAITING_KYC": "\n🔐 Identity verification was in progress",
-                "DETAILS_COLLECTED": "\n📋 Details collected — cover selection needed",
-                "KYC_COMPLETED": "\n✅ Almost done — payment needed",
-                "AWAITING_ITINERARY": "\n✈️ Flight details still needed",
-            }
-            if creation_state in state_hints:
-                hint_lines.append(state_hints[creation_state])
-
-            hint = "\n".join(hint_lines) if hint_lines else "Some details were already saved."
-
             from app.services.buy_cover_flow_service import BUY_COVER_FLOW_KEY
-            session.setdefault("temp_data", {})[BUY_COVER_FLOW_KEY] = {
+            flow_bc = session.setdefault("temp_data", {})
+            flow_bc[BUY_COVER_FLOW_KEY] = {
                 "active": True,
-                "step": "buy_cover_resume_choice",
+                "step": "buy_cover_who",
                 "data": bc_data,
             }
-            session["temp_data"][DRAFT_POLICIES_FLOW_KEY] = {}
+            flow_bc[DRAFT_POLICIES_FLOW_KEY] = {}
             await save_session(session)
 
-            await _send_buttons(
-                wa_id,
-                "📋 *Incomplete Application Found*\n\n"
-                "We've loaded your saved draft:\n\n"
-                f"{hint}\n\n"
-                "Would you like to continue where you left off?",
-                [
-                    {"id": "resume_yes", "title": "▶️ Resume"},
-                    {"id": "resume_fresh", "title": "🆕 Start Fresh"},
-                ],
-                phone_number_id,
+            # Directly jump to the right step (no Resume/Fresh prompt)
+            await send_text_message(
+                to=wa_id,
+                body="✅ *Welcome back!* Picking up your application...",
+                phone_number_id=phone_number_id,
+                source="draft_policies_flow",
             )
+
+            bc_flow = session["temp_data"][BUY_COVER_FLOW_KEY]
+            bc_flow_data = bc_flow["data"]
+
+            if creation_state in ("AWAITING_KYC", "DETAILS_COLLECTED"):
+                try:
+                    quotes = await _ipurvey_svc.fetch_quotes(policy_id)
+                except Exception as exc:
+                    logger.error(f"[draft_policies] fetch_quotes failed: {exc}")
+                    quotes = None
+                if quotes:
+                    session["api_data"]["quotes"] = quotes
+                    bc_flow["step"] = "buy_cover_select_cover"
+                    await save_session(session)
+                    from app.services.buy_cover_flow_service import _send_cover_page
+                    await _send_cover_page(
+                        wa_id, quotes, 0, phone_number_id,
+                        intro_body=(
+                            "🎁 *Your trip details are already saved!*\n\n"
+                            "👇 Just pick your cover plan to continue:"
+                        ),
+                    )
+                else:
+                    bc_flow["step"] = "buy_cover_trip_type"
+                    await save_session(session)
+                    from app.services.buy_cover_flow_service import _send_buttons as _bc_send_buttons
+                    await _bc_send_buttons(
+                        wa_id,
+                        "⚠️ Covers unavailable — let's continue from your trip details.\n\n"
+                        "🗺️ What type of trip is this?",
+                        [{"id": "trip_oneway", "title": "1. 🗺️ One-way"}],
+                        phone_number_id,
+                    )
+
+            elif creation_state == "AWAITING_ITINERARY":
+                bc_flow["step"] = "buy_cover_trip_type"
+                await save_session(session)
+                from app.services.buy_cover_flow_service import _send_buttons as _bc_send_buttons
+                await _bc_send_buttons(
+                    wa_id,
+                    "🗺️ What type of trip is this?",
+                    [{"id": "trip_oneway", "title": "1. 🗺️ One-way"}],
+                    phone_number_id,
+                )
+
+            else:
+                if not bc_flow_data.get("email"):
+                    bc_flow["step"] = "buy_cover_email"
+                    await save_session(session)
+                    from app.services.whatsapp_service import send_text_message as _st
+                    await _st(
+                        to=wa_id,
+                        body=(
+                            "*📧 Please enter your email address*\n"
+                            "So we can send your policy documents\n\n"
+                            "_Example: yusuf@email.com_"
+                        ),
+                        phone_number_id=phone_number_id,
+                        source="draft_policies_flow",
+                    )
+                else:
+                    bc_flow["step"] = "buy_cover_trip_type"
+                    await save_session(session)
+                    from app.services.buy_cover_flow_service import _send_buttons as _bc_send_buttons
+                    await _bc_send_buttons(
+                        wa_id,
+                        "🗺️ What type of trip is this?",
+                        [{"id": "trip_oneway", "title": "1. 🗺️ One-way"}],
+                        phone_number_id,
+                    )
             return
 
-        if reply_id == "dp_delete":
+        if reply_id == "draft_delete":
             if not drafts or idx < 1 or idx > len(drafts):
                 await send_text_message(
                     to=wa_id,
@@ -436,7 +476,7 @@ async def handle_draft_policies_input(
                     await save_session(session)
                     await _show_draft_list(
                         wa_id, new_drafts, phone_number_id,
-                        intro="✅ Draft deleted successfully.",
+                        prefix="✅ Draft deleted successfully.",
                     )
                 else:
                     flow["active"] = False
@@ -445,7 +485,7 @@ async def handle_draft_policies_input(
                         wa_id,
                         "✅ Draft deleted successfully.\n\n"
                         "You have no more saved draft policies.",
-                        [{"id": "welcome_purchase_policy", "title": "✈️ Buy Cover"}],
+                        [{"id": "buy_cover", "title": "✈️ Buy Cover"}],
                         phone_number_id,
                     )
             else:
@@ -457,18 +497,27 @@ async def handle_draft_policies_input(
                 )
             return
 
-        # Unknown input at draft_action — re-show buttons
-        selected_raw_r = drafts[idx - 1] if drafts and 0 < idx <= len(drafts) else {}
-        detail_text_r = _format_draft_detail(selected_raw_r, idx, len(drafts))
-        await _send_buttons(
-            wa_id,
-            detail_text_r + "\n\nWhat would you like to do?",
-            [
-                {"id": "dp_continue", "title": "✅ Continue"},
-                {"id": "dp_delete", "title": "🗑️ Delete"},
-            ],
-            phone_number_id,
-        )
+        # Unknown input at draft_action — re-show action buttons
+        if drafts and 0 < idx <= len(drafts):
+            selected_raw_r = drafts[idx - 1]
+            state_r = selected_raw_r.get("creationState") or selected_raw_r.get("creation_state") or "DRAFT"
+            state_labels_r = {
+                "DRAFT": "🔄 Draft — just started",
+                "AWAITING_ITINERARY": "✈️ Flight details needed",
+                "AWAITING_KYC": "🔐 Identity verification needed",
+                "DETAILS_COLLECTED": "📋 Awaiting cover selection",
+                "KYC_COMPLETED": "✅ Ready for payment",
+            }
+            status_r = state_labels_r.get(state_r, f"📋 {state_r.replace('_', ' ').title()}")
+            await _send_buttons(
+                wa_id,
+                f"Draft {idx}: {status_r}\n\nWhat would you like to do?",
+                [
+                    {"id": "draft_continue", "title": "▶️ Continue"},
+                    {"id": "draft_delete",   "title": "🗑️ Delete"},
+                ],
+                phone_number_id,
+            )
         return
 
     # Unknown step — restart flow
@@ -484,7 +533,7 @@ async def handle_draft_policies_input(
         await save_session(session)
         await send_text_message(
             to=wa_id,
-            body="You have no saved draft policies.",
+            body="📑 You have no saved draft policies.",
             phone_number_id=phone_number_id,
             source="draft_policies_flow",
         )

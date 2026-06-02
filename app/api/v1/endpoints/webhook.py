@@ -571,9 +571,8 @@ async def _process_change(entry_id: str, change):
                     log_event("FLOW", {"from": sender_wa_id, "trigger": "DRAFT_POLICIES"})
                     await handle_draft_policies_input(
                         message=message,
-                        sender_wa_id=sender_wa_id,
+                        wa_id=sender_wa_id,
                         phone_number_id=msg_phone_number_id,
-                        in_reply_to=message.id,
                     )
                 elif is_in_update_details_flow(user_session):
                     log_event("FLOW", {"from": sender_wa_id, "trigger": "UPDATE_DETAILS"})
@@ -981,7 +980,6 @@ async def _handle_welcome_button(
         await start_draft_policies_flow(
             wa_id=sender_wa_id,
             phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
         )
     elif reply_id in ("welcome_submit_boarding", "boarding_pass"):
         log_event("WELCOME_BUTTON", {"action": "submit_boarding", "from": sender_wa_id})
@@ -1016,7 +1014,6 @@ async def _handle_welcome_button(
         await start_draft_policies_flow(
             wa_id=sender_wa_id,
             phone_number_id=phone_number_id,
-            in_reply_to=in_reply_to,
         )
 
 
