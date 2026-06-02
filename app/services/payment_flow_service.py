@@ -1311,8 +1311,19 @@ async def handle_payment_flow(
             else:
                 await _send_text(
                     sender_wa_id,
-                    "⚠️ *Policy document not yet available.*\n\n"
-                    "Your document will be ready shortly. Please check back later.",
+                    "⏳ *Policy document not yet available.*\n\n"
+                    "Your document is still being generated. "
+                    "Tap *Try again* in a moment to check if it's ready.",
+                    phone_number_id,
+                )
+                await _send_buttons(
+                    sender_wa_id,
+                    "What would you like to do?",
+                    [
+                        {"id": "pay_pol_download", "title": "🔄 Try again"},
+                        {"id": "pay_pol_all",      "title": "📋 All my policies"},
+                        {"id": "pay_home",         "title": "🏠 Main Menu"},
+                    ],
                     phone_number_id,
                 )
         elif reply_id == "pay_pol_alerts":

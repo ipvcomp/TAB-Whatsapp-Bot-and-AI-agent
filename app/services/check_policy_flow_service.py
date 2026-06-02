@@ -415,7 +415,9 @@ async def handle_check_policy_flow(
     # ── Download / policy doc subflow ──────────────────────────────────────────
     elif step == "pol_download":
         pol = _get_selected_pol()
-        if reply_id == "pol_upload_bp":
+        if reply_id in ("pol_doc_retry", "pol_download"):
+            await _show_document(session, sender_wa_id, pol, phone_number_id)
+        elif reply_id == "pol_upload_bp":
             await _reset(session)
             from app.services.bp_link_flow_service import start_bp_link_flow
             await start_bp_link_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
@@ -775,22 +777,29 @@ async def _show_document(session: dict, wa_id: str, pol: dict, phone_number_id: 
             f"Policy No: *{p['ref']}*\n\n"
             f"{doc_url}",
             phone_number_id)
+        await _send_buttons(wa_id,
+            "What would you like to do next?",
+            [
+                {"id": "pol_upload_bp",   "title": "📤 Upload Boarding Pass"},
+                {"id": "pol_back_detail", "title": "↩️ Back to Details"},
+                {"id": "pol_home",        "title": "🏠 Main Menu"},
+            ],
+            phone_number_id)
     else:
         await _send_text(wa_id,
             f"📄 *Policy Document*\n\n"
             f"Policy No: *{p['ref']}*\n\n"
-            "Your policy document is being prepared. "
-            "A download link will be sent to you shortly.",
+            "⏳ Your policy document is still being prepared. "
+            "Tap *Try again* in a moment to check if it's ready.",
             phone_number_id)
-
-    await _send_buttons(wa_id,
-        "What would you like to do next?",
-        [
-            {"id": "pol_upload_bp",   "title": "📤 Upload Boarding Pass"},
-            {"id": "pol_back_detail", "title": "↩️ Back to Details"},
-            {"id": "pol_home",        "title": "🏠 Main Menu"},
-        ],
-        phone_number_id)
+        await _send_buttons(wa_id,
+            "What would you like to do?",
+            [
+                {"id": "pol_doc_retry",   "title": "🔄 Try again"},
+                {"id": "pol_back_detail", "title": "↩️ Back to Details"},
+                {"id": "pol_home",        "title": "🏠 Main Menu"},
+            ],
+            phone_number_id)
 
 
 async def _show_manage_alerts(session: dict, wa_id: str, pol: dict, phone_number_id: Optional[str]):
