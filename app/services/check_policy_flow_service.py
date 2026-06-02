@@ -138,33 +138,6 @@ async def _send_buttons(
     await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="check_policy_flow")
 
 
-async def _send_cta_document(
-    to: str,
-    pol: dict,
-    phone_number_id: Optional[str],
-):
-    ref     = pol.get("ref", "")
-    name    = pol.get("name", "Policy")
-    doc_url = pol.get("doc_url", "")
-    await send_text_message(
-        to=to,
-        body=(
-            f"📄 *Policy Document*\n\n"
-            f"*{name}*\n"
-            f"Policy No: *{ref}*\n\n"
-            f"{doc_url}"
-        ),
-        phone_number_id=phone_number_id,
-        source="check_policy_flow",
-    )
-    await send_text_message(
-        to=to,
-        body=_UTILITY,
-        phone_number_id=phone_number_id,
-        source="check_policy_flow",
-    )
-
-
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 async def start_check_policy_flow(
