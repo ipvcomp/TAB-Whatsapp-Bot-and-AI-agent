@@ -1016,9 +1016,8 @@ async def start_buy_cover_flow(
                 await save_session(session)
                 await _send_buttons(
                     wa_id,
-                    "⚠️ *Maximum drafts reached*\n\n"
-                    "You have reached the maximum of 5 draft policies.\n\n"
-                    "Please delete an existing draft before starting a new one.",
+                    "⚠️ You already have 5 draft policies.\n\n"
+                    "Please delete one before starting a new application.",
                     [{"id": "welcome_draft_policies", "title": "📑 View my drafts"}],
                     phone_number_id,
                 )

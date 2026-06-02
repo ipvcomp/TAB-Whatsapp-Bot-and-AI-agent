@@ -29,13 +29,13 @@ WELCOME_TEXT = (
 
 MENU_GROUP1_BUTTONS = [
     {"type": "reply", "reply": {"id": "buy_cover",    "title": "✈️ Buy Cover"}},
-    {"type": "reply", "reply": {"id": "boarding_pass","title": "🛂 Boarding Pass"}},
     {"type": "reply", "reply": {"id": "check_policy", "title": "📋 Check My Policy"}},
+    {"type": "reply", "reply": {"id": "update_details","title": "✏️ Update My Details"}},
 ]
 
 MENU_GROUP2_BUTTONS = [
-    {"type": "reply", "reply": {"id": "welcome_draft_policies", "title": "📑 Draft Policies"}},
-    {"type": "reply", "reply": {"id": "update_details",         "title": "✏️ Update Details"}},
+    {"type": "reply", "reply": {"id": "welcome_draft_policies", "title": "📑 Draft Policies (Resume)"}},
+    {"type": "reply", "reply": {"id": "boarding_pass",          "title": "🛂 Upload Boarding Pass"}},
     {"type": "reply", "reply": {"id": "help",                   "title": "🙋 Help"}},
 ]
 
