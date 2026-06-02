@@ -293,8 +293,8 @@ async def handle_draft_policies_input(
             wa_id,
             _build_detail_card(selected),
             [
-                {"id": "draft_continue", "title": "✅ Continue this policy"},
-                {"id": "draft_delete",   "title": "🗑️ Delete this policy"},
+                {"id": "draft_continue", "title": "✅ Continue policy"},
+                {"id": "draft_delete",   "title": "🗑️ Delete policy"},
             ],
             phone_number_id,
         )
@@ -494,8 +494,8 @@ async def handle_draft_policies_input(
                 wa_id,
                 _build_detail_card(drafts[idx - 1]),
                 [
-                    {"id": "draft_continue", "title": "✅ Continue this policy"},
-                    {"id": "draft_delete",   "title": "🗑️ Delete this policy"},
+                    {"id": "draft_continue", "title": "✅ Continue policy"},
+                    {"id": "draft_delete",   "title": "🗑️ Delete policy"},
                 ],
                 phone_number_id,
             )
