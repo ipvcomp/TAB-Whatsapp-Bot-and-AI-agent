@@ -754,12 +754,17 @@ async def _show_document(session: dict, wa_id: str, pol: dict, phone_number_id: 
             phone_number_id=phone_number_id,
         )
         if not sent:
-            await _send_text(wa_id,
-                f"📄 *Policy Document*\n\n"
-                f"*{p['name']}*\n"
-                f"Policy No: *{p['ref']}*\n\n"
-                f"{doc_url}",
-                phone_number_id)
+            await send_text_message(
+                to=wa_id,
+                body=(
+                    f"📄 *Policy Document*\n\n"
+                    f"*{p['name']}*\n"
+                    f"Policy No: *{p['ref']}*\n\n"
+                    f"{doc_url}"
+                ),
+                phone_number_id=phone_number_id,
+                source="check_policy_flow",
+            )
         await _send_buttons(wa_id,
             "What would you like to do next?",
             [
@@ -769,13 +774,18 @@ async def _show_document(session: dict, wa_id: str, pol: dict, phone_number_id: 
             ],
             phone_number_id)
     else:
-        await _send_text(wa_id,
-            f"📄 *Policy Document*\n\n"
-            f"Policy No: *{p['ref']}*\n\n"
-            "⏳ Your policy document is still being prepared. "
-            "Tap *Try again* in a moment to check if it's ready, "
-            "or we'll send it to you automatically once it's ready.",
-            phone_number_id)
+        await send_text_message(
+            to=wa_id,
+            body=(
+                f"📄 *Policy Document*\n\n"
+                f"Policy No: *{p['ref']}*\n\n"
+                "⏳ Your policy document is still being prepared. "
+                "Tap *Try again* in a moment to check if it's ready, "
+                "or we'll send it to you automatically once it's ready."
+            ),
+            phone_number_id=phone_number_id,
+            source="check_policy_flow",
+        )
         await _send_buttons(wa_id,
             "What would you like to do?",
             [

@@ -1281,17 +1281,21 @@ async def handle_payment_flow(
                     phone_number_id=phone_number_id,
                 )
                 if not sent:
-                    await _send_text(
-                        sender_wa_id,
-                        f"📁 *Your Policy Details*\n\n{card_body_v}\n"
-                        f"📄 *Policy Document:*\n{doc_url_v}",
-                        phone_number_id,
+                    await send_text_message(
+                        to=sender_wa_id,
+                        body=(
+                            f"📁 *Your Policy Details*\n\n{card_body_v}\n"
+                            f"📄 *Policy Document:*\n{doc_url_v}"
+                        ),
+                        phone_number_id=phone_number_id,
+                        source="payment_flow",
                     )
             else:
-                await _send_text(
-                    sender_wa_id,
-                    f"📁 *Your Policy Details*\n\n{card_body_v}",
-                    phone_number_id,
+                await send_text_message(
+                    to=sender_wa_id,
+                    body=f"📁 *Your Policy Details*\n\n{card_body_v}",
+                    phone_number_id=phone_number_id,
+                    source="payment_flow",
                 )
             await _send_buttons(
                 sender_wa_id,
@@ -1320,21 +1324,27 @@ async def handle_payment_flow(
                     phone_number_id=phone_number_id,
                 )
                 if not sent:
-                    await _send_text(
-                        sender_wa_id,
-                        f"📄 *Policy Document*\n\n"
-                        f"*{cname}*\nPolicy No: *{pol}*\n\n"
-                        f"{cached_url}",
-                        phone_number_id,
+                    await send_text_message(
+                        to=sender_wa_id,
+                        body=(
+                            f"📄 *Policy Document*\n\n"
+                            f"*{cname}*\nPolicy No: *{pol}*\n\n"
+                            f"{cached_url}"
+                        ),
+                        phone_number_id=phone_number_id,
+                        source="payment_flow",
                     )
             else:
-                await _send_text(
-                    sender_wa_id,
-                    "⏳ *Policy document not yet available.*\n\n"
-                    "Your document is still being generated. "
-                    "Tap *Try again* in a moment to check if it's ready, "
-                    "or we'll send it to you automatically once it's ready.",
-                    phone_number_id,
+                await send_text_message(
+                    to=sender_wa_id,
+                    body=(
+                        "⏳ *Policy document not yet available.*\n\n"
+                        "Your document is still being generated. "
+                        "Tap *Try again* in a moment to check if it's ready, "
+                        "or we'll send it to you automatically once it's ready."
+                    ),
+                    phone_number_id=phone_number_id,
+                    source="payment_flow",
                 )
                 await _send_buttons(
                     sender_wa_id,
