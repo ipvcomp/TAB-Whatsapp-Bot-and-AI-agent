@@ -2426,19 +2426,8 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
-        if _is_too_far_future(iso_arr_date):
-            await _send_text(
-                sender_wa_id,
-                (
-                    "⚠️ Arrival date cannot be more than 1 year in advance\n\n"
-                    "Please enter a date within the next 12 months\n\n"
-                    "_Example: 12 April 2026_"
-                ),
-                phone_number_id,
-            )
-            return
         dep_date = data.get("date", "")
-        if dep_date and iso_arr_date < dep_date:
+        if dep_date and iso_arr_date != dep_date:
             try:
                 dep_date_fmt = datetime.strptime(dep_date, "%Y-%m-%d").strftime(
                     "%d %B %Y"
@@ -2448,33 +2437,14 @@ async def handle_buy_cover_flow(
             await _send_text(
                 sender_wa_id,
                 (
-                    f"⚠️ Arrival date cannot be before your departure date\n\n"
+                    f"⚠️ Arrival date must be the same day as your departure date\n\n"
                     f"Your flight departs on *{dep_date_fmt}* — "
-                    f"Please enter a future time\n\n"
-                    "_Example: 12 April 2026_"
+                    f"please enter *{dep_date_fmt}* as your arrival date\n\n"
+                    "_Nigerian domestic flights arrive on the same day, even with stopovers_"
                 ),
                 phone_number_id,
             )
             return
-        if dep_date:
-            try:
-                dep_dt = datetime.strptime(dep_date, "%Y-%m-%d")
-                arr_dt = datetime.strptime(iso_arr_date, "%Y-%m-%d")
-                if (arr_dt - dep_dt).days > 90:
-                    dep_date_fmt = dep_dt.strftime("%d %B %Y")
-                    await _send_text(
-                        sender_wa_id,
-                        (
-                            f"⚠️ Arrival date seems too far from your departure date\n\n"
-                            f"Your flight departs on *{dep_date_fmt}* — "
-                            f"please enter an arrival date within 90 days of that\n\n"
-                            "_Example: 12 April 2026_"
-                        ),
-                        phone_number_id,
-                    )
-                    return
-            except ValueError:
-                pass
         data["arrive_date"] = iso_arr_date
         if data.pop("_edit_mode", False):
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
