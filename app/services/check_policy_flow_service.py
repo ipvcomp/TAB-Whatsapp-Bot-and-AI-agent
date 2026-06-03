@@ -478,6 +478,31 @@ async def handle_check_policy_flow(
         else:
             await _show_link_confirm(session, sender_wa_id, pol, phone_number_id)
 
+    # ── Eligibility result ─────────────────────────────────────────────────────
+    elif step == "pol_eligibility":
+        pol = _get_selected_pol()
+        if reply_id == "pol_kyc_verify":
+            await _send_text(
+                sender_wa_id,
+                "🪪 *KYC Verification Required*\n\n"
+                "To process your payout, your KYC verification must be completed.\n\n"
+                "Please contact our support team for assistance.\n\n"
+                "_Tap *9 Help* below to reach support._",
+                phone_number_id,
+            )
+        elif reply_id == "pol_upload_bp":
+            await _reset(session)
+            from app.services.bp_link_flow_service import start_bp_link_flow
+            await start_bp_link_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
+        elif reply_id in ("pol_back_detail", "pol_back"):
+            await _show_detail(session, sender_wa_id, pol, phone_number_id)
+        elif reply_id == "pol_home":
+            await _go_home(session, sender_wa_id, phone_number_id)
+        elif reply_id == "pol_cancel":
+            await show_cancel_policy_check_confirm(sender_wa_id, phone_number_id)
+        else:
+            await _show_eligibility(session, sender_wa_id, pol, phone_number_id)
+
     # ── Boarding pass linked ───────────────────────────────────────────────────
     elif step == "pol_linked":
         pol = _get_selected_pol()
@@ -927,13 +952,32 @@ async def _show_eligibility(session: dict, wa_id: str, pol: dict, phone_number_i
             body_lines.append(f"💰  Payout        *{payout_fmt}*")
             if justification:
                 body_lines.append(f"\n_{justification}_")
+            # D-123: Remove Confirm Payout — show pending-requirement button instead
+            kyc_verified = True
+            if pol_id:
+                try:
+                    kyc_resp = await ipurvey_service.check_kyc_status(pol_id)
+                    if isinstance(kyc_resp, dict):
+                        ks = (kyc_resp.get("status") or kyc_resp.get("kycStatus") or "").upper()
+                        kyc_verified = ks in ("VERIFIED", "APPROVED", "CONFIRMED", "SUCCESS", "PASSED")
+                    elif kyc_resp is None:
+                        kyc_verified = False
+                except Exception:
+                    pass
+            eligible_buttons: list = []
+            if not kyc_verified:
+                eligible_buttons.append({"id": "pol_kyc_verify", "title": "🪪 KYC Verification"})
+            bp_raw_status = str(
+                pol.get("boardingPassStatus") or pol.get("bp_status") or ""
+            ).upper()
+            bp_done = bp_raw_status in ("UPLOADED", "VERIFIED", "LINKED", "CONFIRMED", "APPROVED")
+            if not bp_done:
+                eligible_buttons.append({"id": "pol_upload_bp", "title": "📤 Upload Boarding Pass"})
+            eligible_buttons.append({"id": "pol_back_detail", "title": "↩️ Back"})
             await _send_buttons(
                 wa_id,
                 "\n".join(body_lines),
-                [
-                    {"id": "pol_confirm_payout", "title": "✅ Confirm payout"},
-                    {"id": "pol_back_detail",    "title": "↩️ Back"},
-                ],
+                eligible_buttons[:3],
                 phone_number_id,
                 header="✅ Eligible for payout",
             )
@@ -1004,7 +1048,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
     data = flow.get("data", {})
 
     # Steps that are sub-screens of pol_detail — go back to pol_detail
-    _DETAIL_SUB = {"pol_download", "pol_payout_done"}
+    _DETAIL_SUB = {"pol_download", "pol_eligibility", "pol_payout_done"}
 
     # Steps that go back to pol_menu (search method selection)
     _TO_MENU = {"pol_phone_list", "pol_ref_input", "pol_flight_input", "pol_detail"}

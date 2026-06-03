@@ -471,14 +471,31 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
         bp_already_uploaded = data.get("bp_uploaded", False)
 
     if eligible_flag:
-        result_buttons = [{"id": "bp_confirm_payout", "title": "✅ Confirm payout"}]
+        # D-123: Remove Confirm Payout — show pending-requirement button instead
+        kyc_verified = True
+        if pol_id:
+            try:
+                kyc_resp = await ipurvey_service.check_kyc_status(pol_id)
+                if isinstance(kyc_resp, dict):
+                    ks = (kyc_resp.get("status") or kyc_resp.get("kycStatus") or "").upper()
+                    kyc_verified = ks in ("VERIFIED", "APPROVED", "CONFIRMED", "SUCCESS", "PASSED")
+                elif kyc_resp is None:
+                    kyc_verified = False
+            except Exception:
+                pass
+        result_buttons = []
+        if not kyc_verified:
+            result_buttons.append({"id": "bp_kyc_verify", "title": "🪪 KYC Verification"})
         if not bp_already_uploaded:
-            result_buttons.append({"id": "bp_upload_first", "title": "📤 Upload pass"})
+            result_buttons.append({"id": "bp_upload_first", "title": "📤 Upload Boarding Pass"})
+        if not result_buttons:
+            result_buttons.append({"id": "bp_home", "title": "🏠 Main menu"})
     else:
         result_buttons = []
         if not bp_already_uploaded:
             result_buttons.append({"id": "bp_upload_first", "title": "📤 Upload pass"})
-        result_buttons.append({"id": "bp_eligibility", "title": "🔍 Check again"})
+        if not result_buttons:
+            result_buttons.append({"id": "bp_home", "title": "🏠 Main menu"})
 
     await _send_buttons(
         wa_id,
@@ -874,6 +891,29 @@ async def handle_bp_link_flow(
     elif step == "bp_policy_card":
         await _go_home(sender_wa_id, session, phone_number_id)
 
+    # ── Eligibility result ────────────────────────────────────────────────────
+    elif step == "bp_eligibility_result":
+        if reply_id == "bp_kyc_verify":
+            await send_text_message(
+                to=sender_wa_id,
+                body=(
+                    "🪪 *KYC Verification Required*\n\n"
+                    "To process your payout, your KYC verification must be completed.\n\n"
+                    "Please contact our support team for assistance completing your verification.\n\n"
+                    "_Tap *9 Help* below to reach support._"
+                ),
+                phone_number_id=phone_number_id,
+                source="bp_link_flow",
+            )
+        elif reply_id == "bp_upload_first":
+            await _ask_upload(sender_wa_id, session, flow, {}, phone_number_id)
+        elif reply_id == "bp_home":
+            await _go_home(sender_wa_id, session, phone_number_id)
+        elif reply_id == "bp_cancel":
+            await show_cancel_bp_confirm(sender_wa_id, phone_number_id, session)
+        else:
+            await _show_eligibility(sender_wa_id, session, flow, phone_number_id)
+
     # ── Payout initiated ──────────────────────────────────────────────────────
     elif step == "bp_payout_done":
         if reply_id == "bp_view_policy":
@@ -899,9 +939,10 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         "bp_policy":           "bp_choose",
         "bp_policy_card":      "bp_policy",
         "bp_link_confirm":     "bp_policy_card",
-        "bp_awaiting_doc":     "bp_policy",
-        "bp_pending_status":   "bp_policy",
-        "bp_upload_done":      "bp_policy",
+        "bp_awaiting_doc":       "bp_policy",
+        "bp_pending_status":     "bp_policy",
+        "bp_eligibility_result": "bp_policy",
+        "bp_upload_done":        "bp_policy",
     }
 
     prev = _PREV.get(step)
