@@ -1635,13 +1635,18 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
     await save_session(session)
 
     if prev == "pay_payout_options":
+        try:
+            _payout_types = await ipurvey_service.get_payout_method_types(country="NG")
+        except Exception:
+            _payout_types = ["BANK_ACCOUNT"]
+        _WALLET_TYPES = {"WALLET", "MOBILE_WALLET", "MOBILE_MONEY", "VIRTUAL_WALLET"}
+        _payout_buttons = [{"id": "pay_bank", "title": "🏦 Bank transfer"}]
+        if any(pt in _WALLET_TYPES for pt in _payout_types):
+            _payout_buttons.append({"id": "pay_wallet_payout", "title": "👛 Wallet"})
         await _send_buttons(
             wa_id,
             "Payout options\n\nChoose how you would like to receive money:",
-            [
-                {"id": "pay_bank",          "title": "🏦 Bank transfer"},
-                {"id": "pay_wallet_payout", "title": "👛 Wallet"},
-            ],
+            _payout_buttons,
             phone_number_id,
         )
 
