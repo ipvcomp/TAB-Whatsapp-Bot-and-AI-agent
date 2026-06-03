@@ -481,9 +481,7 @@ async def handle_check_policy_flow(
     # ── Boarding pass linked ───────────────────────────────────────────────────
     elif step == "pol_linked":
         pol = _get_selected_pol()
-        if reply_id == "pol_eligibility":
-            await _show_eligibility(session, sender_wa_id, pol, phone_number_id)
-        elif reply_id == "pol_back_detail":
+        if reply_id == "pol_back_detail":
             await _show_detail(session, sender_wa_id, pol, phone_number_id)
         elif reply_id == "pol_all":
             await _show_all_policies(session, sender_wa_id, policies, phone_number_id)
@@ -491,24 +489,6 @@ async def handle_check_policy_flow(
             await _go_home(session, sender_wa_id, phone_number_id)
         else:
             await _show_linked(session, sender_wa_id, pol, phone_number_id)
-
-    # ── Eligibility result ─────────────────────────────────────────────────────
-    elif step == "pol_eligibility":
-        pol = _get_selected_pol()
-        if reply_id == "pol_confirm_payout":
-            await _show_payout_initiated(session, sender_wa_id, pol, phone_number_id)
-        elif reply_id == "pol_upload_first":
-            await _reset(session)
-            from app.services.bp_link_flow_service import start_bp_link_flow
-            await start_bp_link_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
-        elif reply_id in ("pol_back_detail", "pol_back"):
-            await _show_detail(session, sender_wa_id, pol, phone_number_id)
-        elif reply_id == "pol_home":
-            await _go_home(session, sender_wa_id, phone_number_id)
-        elif reply_id == "pol_cancel":
-            await show_cancel_policy_check_confirm(sender_wa_id, phone_number_id)
-        else:
-            await _show_eligibility(session, sender_wa_id, pol, phone_number_id)
 
     # ── Payout initiated ───────────────────────────────────────────────────────
     elif step == "pol_payout_done":
@@ -893,7 +873,6 @@ async def _show_linked(session: dict, wa_id: str, pol: dict, phone_number_id: Op
     
     await _send_buttons(wa_id, "What would you like to do next?",
         [
-            {"id": "pol_eligibility", "title": "💰 Check Eligibility"},
             {"id": "pol_back_detail", "title": "↩️ Back to Details"},
             {"id": "pol_home",        "title": "🏠 Main Menu"},
         ],
@@ -1025,7 +1004,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
     data = flow.get("data", {})
 
     # Steps that are sub-screens of pol_detail — go back to pol_detail
-    _DETAIL_SUB = {"pol_download", "pol_eligibility", "pol_payout_done"}
+    _DETAIL_SUB = {"pol_download", "pol_payout_done"}
 
     # Steps that go back to pol_menu (search method selection)
     _TO_MENU = {"pol_phone_list", "pol_ref_input", "pol_flight_input", "pol_detail"}

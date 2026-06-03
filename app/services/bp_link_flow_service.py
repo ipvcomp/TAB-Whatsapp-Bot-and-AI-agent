@@ -254,9 +254,8 @@ async def _show_upload_confirmed(wa_id: str, session: dict, flow: dict, phone_nu
         f"🧑 Traveller   {traveler}\n\n"
         f"What would you like to do next?",
         [
-            {"id": "bp_eligibility", "title": "📋 Check eligibility"},
-            {"id": "bp_home",        "title": "🏠 Main menu"},
-            {"id": "bp_cancel",      "title": "99 ❌ Cancel/Exit"},
+            {"id": "bp_home",   "title": "🏠 Main menu"},
+            {"id": "bp_cancel", "title": "99 ❌ Cancel/Exit"},
         ],
         phone_number_id,
         header="✅ Boarding pass upload confirmed")
@@ -306,7 +305,6 @@ async def _show_linked(wa_id: str, session: dict, flow: dict, phone_number_id: O
         "You will be notified instantly if your flight\n"
         "is disrupted — payout is automatic, no forms needed. 💰",
         [
-            {"id": "bp_eligibility", "title": "✅ Check eligibility"},
             {"id": "bp_view_policy", "title": "📋 View my policy"},
             {"id": "bp_home",        "title": "🏠 Main menu"},
         ],
@@ -814,9 +812,7 @@ async def handle_bp_link_flow(
 
     # ── Screen 4 (Path A): After upload confirmed ─────────────────────────────
     elif step == "bp_upload_done":
-        if reply_id == "bp_eligibility":
-            await _show_eligibility(sender_wa_id, session, flow, phone_number_id)
-        elif reply_id == "bp_home":
+        if reply_id == "bp_home":
             await _go_home(sender_wa_id, session, phone_number_id)
         elif reply_id == "bp_cancel":
             await show_cancel_bp_confirm(sender_wa_id, phone_number_id, session)
@@ -865,9 +861,7 @@ async def handle_bp_link_flow(
 
     # ── Screen 4 (Path B): Linked success ────────────────────────────────────
     elif step == "bp_linked_done":
-        if reply_id == "bp_eligibility":
-            await _show_eligibility(sender_wa_id, session, flow, phone_number_id)
-        elif reply_id == "bp_view_policy":
+        if reply_id == "bp_view_policy":
             await _show_policy_card(sender_wa_id, session, flow, phone_number_id)
         elif reply_id == "bp_home":
             await _go_home(sender_wa_id, session, phone_number_id)
@@ -879,46 +873,6 @@ async def handle_bp_link_flow(
     # ── Policy mini-card ──────────────────────────────────────────────────────
     elif step == "bp_policy_card":
         await _go_home(sender_wa_id, session, phone_number_id)
-
-    # ── Eligibility result ────────────────────────────────────────────────────
-    elif step == "bp_eligibility_result":
-        if reply_id == "bp_confirm_payout":
-            await _show_payout_initiated(sender_wa_id, session, flow, phone_number_id)
-        elif reply_id == "bp_keep_alerts":
-            await _send_buttons(
-                sender_wa_id,
-                "🔔 *Alerts are on!*\n\n"
-                "We're actively monitoring your flight. You'll be notified automatically "
-                "as soon as the delay threshold is reached — no action needed from you.",
-                [
-                    {"id": "bp_eligibility", "title": "🔍 Check again"},
-                    {"id": "bp_upload_first", "title": "📤 Upload pass"},
-                    {"id": "bp_home",         "title": "🏠 Main menu"},
-                ],
-                phone_number_id,
-                header="🔔 Flight Monitoring Active",
-            )
-        elif reply_id == "bp_upload_first":
-            await _ask_upload(sender_wa_id, session, flow, {}, phone_number_id)
-        elif reply_id == "bp_get_help":
-            session["temp_data"][BP_LINK_FLOW_KEY] = {}
-            await save_session(session)
-            from app.services.help_flow_service import start_help_flow
-            await start_help_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
-        elif reply_id == "bp_eligibility":
-            await _show_eligibility(sender_wa_id, session, flow, phone_number_id)
-        elif reply_id == "bp_back":
-            action = data.get("bp_action", "upload")
-            if action == "link":
-                await _show_linked(sender_wa_id, session, flow, phone_number_id)
-            else:
-                await _show_upload_confirmed(sender_wa_id, session, flow, phone_number_id)
-        elif reply_id == "bp_home":
-            await _go_home(sender_wa_id, session, phone_number_id)
-        elif reply_id == "bp_cancel":
-            await show_cancel_bp_confirm(sender_wa_id, phone_number_id, session)
-        else:
-            await _show_eligibility(sender_wa_id, session, flow, phone_number_id)
 
     # ── Payout initiated ──────────────────────────────────────────────────────
     elif step == "bp_payout_done":
@@ -947,7 +901,6 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         "bp_link_confirm":     "bp_policy_card",
         "bp_awaiting_doc":     "bp_policy",
         "bp_pending_status":   "bp_policy",
-        "bp_eligibility_result": "bp_policy",
         "bp_upload_done":      "bp_policy",
     }
 
