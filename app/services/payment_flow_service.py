@@ -524,7 +524,7 @@ async def start_payment_flow(
 
     await _send_buttons(
         wa_id,
-        "Payout options\n\nChoose how you would like to receive money for any future payouts:",
+        "Payout options\n\nChoose how you would like to receive money:",
         payout_buttons,
         phone_number_id,
     )
@@ -568,7 +568,7 @@ async def handle_payment_flow(
             llm_result = await call_extract(
                 user_id=sender_wa_id,
                 field_name="payout_method",
-                question_asked="Choose how you would like to receive money for future payouts: Bank Transfer or Wallet.",
+                question_asked="Choose how you would like to receive money: Bank Transfer or Wallet.",
                 user_response=text,
                 expected_format="text",
             )
@@ -1637,7 +1637,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
     if prev == "pay_payout_options":
         await _send_buttons(
             wa_id,
-            "Payout options\n\nChoose how you would like to receive money for any future payouts:",
+            "Payout options\n\nChoose how you would like to receive money:",
             [
                 {"id": "pay_bank",          "title": "🏦 Bank transfer"},
                 {"id": "pay_wallet_payout", "title": "👛 Wallet"},
