@@ -2268,8 +2268,8 @@ async def handle_buy_cover_flow(
                     f"difference), tap *Confirm*. Otherwise re-enter the departure time."
                 ),
                 [
-                    {"id": "dep_time_intl_ok", "title": "✅ Correct (intl. flight)"},
-                    {"id": "dep_time_retry",   "title": "⏰ Re-enter Departure Time"},
+                    {"id": "dep_time_intl_ok", "title": "✅ Yes, it's correct"},
+                    {"id": "dep_time_retry",   "title": "⏰ Re-enter dep. time"},
                 ],
                 phone_number_id,
             )
@@ -2543,7 +2543,45 @@ async def handle_buy_cover_flow(
         dep_date = data.get("date", "")
         arr_date = data.get("arrive_date", dep_date)
         if arr_date == dep_date and dep_time and parsed_arr_time <= dep_time:
-            # Save pending time — confirmed via arr_time_intl_ok if user says it's correct
+            # ── PM intelligence: check if switching arrival to PM fixes the gap ──
+            # e.g. dep=13:00, arr=02:00 AM → arr+12h=14:00 PM → 1h flight (valid)
+            _pm_arr_offered = False
+            try:
+                _arr_h, _arr_m = map(int, parsed_arr_time.split(":"))
+                _dep_h, _dep_m = map(int, dep_time.split(":"))
+                _pm_arr_h = _arr_h + 12
+                if _arr_h < 12 and _pm_arr_h < 24:
+                    _pm_arr = f"{_pm_arr_h:02d}:{_arr_m:02d}"
+                    _pm_dur = (_pm_arr_h * 60 + _arr_m) - (_dep_h * 60 + _dep_m)
+                    if 0 < _pm_dur <= 360:
+                        _dur_h, _dur_m = divmod(_pm_dur, 60)
+                        _dur_str = f"{_dur_h}h {_dur_m}m" if _dur_m else f"{_dur_h}h"
+                        data["_arr_pm_alt"] = _pm_arr
+                        data["_pending_arr_time"] = parsed_arr_time
+                        flow["step"] = "buy_cover_arrive_ampm_confirm"
+                        await save_session(session)
+                        await _send_buttons(
+                            sender_wa_id,
+                            (
+                                f"⏰ *Arrival time check*\n\n"
+                                f"You entered departs *{_fmt_time_display(dep_time)}* → "
+                                f"arrives *{_fmt_time_display(parsed_arr_time)}* — "
+                                f"arrival is before departure.\n\n"
+                                f"Did you mean *{_fmt_time_display(_pm_arr)}* (PM) for arrival?\n\n"
+                                f"_If yes, your trip would be {_dur_str}._"
+                            ),
+                            [
+                                {"id": "arr_ampm_yes", "title": f"✅ Yes, {_fmt_time_display(_pm_arr)}"},
+                                {"id": "arr_ampm_no",  "title": "✏️ Re-enter time"},
+                            ],
+                            phone_number_id,
+                        )
+                        _pm_arr_offered = True
+            except (ValueError, TypeError):
+                pass
+            if _pm_arr_offered:
+                return
+            # No PM fix possible — show the standard arrival-before-departure error
             data["_pending_arr_time"] = parsed_arr_time
             await save_session(session)
             await _send_buttons(
@@ -2556,9 +2594,9 @@ async def handle_buy_cover_flow(
                     f"difference), tap *Confirm*. Otherwise change the date or re-enter."
                 ),
                 [
-                    {"id": "arr_time_intl_ok",     "title": "✅ Correct (intl. flight)"},
-                    {"id": "arr_time_change_date", "title": "🗓️ Change Arrival Date"},
-                    {"id": "arr_time_retry",       "title": "⏰ Re-enter Time"},
+                    {"id": "arr_time_intl_ok",     "title": "✅ Yes, it's correct"},
+                    {"id": "arr_time_change_date", "title": "📅 Change date"},
+                    {"id": "arr_time_retry",       "title": "⏰ Re-enter time"},
                 ],
                 phone_number_id,
             )
@@ -2732,6 +2770,50 @@ async def handle_buy_cover_flow(
                 sender_wa_id,
                 "*⏰ Please re-enter your departure time*\n\n"
                 "_Example: 13:40 · 1:40 AM · 3:30 PM_",
+                phone_number_id,
+            )
+            return
+
+        if edit_mode:
+            await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
+            return
+        flow["step"] = "buy_cover_arrive_airport_pick"
+        await save_session(session)
+        await _send_text(
+            sender_wa_id,
+            "*✈️ What airport are you arriving at?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, Lagos, ABV, Abuja_",
+            phone_number_id,
+        )
+
+    # ── Arrival AM/PM confirmation ────────────────────────────────────────────
+    elif step == "buy_cover_arrive_ampm_confirm":
+        pm_alt = data.pop("_arr_pm_alt", "")
+        data.pop("_pending_arr_time", None)
+        edit_mode = data.pop("_edit_mode", False)
+
+        if reply_id == "arr_ampm_yes" and pm_alt:
+            data["arrive_time"] = pm_alt
+        elif reply_id == "arr_ampm_no":
+            # User rejected PM — ask them to re-enter arrival time
+            data.pop("arrive_time", None)
+            flow["step"] = "buy_cover_arrive_time"
+            await save_session(session)
+            await _send_text(
+                sender_wa_id,
+                "*⏰ Please re-enter your arrival time*\n\n"
+                "_Example: 15:00 · 3:00 PM · 3:00 AM_",
+                phone_number_id,
+            )
+            return
+        else:
+            # Unexpected text — re-enter arrival time
+            data.pop("arrive_time", None)
+            flow["step"] = "buy_cover_arrive_time"
+            await save_session(session)
+            await _send_text(
+                sender_wa_id,
+                "*⏰ Please re-enter your arrival time*\n\n"
+                "_Example: 15:00 · 3:00 PM · 3:00 AM_",
                 phone_number_id,
             )
             return
@@ -3485,6 +3567,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         "buy_cover_arrive_date": "buy_cover_depart_airport_pick",
         "buy_cover_arrive_time": "buy_cover_arrive_date",
         "buy_cover_depart_ampm_confirm": "buy_cover_depart_time",
+        "buy_cover_arrive_ampm_confirm": "buy_cover_arrive_time",
         "buy_cover_arrive_airport_pick": "buy_cover_arrive_time",
         "buy_cover_airline": "buy_cover_arrive_airport_pick",
         "buy_cover_edit_select": "buy_cover_summary",
