@@ -102,7 +102,6 @@ def _normalize_policy(raw: dict) -> dict:
         or raw.get("policyNumber")
         or raw.get("policyReference")
         or raw.get("ref")
-        or raw.get("id")
         or raw.get("policyRef")
         or ""
     )

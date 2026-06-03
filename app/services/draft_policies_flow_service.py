@@ -95,8 +95,6 @@ def _extract_policy_code(draft: dict) -> str:
     return _dash(
         draft.get("policyCode")
         or draft.get("policyReference")
-        or draft.get("policyId")
-        or draft.get("id")
         or ""
     )
 
