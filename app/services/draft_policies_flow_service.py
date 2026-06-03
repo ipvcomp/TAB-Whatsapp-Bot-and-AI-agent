@@ -396,37 +396,136 @@ async def handle_draft_policies_input(
             bc_data["arrive_time"] = leg_r.get("arrivalTime") or itin.get("arrivalTime") or ""
             bc_data["trip_type"] = "Return 🔄" if (trip_raw or "").upper() == "RETURN" else "One-way 🗺️"
 
+            from app.services.buy_cover_flow_service import BUY_COVER_FLOW_KEY, resume_at_current_step as bc_resume
+            from app.services.kyc_flow_service import KYC_FLOW_KEY, resume_at_current_step as kyc_resume
+            from app.services.payment_flow_service import PAYMENT_FLOW_KEY, resume_at_current_step as pay_resume
+
+            # ── Exact-step fingerprint restore via paused_context ─────────────
+            # When the user pressed 00 mid-flow, pause_buy_cover_flow() saved a
+            # full snapshot in session["paused_context"]:
+            #   active_flow, buy_cover_step/data, kyc_step/data, payment_step/data,
+            #   policy_id, quotes, payout_method_id, passenger_ids, user_id.
+            # If that snapshot belongs to the policy the user just selected, we
+            # use it to land them on the EXACT step they left — no data loss.
+            # Only when there is no matching snapshot do we fall back to the
+            # coarse API creation_state mapping.
+            pc = session.get("paused_context") or {}
+            use_paused = bool(pc and pc.get("policy_id") == pid)
+
             session.pop("paused_context", None)
-            session["api_data"] = {
+
+            # Build api_data — restore cached values from paused_context so
+            # downstream steps (KYC submit, payment submit) still have them.
+            new_api_data: dict = {
                 "policy_id": pid,
                 "resume_draft": normalised,
                 "passenger_ids": pax_ids,
                 "passenger_id": primary_id,
                 "user_exists": True,
             }
+            if use_paused:
+                if pc.get("quotes"):
+                    new_api_data["quotes"] = pc["quotes"]
+                if pc.get("payout_method_id"):
+                    new_api_data["payout_method_id"] = pc["payout_method_id"]
+                if pc.get("user_id"):
+                    new_api_data["user_id"] = pc["user_id"]
+                if pc.get("passenger_id"):
+                    new_api_data["passenger_id"] = pc["passenger_id"]
+                if pc.get("passenger_ids"):
+                    new_api_data["passenger_ids"] = pc["passenger_ids"]
+                if pc.get("policy_code"):
+                    new_api_data["policy_code"] = pc["policy_code"]
 
-            from app.services.buy_cover_flow_service import BUY_COVER_FLOW_KEY, resume_at_current_step
-
-            if creation_state in ("AWAITING_KYC", "DETAILS_COLLECTED"):
-                target_step = "buy_cover_select_cover"
-            elif creation_state == "AWAITING_ITINERARY":
-                target_step = "buy_cover_trip_type"
-            elif creation_state == "DRAFT" and not email:
-                target_step = "buy_cover_email"
-            elif creation_state == "DRAFT":
-                target_step = "buy_cover_trip_type"
-            else:
-                target_step = "buy_cover_who"
-
-            session["temp_data"][BUY_COVER_FLOW_KEY] = {
-                "active": True,
-                "step": target_step,
-                "data": bc_data,
-            }
+            session["api_data"] = new_api_data
             session["temp_data"][DRAFT_POLICIES_FLOW_KEY] = {}
-            await save_session(session)
 
-            await resume_at_current_step(wa_id, phone_number_id)
+            if use_paused:
+                # ── Path A: exact-step restore ────────────────────────────────
+                active_flow = pc.get("active_flow", BUY_COVER_FLOW_KEY)
+
+                # Always restore buy_cover_flow state (background context for
+                # KYC and payment flows which run on top of it).
+                bc_step = pc.get("buy_cover_step") or "buy_cover_select_cover"
+                bc_step_data = dict(pc.get("buy_cover_data") or bc_data)
+                session["temp_data"][BUY_COVER_FLOW_KEY] = {
+                    "active": active_flow == BUY_COVER_FLOW_KEY,
+                    "step": bc_step,
+                    "data": bc_step_data,
+                }
+
+                if active_flow == PAYMENT_FLOW_KEY:
+                    session["temp_data"][KYC_FLOW_KEY] = {
+                        "active": False,
+                        "step": pc.get("kyc_step") or "",
+                        "data": dict(pc.get("kyc_data") or {}),
+                    }
+                    session["temp_data"][PAYMENT_FLOW_KEY] = {
+                        "active": True,
+                        "step": pc.get("payment_step") or "pay_payout_options",
+                        "data": dict(pc.get("payment_data") or {}),
+                    }
+                    await save_session(session)
+                    logger.info(
+                        f"[draft_policies] exact resume → PAYMENT "
+                        f"step={pc.get('payment_step')} policy={pid}"
+                    )
+                    await pay_resume(wa_id, phone_number_id)
+
+                elif active_flow == KYC_FLOW_KEY:
+                    session["temp_data"][KYC_FLOW_KEY] = {
+                        "active": True,
+                        "step": pc.get("kyc_step") or "kyc_intro",
+                        "data": dict(pc.get("kyc_data") or {}),
+                    }
+                    await save_session(session)
+                    logger.info(
+                        f"[draft_policies] exact resume → KYC "
+                        f"step={pc.get('kyc_step')} policy={pid}"
+                    )
+                    await kyc_resume(wa_id, phone_number_id)
+
+                else:
+                    # buy_cover_flow — already set active=True above
+                    await save_session(session)
+                    logger.info(
+                        f"[draft_policies] exact resume → BUY_COVER "
+                        f"step={bc_step} policy={pid}"
+                    )
+                    await bc_resume(wa_id, phone_number_id)
+
+            else:
+                # ── Path B: coarse fallback from API creation_state ───────────
+                # Used when there is no paused_context (e.g. user resumed from a
+                # different device / session expired).
+                if creation_state in ("AWAITING_KYC", "DETAILS_COLLECTED"):
+                    target_step = "buy_cover_select_cover"
+                elif creation_state in ("AWAITING_PAYMENT", "AWAITING_BOARDING_PASS"):
+                    # Payment data is not returned by the resume API, so we
+                    # cannot restore the exact payment screen.  Drop the user
+                    # back at cover selection — the cheapest safe restart point.
+                    target_step = "buy_cover_select_cover"
+                elif creation_state == "AWAITING_ITINERARY":
+                    target_step = "buy_cover_trip_type"
+                elif creation_state == "DRAFT" and not email:
+                    target_step = "buy_cover_email"
+                elif creation_state == "DRAFT":
+                    target_step = "buy_cover_trip_type"
+                else:
+                    target_step = "buy_cover_select_cover"
+
+                session["temp_data"][BUY_COVER_FLOW_KEY] = {
+                    "active": True,
+                    "step": target_step,
+                    "data": bc_data,
+                }
+                await save_session(session)
+                logger.info(
+                    f"[draft_policies] fallback resume → creation_state={creation_state} "
+                    f"target_step={target_step} policy={pid}"
+                )
+                await bc_resume(wa_id, phone_number_id)
+
             return
 
         if reply_id == "draft_delete":
