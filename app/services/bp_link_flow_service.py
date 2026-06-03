@@ -17,6 +17,29 @@ from app.services.ipurvey_api import fetch_policies_by_msisdn
 
 logger = logging.getLogger(__name__)
 
+# WhatsApp list max = 10 rows total.
+# Page 0 has no "Prev" row → 9 policy slots + 1 "Next" = 10.
+# Pages 1+ have "Prev" → 8 policy slots + "Prev" + "Next" = 10.
+_FIRST_PAGE_SIZE = 9
+_REST_PAGE_SIZE  = 8
+
+
+def _page_window(page: int, total: int) -> tuple:
+    """Return (start, end, has_prev, has_next)."""
+    if page == 0:
+        start, end = 0, min(_FIRST_PAGE_SIZE, total)
+    else:
+        start = _FIRST_PAGE_SIZE + (page - 1) * _REST_PAGE_SIZE
+        end   = min(start + _REST_PAGE_SIZE, total)
+    return start, end, page > 0, end < total
+
+
+def _total_pages(total: int) -> int:
+    if total <= _FIRST_PAGE_SIZE:
+        return 1
+    return 1 + -(-( total - _FIRST_PAGE_SIZE) // _REST_PAGE_SIZE)
+
+
 BP_LINK_FLOW_KEY   = "bp_link_flow"
 PAYMENT_FLOW_KEY   = "payment_flow"
 BUY_COVER_FLOW_KEY = "buy_cover_flow"
@@ -145,38 +168,81 @@ async def _go_home(wa_id: str, session: dict, phone_number_id: Optional[str]):
     await send_main_menu(to=wa_id, phone_number_id=phone_number_id)
 
 
-async def _show_policy_list(wa_id: str, session: dict, flow: dict, action: str, phone_number_id: Optional[str]):
+async def _show_policy_list(
+    wa_id: str,
+    session: dict,
+    flow: dict,
+    action: str,
+    phone_number_id: Optional[str],
+    page: int = 0,
+):
+    data = flow.setdefault("data", {})
     flow["step"] = "bp_policy"
+    data["bp_page"] = page
     await save_session(session)
-    policies = flow.get("data", {}).get("policies", [])
-    if action == "upload":
-        action_label = "upload a boarding pass for:"
-    elif action == "eligibility":
-        action_label = "check eligibility for:"
-    else:
-        action_label = "link:"
+
+    policies = data.get("policies", [])
+    total = len(policies)
+
+    _action_labels = {
+        "upload": "upload a boarding pass for:",
+        "eligibility": "check eligibility for:",
+        "link": "link:",
+    }
+    action_label = _action_labels.get(action, "link:")
+
     if not policies:
-        await _send_text(wa_id,
+        await _send_text(
+            wa_id,
             "⚠️ We couldn't find any active policies linked to your number.\n\n"
             "Please contact support if you believe this is an error.",
-            phone_number_id)
+            phone_number_id,
+        )
         return
+
+    start, end, has_prev, has_next = _page_window(page, total)
+    n_pages = _total_pages(total)
+
+    rows: list = []
+    if has_prev:
+        rows.append({
+            "id":          "bpp_prev",
+            "title":       "⬅️ Previous page",
+            "description": f"Back · policies {start - _REST_PAGE_SIZE + 1}–{start} of {total}",
+        })
+
+    for i, pol in enumerate(policies[start:end]):
+        rows.append({
+            "id":          f"bpp_{start + i}",
+            "title":       str(pol.get("name") or pol.get("productName") or "Policy")[:24],
+            "description": (
+                f"{pol.get('status', 'Active')} · "
+                f"{pol.get('ref') or pol.get('policyCode') or pol.get('id', '')}"
+            ),
+        })
+
+    if has_next:
+        rows.append({
+            "id":          "bpp_next",
+            "title":       "➡️ Next page",
+            "description": f"Showing {start + 1}–{end} of {total}",
+        })
+
     body = (
-        f"We found *{len(policies)} {'policy' if len(policies) == 1 else 'policies'}* linked to your number.\n\n"
+        f"We found *{total} {'policy' if total == 1 else 'policies'}* linked to your number.\n\n"
         f"Please select the policy you would like to {action_label}"
     )
-    rows = [
-        {
-            "id":          f"bpp_{i}",
-            "title":       str(pol.get("name") or pol.get("productName") or "Policy")[:24],
-            "description": f"{pol.get('status','Active')} · {pol.get('ref') or pol.get('policyCode') or pol.get('id','')}",
-        }
-        for i, pol in enumerate(policies[:10])
-    ]
-    await _send_list(wa_id, body, "Select policy",
-        [{"title": "Your Policies", "rows": rows}],
+    if n_pages > 1:
+        body += f"\n\n_Page {page + 1} of {n_pages}_"
+
+    await _send_list(
+        wa_id,
+        body,
+        "Select policy",
+        [{"title": "📋 Your Policies", "rows": rows}],
         phone_number_id,
-        header="📋 Your Policies")
+        header="📋 Your Policies",
+    )
 
 
 async def _ask_upload(wa_id: str, session: dict, flow: dict, pol: dict, phone_number_id: Optional[str]):
@@ -710,9 +776,18 @@ async def handle_bp_link_flow(
     elif step == "bp_policy":
         action = data.get("bp_action", "upload")
         policies = data.get("policies", [])
-        if reply_id and reply_id.startswith("bpp_"):
+        current_page = data.get("bp_page", 0)
+
+        # ── Pagination navigation ─────────────────────────────────────────────
+        if reply_id == "bpp_next":
+            await _show_policy_list(sender_wa_id, session, flow, action, phone_number_id, page=current_page + 1)
+        elif reply_id == "bpp_prev":
+            await _show_policy_list(sender_wa_id, session, flow, action, phone_number_id, page=max(0, current_page - 1))
+
+        # ── Policy selection ─────────────────────────────────────────────────
+        elif reply_id and reply_id.startswith("bpp_"):
             try:
-                idx = int(reply_id.split("_")[1])
+                idx = int(reply_id.split("_", 1)[1])   # global policy index
                 if 0 <= idx < len(policies):
                     pol = policies[idx]
                     data["bp_sel_name"]      = pol.get("name") or pol.get("productName") or "Policy"
@@ -747,17 +822,18 @@ async def handle_bp_link_flow(
                     else:
                         await _ask_upload(sender_wa_id, session, flow, pol, phone_number_id)
                 else:
-                    await _show_policy_list(sender_wa_id, session, flow, action, phone_number_id)
+                    await _show_policy_list(sender_wa_id, session, flow, action, phone_number_id, page=current_page)
             except (ValueError, IndexError):
-                await _show_policy_list(sender_wa_id, session, flow, action, phone_number_id)
+                await _show_policy_list(sender_wa_id, session, flow, action, phone_number_id, page=current_page)
+
         elif reply_id == "bp_home":
             await _go_home(sender_wa_id, session, phone_number_id)
         elif reply_id == "bp_cancel":
             await show_cancel_bp_confirm(sender_wa_id, phone_number_id, session)
         elif reply_id == "bp_back_to_list":
-            await _show_policy_list(sender_wa_id, session, flow, action, phone_number_id)
+            await _show_policy_list(sender_wa_id, session, flow, action, phone_number_id, page=0)
         else:
-            await _show_policy_list(sender_wa_id, session, flow, action, phone_number_id)
+            await _show_policy_list(sender_wa_id, session, flow, action, phone_number_id, page=current_page)
 
     # ── Screen 3 (Path A): Awaiting file ─────────────────────────────────────
     elif step == "bp_awaiting_doc":
