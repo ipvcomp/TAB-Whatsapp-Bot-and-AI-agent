@@ -465,12 +465,14 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
             pre_flight = not trigger_type
             if pre_flight:
                 body_lines = [
-                    "The flight has not taken place yet, so we cannot check your "
-                    "eligibility for a payout just yet.\n",
+                    "Your flight is currently within its normal schedule. No delays or "
+                    "cancellations have been reported that meet the policy threshold for "
+                    "a payout just yet.\n",
+                    "Don't worry, we will continue monitoring your flight and will "
+                    "automatically notify you if any disruptions occur!\n",
                     f"✈️  Flight         {flight}" + (f" — {airline}" if airline else ""),
                     f"📋  Policy         {pol_code}",
-                    "\nPlease check back with us once the scheduled flight time "
-                    "has passed! ✈️",
+                    "\nWe've got you covered—no further action is needed right now.",
                 ]
             else:
                 body_lines = [
@@ -498,7 +500,7 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
                 "\n".join(body_lines),
                 not_elig_buttons,
                 phone_number_id,
-                header="❌ Not Yet Eligible" if pre_flight else "⏳ Not yet eligible",
+                header="✈️ Flight On Schedule" if pre_flight else "⏳ Not yet eligible",
             )
             return
 
