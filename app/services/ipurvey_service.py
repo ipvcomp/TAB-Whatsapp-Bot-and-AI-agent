@@ -901,9 +901,10 @@ async def get_policy_document_url(policy_code: str) -> Optional[str]:
 
 
 async def check_eligibility(policy_id: str) -> Optional[dict]:
-    """GET /api/v1/evaluations/policy/{policy_id}
-    Returns evaluation result with evaluationStatus, triggerType, payoutAmount,
-    payoutCurrency, delayMinutes, justification, policyCode, certificationToken.
+    """GET /api/tab-plc/policies/{policy_id}/checkEligibility
+    Triggers a live eligibility evaluation and returns the result.
+    Response: {"status":"success","data":{"eligible":bool,"ruleId":...,"payoutAmount":...,"payoutCurrency":...,"justification":...}}
+    Normalised to the same dict shape the rest of the code expects.
     """
     logger.info(f"[ipurvey] check_eligibility policy_id='{policy_id}'")
     try:
@@ -913,31 +914,60 @@ async def check_eligibility(policy_id: str) -> Optional[dict]:
             headers["Authorization"] = f"Bearer {token}"
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
             r = await c.get(
-                f"{_base()}/api/v1/evaluations/policy/{policy_id}",
+                f"{_base()}/api/tab-plc/policies/{policy_id}/checkEligibility",
                 headers=headers,
+            )
+            logger.info(
+                f"[ipurvey] check_eligibility → HTTP {r.status_code} body={r.text[:300]}"
             )
             if r.status_code == 200:
                 body = r.json()
-                # Response may be flat or wrapped in a "data" key
-                data: dict = body if isinstance(body, dict) else {}
-                if "evaluationStatus" not in data and isinstance(data.get("data"), dict):
-                    data = data["data"]
-                eval_status = data.get("evaluationStatus", "")
+                # Unwrap "data" envelope if present
+                inner: dict = body if isinstance(body, dict) else {}
+                if isinstance(inner.get("data"), dict):
+                    inner = inner["data"]
+
+                # New endpoint returns boolean "eligible" field
+                eligible_flag = inner.get("eligible")
+                if eligible_flag is True:
+                    eval_status = "ELIGIBLE"
+                elif eligible_flag is False:
+                    eval_status = "NOT_ELIGIBLE"
+                else:
+                    # Fallback: honour legacy evaluationStatus if present
+                    eval_status = inner.get("evaluationStatus", "PENDING")
+
+                # triggerType / delayMinutes may be embedded in justification
+                # e.g. "Matched ruleId=... for triggerType=DELAY, delayMinutes=90, thresholdMinutes=67"
+                justification = inner.get("justification", "")
+                trigger_type = inner.get("triggerType", "")
+                delay_mins = inner.get("delayMinutes")
+                if not trigger_type:
+                    import re as _re
+                    m = _re.search(r"triggerType=(\w+)", justification)
+                    if m:
+                        trigger_type = m.group(1)
+                if delay_mins is None:
+                    import re as _re
+                    m = _re.search(r"delayMinutes=(\d+)", justification)
+                    if m:
+                        delay_mins = int(m.group(1))
+
                 logger.info(
                     f"[ipurvey] check_eligibility → evaluationStatus={eval_status!r} "
-                    f"trigger={data.get('triggerType')!r} payout={data.get('payoutAmount')}"
+                    f"trigger={trigger_type!r} payout={inner.get('payoutAmount')}"
                 )
                 return {
                     "evaluationStatus":   eval_status,
-                    "triggerType":        data.get("triggerType", ""),
-                    "policyCode":         data.get("policyCode", ""),
-                    "flightId":           data.get("flightId", ""),
-                    "delayMinutes":       data.get("delayMinutes"),
-                    "actualArrivalTime":  data.get("actualArrivalTime", ""),
-                    "payoutAmount":       data.get("payoutAmount"),
-                    "payoutCurrency":     data.get("payoutCurrency", "NGN"),
-                    "justification":      data.get("justification", ""),
-                    "certificationToken": data.get("certificationToken"),
+                    "triggerType":        trigger_type,
+                    "policyCode":         inner.get("policyCode", ""),
+                    "flightId":           inner.get("flightId", ""),
+                    "delayMinutes":       delay_mins,
+                    "actualArrivalTime":  inner.get("actualArrivalTime", ""),
+                    "payoutAmount":       inner.get("payoutAmount"),
+                    "payoutCurrency":     inner.get("payoutCurrency", "NGN"),
+                    "justification":      justification,
+                    "certificationToken": inner.get("certificationToken"),
                 }
             logger.warning(
                 f"[ipurvey] check_eligibility → {r.status_code}: {r.text[:200]}"
