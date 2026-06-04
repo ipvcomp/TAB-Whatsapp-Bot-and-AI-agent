@@ -1006,7 +1006,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         "bp_link_confirm":     "bp_policy_card",
         "bp_awaiting_doc":       "bp_policy",
         "bp_pending_status":     "bp_policy",
-        "bp_eligibility_result": "bp_policy",
+        "bp_eligibility_result": "bp_policy_card",
         "bp_upload_done":        "bp_policy",
     }
 
