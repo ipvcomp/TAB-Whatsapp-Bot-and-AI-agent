@@ -915,6 +915,7 @@ async def check_eligibility(policy_id: str) -> Optional[dict]:
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
             r = await c.get(
                 f"{_base()}/api/tab-plc/policies/{policy_id}/checkEligibility",
+                params={"triggerType": "DELAY"},
                 headers=headers,
             )
             logger.info(
