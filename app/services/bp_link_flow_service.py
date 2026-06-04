@@ -320,8 +320,8 @@ async def _show_upload_confirmed(wa_id: str, session: dict, flow: dict, phone_nu
         f"🧑 Traveller   {traveler}\n\n"
         f"What would you like to do next?",
         [
-            {"id": "bp_home",   "title": "🏠 Main menu"},
-            {"id": "bp_cancel", "title": "99 ❌ Cancel/Exit"},
+            {"id": "bp_check_eligibility", "title": "🔍 Check Eligibility"},
+            {"id": "bp_home",              "title": "🏠 Main menu"},
         ],
         phone_number_id,
         header="✅ Boarding pass upload confirmed")
@@ -415,8 +415,14 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
     if pol_id:
         try:
             eligibility = await ipurvey_service.check_eligibility(pol_id)
+            logger.info(
+                "[bp_link][eligibility] pol_id=%s ref=%s raw_response=%s",
+                pol_id, ref, eligibility,
+            )
         except Exception as exc:
-            logger.error(f"[bp_link] check_eligibility failed: {exc}")
+            logger.error("[bp_link][eligibility] check_eligibility failed pol_id=%s: %s", pol_id, exc)
+    else:
+        logger.warning("[bp_link][eligibility] no pol_id available — skipping API call ref=%s", ref)
 
     if eligibility and isinstance(eligibility, dict):
         eval_status   = eligibility.get("evaluationStatus", "")
@@ -905,7 +911,9 @@ async def handle_bp_link_flow(
 
     # ── Screen 4 (Path A): After upload confirmed ─────────────────────────────
     elif step == "bp_upload_done":
-        if reply_id == "bp_home":
+        if reply_id == "bp_check_eligibility":
+            await _show_eligibility(sender_wa_id, session, flow, phone_number_id)
+        elif reply_id == "bp_home":
             await _go_home(sender_wa_id, session, phone_number_id)
         elif reply_id == "bp_cancel":
             await show_cancel_bp_confirm(sender_wa_id, phone_number_id, session)
