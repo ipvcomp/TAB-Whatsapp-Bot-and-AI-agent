@@ -427,7 +427,7 @@ def _build_trip_summary_text(data: dict) -> str:
     arrive_date_raw = data.get("arrive_date", "")
     arrive_date_disp = _fmt_date(arrive_date_raw) if arrive_date_raw else ""
     arrive_date_line = (
-        f"Arr Date\t\t\t\t*{arrive_date_disp}*\n" if arrive_date_disp else ""
+        f"Arr Date\t\t*{arrive_date_disp}*\n" if arrive_date_disp else ""
     )
     dep_date_disp = _fmt_date(data.get("date", ""))
     booking_ref = data.get("booking_ref", "")
@@ -1006,7 +1006,7 @@ async def start_buy_cover_flow(
     session = await get_session(wa_id) or {}
     msisdn = get_msisdn(wa_id)
 
-    # ── Set up fresh flow state ──────── ��───────────────────────────────────────
+    # ── Set up fresh flow state ──────── 
     session.setdefault("temp_data", {})[BUY_COVER_FLOW_KEY] = {
         "active": True,
         "step": "buy_cover_who",
@@ -2478,7 +2478,7 @@ async def handle_buy_cover_flow(
             await _send_text(
                 sender_wa_id,
                 (
-                    f"  � �� Arrival date must be the same day as your departure date\n\n"
+                    f"    � �� Arrival date must be the same day as your departure date\n\n"
                     f"Your flight departs on *{dep_date_fmt}* — "
                     f"please enter *{dep_date_fmt}* as your arrival date\n\n"
                     "_Nigerian domestic flights arrive on the same day, even with stopovers_"
