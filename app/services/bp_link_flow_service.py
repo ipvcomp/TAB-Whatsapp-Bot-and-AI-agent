@@ -472,16 +472,6 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
                     "\nPlease check back with us once the scheduled flight time "
                     "has passed! ✈️",
                 ]
-                not_elig_buttons = [{"id": "bp_keep_alerts", "title": "🔔 Keep alerts on"}]
-                if not bp_already_uploaded:
-                    not_elig_buttons.append({"id": "bp_upload_first", "title": "📤 Upload pass"})
-                await _send_buttons(
-                    wa_id,
-                    "\n".join(body_lines),
-                    not_elig_buttons,
-                    phone_number_id,
-                    header="❌ Not Yet Eligible",
-                )
             else:
                 body_lines = [
                     "Your policy has been evaluated but does not qualify for payout yet.\n",
@@ -493,23 +483,22 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
                 body_lines.append(f"📋  Policy         {pol_code}")
                 if justification:
                     body_lines.append(f"\n_{justification}_")
-                not_elig_buttons = [{"id": "bp_keep_alerts", "title": "🔔 Keep alerts on"}]
-                if not bp_already_uploaded:
-                    not_elig_buttons.append({"id": "bp_upload_first", "title": "📤 Upload pass"})
-                await _send_buttons(
-                    wa_id,
-                    "\n".join(body_lines),
-                    not_elig_buttons,
-                    phone_number_id,
-                    header="⏳ Not yet eligible",
-                )
+
+            # Build up to 3 buttons in one card — no separate "More options" message
+            not_elig_buttons = [{"id": "bp_keep_alerts", "title": "🔔 Keep alerts on"}]
+            if not bp_already_uploaded:
+                not_elig_buttons.append({"id": "bp_upload_first", "title": "📤 Upload pass"})
+                not_elig_buttons.append({"id": "bp_home",         "title": "🏠 Main menu"})
+            else:
+                not_elig_buttons.append({"id": "bp_get_help", "title": "🧑 Get help"})
+                not_elig_buttons.append({"id": "bp_home",     "title": "🏠 Main menu"})
+
             await _send_buttons(
-                wa_id, "More options:",
-                [
-                    {"id": "bp_get_help", "title": "🧑 Get help"},
-                    {"id": "bp_home",     "title": "🏠 Main menu"},
-                ],
+                wa_id,
+                "\n".join(body_lines),
+                not_elig_buttons,
                 phone_number_id,
+                header="❌ Not Yet Eligible" if pre_flight else "⏳ Not yet eligible",
             )
             return
 
@@ -560,14 +549,14 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
             result_buttons.append({"id": "bp_kyc_verify", "title": "🪪 KYC Verification"})
         if not bp_already_uploaded:
             result_buttons.append({"id": "bp_upload_first", "title": "📤 Upload Boarding Pass"})
-        if not result_buttons:
+        # Always include Main menu (max 3 buttons total)
+        if len(result_buttons) < 3:
             result_buttons.append({"id": "bp_home", "title": "🏠 Main menu"})
     else:
         result_buttons = []
         if not bp_already_uploaded:
             result_buttons.append({"id": "bp_upload_first", "title": "📤 Upload pass"})
-        if not result_buttons:
-            result_buttons.append({"id": "bp_home", "title": "🏠 Main menu"})
+        result_buttons.append({"id": "bp_home", "title": "🏠 Main menu"})
 
     await _send_buttons(
         wa_id,
@@ -575,14 +564,6 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
         result_buttons,
         phone_number_id,
         header="✅ Eligible for payout" if eligible_flag else "ℹ️ Eligibility Result",
-    )
-    await _send_buttons(
-        wa_id, "More options:",
-        [
-            {"id": "bp_get_help", "title": "🧑 Get help"},
-            {"id": "bp_home",     "title": "🏠 Main menu"},
-        ],
-        phone_number_id,
     )
 
 
