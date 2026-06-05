@@ -1,5 +1,7 @@
 import sys
 import logging
+import os
+from logging.handlers import RotatingFileHandler
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,10 +12,24 @@ from app.core.config import get_settings
 from app.core.database import connect_to_mongodb, close_mongodb_connection
 from app.api.v1.router import api_router
 
+os.makedirs("logs", exist_ok=True)
+
+_log_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+_file_handler = RotatingFileHandler(
+    "logs/app.log",
+    maxBytes=5 * 1024 * 1024,  # 5 MB per file
+    backupCount=5,
+    encoding="utf-8",
+)
+_file_handler.setFormatter(_log_formatter)
+
+_console_handler = logging.StreamHandler(sys.stdout)
+_console_handler.setFormatter(_log_formatter)
+
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    stream=sys.stdout,
+    handlers=[_console_handler, _file_handler],
 )
 logger = logging.getLogger(__name__)
 

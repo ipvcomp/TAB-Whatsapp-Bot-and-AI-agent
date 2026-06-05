@@ -493,12 +493,13 @@ async def start_payment_flow(
     dep_date  = bc_data.get("date",  "—")
     travelers_list = bc_data.get("travelers", [])
     travelers = len(travelers_list) if travelers_list else 1
+    total_amount = amount * travelers
 
     session.setdefault("temp_data", {})[PAYMENT_FLOW_KEY] = {
         "active": True,
         "step":   "pay_payout_options",
         "data": {
-            "pay_amount":    amount,
+            "pay_amount":    total_amount,
             "pay_cover":     cname,
             "pay_origin":    origin,
             "pay_dest":      dest,
@@ -1385,14 +1386,25 @@ async def handle_payment_flow(
             await save_session(session)
             bc_data = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
             flight_raw = bc_data.get("flight_num", "—")
+            travelers_list = bc_data.get("travelers", [])
+            passenger_ids  = session.get("api_data", {}).get("passenger_ids", [])
+            passengers = [
+                {
+                    "name":         name,
+                    "passenger_id": passenger_ids[i] if i < len(passenger_ids) else "",
+                    "is_primary":   i == 0,
+                }
+                for i, name in enumerate(travelers_list)
+            ]
             direct_policy = {
-                "name":      bc_data.get("cover", "Your Policy"),
-                "ref":       session.get("active_policy_code", "—"),
-                "policy_id": session.get("active_policy_id", ""),
-                "flight":    flight_raw,
-                "date":      bc_data.get("date", "—"),
-                "traveler":  bc_data.get("name", "—"),
-                "airline":   flight_raw[:2] if flight_raw and flight_raw != "—" else "—",
+                "name":       bc_data.get("cover", "Your Policy"),
+                "ref":        session.get("active_policy_code", "—"),
+                "policy_id":  session.get("active_policy_id", ""),
+                "flight":     flight_raw,
+                "date":       bc_data.get("date", "—"),
+                "traveler":   bc_data.get("name", "—"),
+                "airline":    flight_raw[:2] if flight_raw and flight_raw != "—" else "—",
+                "passengers": passengers,
             }
             await start_bp_link_flow(
                 wa_id=sender_wa_id,

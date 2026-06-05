@@ -7,6 +7,7 @@ __pycache__/
 venv/
 .venv/
 *.log
+logs/
 .cache/
 .config/
 .upm/

@@ -257,6 +257,42 @@ async def _ask_upload(wa_id: str, session: dict, flow: dict, pol: dict, phone_nu
         phone_number_id)
 
 
+async def _ask_upload_for_passenger(
+    wa_id: str,
+    session: dict,
+    flow: dict,
+    pax_idx: int,
+    phone_number_id: Optional[str],
+):
+    """Ask user to upload boarding pass for a specific passenger by index."""
+    flow["step"] = "bp_awaiting_doc"
+    data = flow.setdefault("data", {})
+    data["bp_current_pax_idx"] = pax_idx
+    await save_session(session)
+
+    passengers = data.get("bp_passengers", [])
+    if pax_idx < len(passengers):
+        pax  = passengers[pax_idx]
+        name = pax.get("name", "Passenger")
+        if pax.get("is_primary", pax_idx == 0):
+            passenger_line = "*MAIN PASSENGER:*\n👤 " + name
+        else:
+            passenger_line = f"*ADDITIONAL PASSENGER {pax_idx + 1}:*\n👤 " + name
+        heading = f"the boarding pass for the\n{passenger_line}"
+    else:
+        heading = "your boarding pass"
+
+    await _send_text(
+        wa_id,
+        f"🖇️ *Please upload a clear image or PDF of {heading}*\n\n"
+        "*Accepted formats:*\n"
+        "`JPEG`  `PDF`  `GIF`  `TIFF`  `PNG`\n\n"
+        "📦 *Maximum size: 20 MB*\n\n"
+        + UPLOAD_INSTRUCTIONS,
+        phone_number_id,
+    )
+
+
 async def _show_bp_status(
     wa_id: str,
     session: dict,
@@ -311,6 +347,16 @@ async def _show_upload_confirmed(wa_id: str, session: dict, flow: dict, phone_nu
     date     = data.get("bp_sel_date",     "—")
     traveler = data.get("bp_sel_traveler", "—")
 
+    from_payment = data.get("bp_from_payment", False)
+    buttons = (
+        [{"id": "bp_home", "title": "🏠 Main menu"}]
+        if from_payment
+        else [
+            {"id": "bp_check_eligibility", "title": "🔍 Check Eligibility"},
+            {"id": "bp_home",              "title": "🏠 Main menu"},
+        ]
+    )
+
     await _send_buttons(wa_id,
         f"*Boarding pass upload confirmed*\n"
         f"Policy No: {ref}   ✅ Active\n\n"
@@ -319,10 +365,7 @@ async def _show_upload_confirmed(wa_id: str, session: dict, flow: dict, phone_nu
         f"📅 Date           {date}\n"
         f"🧑 Traveller   {traveler}\n\n"
         f"What would you like to do next?",
-        [
-            {"id": "bp_check_eligibility", "title": "🔍 Check Eligibility"},
-            {"id": "bp_home",              "title": "🏠 Main menu"},
-        ],
+        buttons,
         phone_number_id,
         header="✅ Boarding pass upload confirmed")
 
@@ -614,16 +657,29 @@ async def start_bp_link_flow(
             "[bp_link] direct_policy path — skipping intro+list for %s ref=%s",
             wa_id[:4] + "****", direct_policy.get("ref", "?"),
         )
+        passengers = direct_policy.get("passengers") or []
+        if not passengers:
+            # Fallback: single-passenger from traveler name field
+            passengers = [{
+                "name":         direct_policy.get("traveler", "—"),
+                "passenger_id": direct_policy.get("passenger_id", ""),
+                "is_primary":   True,
+            }]
+
         flow_data = {
-            "bp_action":        "upload",
-            "bp_sel_name":      direct_policy.get("name",      "—"),
-            "bp_sel_ref":       direct_policy.get("ref",       "—"),
-            "bp_sel_airline":   direct_policy.get("airline",   "—"),
-            "bp_sel_flight":    direct_policy.get("flight",    "—"),
-            "bp_sel_date":      direct_policy.get("date",      "—"),
-            "bp_sel_traveler":  direct_policy.get("traveler",  "—"),
-            "bp_sel_policy_id": direct_policy.get("policy_id", ""),
-            "policies":         [],
+            "bp_action":          "upload",
+            "bp_sel_name":        direct_policy.get("name",      "—"),
+            "bp_sel_ref":         direct_policy.get("ref",       "—"),
+            "bp_sel_airline":     direct_policy.get("airline",   "—"),
+            "bp_sel_flight":      direct_policy.get("flight",    "—"),
+            "bp_sel_date":        direct_policy.get("date",      "—"),
+            "bp_sel_traveler":    direct_policy.get("traveler",  "—"),
+            "bp_sel_policy_id":   direct_policy.get("policy_id", ""),
+            "bp_passengers":      passengers,
+            "bp_current_pax_idx": 0,
+            "bp_uploads_done":    [],
+            "bp_from_payment":    True,
+            "policies":           [],
         }
         session.setdefault("temp_data", {})[BP_LINK_FLOW_KEY] = {
             "active": True,
@@ -635,7 +691,7 @@ async def start_bp_link_flow(
             session["user_id"] = wa_id
         await save_session(session)
         flow = session["temp_data"][BP_LINK_FLOW_KEY]
-        await _ask_upload(wa_id, session, flow, direct_policy, phone_number_id)
+        await _ask_upload_for_passenger(wa_id, session, flow, 0, phone_number_id)
         return
 
     # ── Generic path: from welcome "Submit Boarding Pass" button ─────────────
@@ -828,36 +884,49 @@ async def handle_bp_link_flow(
     elif step == "bp_awaiting_doc":
         if media:
             media_id   = media.get("id") or ""
-            mime_type  = media.get("mime_type") or ""
             filename   = media.get("filename") or f"boarding_pass_{data.get('bp_sel_flight','')}.jpg"
             data["bp_filename"] = filename
             pol_id     = data.get("bp_sel_policy_id") or ""
             pol_code   = data.get("bp_sel_ref") or ""
 
+            # ── Resolve current passenger ────────────────────────────────────
+            pax_list    = data.get("bp_passengers", [])
+            pax_idx     = data.get("bp_current_pax_idx", 0)
+            total_pax   = len(pax_list)
+
+            # Get passenger_id for current passenger
+            passenger_id = ""
+            if pax_list and pax_idx < len(pax_list):
+                passenger_id = pax_list[pax_idx].get("passenger_id", "")
+
             if media_id and (pol_id or pol_code):
                 try:
-                    media_result  = await download_whatsapp_media(media_id)
-                    file_bytes    = media_result["bytes"] if media_result else None
-                    detected_mime = media_result.get("mime_type", "") if media_result else ""
+                    media_result = await download_whatsapp_media(media_id)
+                    file_bytes   = media_result["bytes"] if media_result else None
                     if file_bytes:
-                        # Use pre-stored passenger_id when jumping here from payment success
-                        passenger_id = data.get("bp_sel_passenger_id") or ""
                         effective_pol_id = pol_id
+                        # Resolve policy_id from code if missing
                         if not effective_pol_id:
                             api_pol = await ipurvey_service.get_policy_by_code(pol_code)
                             if api_pol and isinstance(api_pol, dict):
                                 effective_pol_id = api_pol.get("id") or api_pol.get("policyId") or ""
-                                passengers = api_pol.get("passengers") or []
-                                if passengers and not passenger_id:
-                                    passenger_id = passengers[0].get("id") or passengers[0].get("passengerId") or ""
+                                if not passenger_id:
+                                    api_pax = api_pol.get("passengers") or []
+                                    if pax_idx < len(api_pax):
+                                        passenger_id = api_pax[pax_idx].get("id") or api_pax[pax_idx].get("passengerId") or ""
+                                    elif api_pax:
+                                        passenger_id = api_pax[0].get("id") or api_pax[0].get("passengerId") or ""
                         elif not passenger_id:
-                            # Only fetch if we don't already have passenger_id
                             api_pol = await ipurvey_service.get_policy_by_code(pol_code or pol_id)
                             if api_pol and isinstance(api_pol, dict):
-                                passengers = api_pol.get("passengers") or []
-                                if passengers:
-                                    passenger_id = passengers[0].get("id") or passengers[0].get("passengerId") or ""
-                        logger.info(f"[bp_link] upload → pol_id={effective_pol_id} pax_id={passenger_id}")
+                                api_pax = api_pol.get("passengers") or []
+                                if pax_idx < len(api_pax):
+                                    passenger_id = api_pax[pax_idx].get("id") or api_pax[pax_idx].get("passengerId") or ""
+                                elif api_pax:
+                                    passenger_id = api_pax[0].get("id") or api_pax[0].get("passengerId") or ""
+
+                        logger.info(f"[bp_link] upload pax[{pax_idx}/{total_pax}] → pol_id={effective_pol_id} pax_id={passenger_id}")
+
                         if effective_pol_id and passenger_id:
                             upload_resp = await ipurvey_service.upload_boarding_pass(
                                 policy_id=effective_pol_id,
@@ -867,22 +936,40 @@ async def handle_bp_link_flow(
                             )
                             if upload_resp is not None:
                                 bp_status = upload_resp.get("status", "PENDING").upper()
-                                logger.info(f"[bp_link] boarding pass uploaded OK for {pol_code} → status={bp_status}")
-                                data["bp_passenger_id"] = passenger_id
-                                data["bp_policy_id"]    = effective_pol_id
-                                data["bp_uploaded"]     = True
+                                logger.info(f"[bp_link] pax[{pax_idx}] upload OK for {pol_code} → status={bp_status}")
+
+                                # Track uploads done
+                                uploads_done = data.get("bp_uploads_done", [])
+                                uploads_done.append({
+                                    "pax_idx":      pax_idx,
+                                    "passenger_id": passenger_id,
+                                    "status":       bp_status,
+                                })
+                                data["bp_uploads_done"]  = uploads_done
+                                data["bp_passenger_id"]  = passenger_id
+                                data["bp_policy_id"]     = effective_pol_id
+                                data["bp_uploaded"]      = True
                                 invalidate_policy_cache(session)
                                 await save_session(session)
-                                await _show_bp_status(sender_wa_id, session, flow, bp_status, phone_number_id)
+
+                                next_idx = pax_idx + 1
+                                if next_idx < total_pax:
+                                    # More passengers — ask for next one
+                                    await _ask_upload_for_passenger(
+                                        sender_wa_id, session, flow, next_idx, phone_number_id
+                                    )
+                                else:
+                                    # All passengers done — show final confirmation
+                                    await _show_bp_status(sender_wa_id, session, flow, bp_status, phone_number_id)
                                 return
                             else:
-                                logger.warning(f"[bp_link] boarding pass upload failed for {pol_code}")
+                                logger.warning(f"[bp_link] boarding pass upload failed for {pol_code} pax[{pax_idx}]")
                         else:
-                            logger.warning(f"[bp_link] missing pol_id={effective_pol_id} or passenger_id={passenger_id} for BP upload")
+                            logger.warning(f"[bp_link] missing pol_id={effective_pol_id} or passenger_id={passenger_id} pax[{pax_idx}]")
                     else:
                         logger.warning(f"[bp_link] could not download media {media_id}")
                 except Exception as exc:
-                    logger.error(f"[bp_link] boarding pass upload failed: {exc}")
+                    logger.error(f"[bp_link] boarding pass upload failed pax[{pax_idx}]: {exc}")
 
             await save_session(session)
             await _show_upload_confirmed(sender_wa_id, session, flow, phone_number_id)

@@ -335,14 +335,17 @@ async def _process_change(entry_id: str, change):
                         )
                         if _wakeup_llm and _wakeup_llm.get("is_valid") and _wakeup_llm.get("extracted_value"):
                             _wk_ev = str(_wakeup_llm["extracted_value"]).lower()
+                            # Word-level matching — split on whitespace/punctuation to avoid
+                            # substring collisions e.g. "travel" matching inside "TravelAssist"
+                            _wk_words = set(_wk_ev.replace(",", " ").replace("/", " ").replace(".", " ").split())
                             _wk_intent = None
-                            if any(k in _wk_ev for k in ("draft", "existing", "check", "view", "saved", "status")):
+                            if any(k in _wk_words for k in ("draft", "existing", "check", "view", "saved", "status")):
                                 _wk_intent = "check_policy"
-                            elif any(k in _wk_ev for k in ("buy", "purchase", "cover", "insurance", "travel")):
+                            elif any(k in _wk_words for k in ("buy", "purchase", "cover", "insurance", "travel")):
                                 _wk_intent = "welcome_purchase_policy"
-                            elif any(k in _wk_ev for k in ("boarding", "pass", "submit", "upload")):
+                            elif any(k in _wk_words for k in ("boarding", "pass", "submit", "upload")):
                                 _wk_intent = "welcome_submit_boarding"
-                            elif any(k in _wk_ev for k in ("support", "help", "question", "assist", "enquiry")):
+                            elif any(k in _wk_words for k in ("support", "help", "question", "assist", "enquiry")):
                                 _wk_intent = "welcome_get_support"
                             if _wk_intent:
                                 await _handle_welcome_button(
