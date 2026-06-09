@@ -295,6 +295,7 @@ async def _send_success(
     data = flow.setdefault("data", {})
     data["pay_ref"]    = ref
     data["pay_policy"] = policy
+    data.pop("pay_doc_url", None)
     flow["step"] = "pay_success"
     await save_session(session)
 
@@ -331,6 +332,19 @@ async def _send_success(
         ],
         phone_number_id,
     )
+
+
+async def _fetch_fresh_policy_document_url(policy_code: str) -> str:
+    """Always fetch a new signed document URL for the given policy code."""
+    try:
+        return await ipurvey_service.get_policy_document_url(policy_code) or ""
+    except Exception as exc:
+        logger.error(
+            "[payment] fresh policy document URL fetch failed for %s: %s",
+            policy_code,
+            exc,
+        )
+        return ""
 
 
 async def _do_policy_submission(
@@ -1235,6 +1249,7 @@ async def handle_payment_flow(
 
     # ── Post-success ──────────────────────────────────────────────────────────
     elif step == "pay_success":
+        data.pop("pay_doc_url", None)
         pol = data.get("pay_policy", "—")
         ref = data.get("pay_ref",    "—")
         if not reply_id and text:
@@ -1258,11 +1273,7 @@ async def handle_payment_flow(
             flight_v  = bc_data_v.get("flight_num", "—")
             date_v    = bc_data_v.get("date", "—")
             name_v    = bc_data_v.get("name", "—")
-            doc_url_v: Optional[str] = None
-            try:
-                doc_url_v = await ipurvey_service.get_policy_document_url(pol)
-            except Exception:
-                pass
+            doc_url_v = await _fetch_fresh_policy_document_url(pol)
             card_body_v = (
                 f"*{cname}*\n"
                 f"Policy No: *{pol}*   ✅ Active\n\n"
@@ -1271,8 +1282,6 @@ async def handle_payment_flow(
                 f"🧑 Traveller  {name_v}\n"
             )
             if doc_url_v:
-                data["pay_doc_url"] = doc_url_v
-                await save_session(session)
                 from app.services.whatsapp_service import send_policy_document_message
                 sent = await send_policy_document_message(
                     to=sender_wa_id,
@@ -1309,18 +1318,14 @@ async def handle_payment_flow(
                 phone_number_id,
             )
         elif reply_id == "pay_pol_download":
-            cached_url = data.get("pay_doc_url", "")
-            if not cached_url:
-                try:
-                    cached_url = await ipurvey_service.get_policy_document_url(data.get("pay_policy", pol))
-                except Exception:
-                    cached_url = ""
-            if cached_url:
+            latest_policy_code = data.get("pay_policy", pol)
+            latest_doc_url = await _fetch_fresh_policy_document_url(latest_policy_code)
+            if latest_doc_url:
                 from app.services.whatsapp_service import send_policy_document_message
                 sent = await send_policy_document_message(
                     to=sender_wa_id,
-                    doc_url=cached_url,
-                    policy_code=pol,
+                    doc_url=latest_doc_url,
+                    policy_code=latest_policy_code,
                     display_name=cname,
                     phone_number_id=phone_number_id,
                 )
@@ -1330,7 +1335,7 @@ async def handle_payment_flow(
                         body=(
                             f"📄 *Policy Document*\n\n"
                             f"*{cname}*\nPolicy No: *{pol}*\n\n"
-                            f"{cached_url}"
+                            f"{latest_doc_url}"
                         ),
                         phone_number_id=phone_number_id,
                         source="payment_flow",

@@ -12,12 +12,19 @@ from app.core.config import get_settings
 from app.core.database import connect_to_mongodb, close_mongodb_connection
 from app.api.v1.router import api_router
 
-os.makedirs("logs", exist_ok=True)
+LOG_DIR = "logs"
+APP_LOG_PATH = os.path.join(LOG_DIR, "app.log")
+
+os.makedirs(LOG_DIR, exist_ok=True)
+
+# Start each fresh server run with a clean app.log file.
+with open(APP_LOG_PATH, "w", encoding="utf-8"):
+    pass
 
 _log_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 _file_handler = RotatingFileHandler(
-    "logs/app.log",
+    APP_LOG_PATH,
     maxBytes=5 * 1024 * 1024,  # 5 MB per file
     backupCount=5,
     encoding="utf-8",
@@ -30,6 +37,7 @@ _console_handler.setFormatter(_log_formatter)
 logging.basicConfig(
     level=logging.INFO,
     handlers=[_console_handler, _file_handler],
+    force=True,
 )
 logger = logging.getLogger(__name__)
 

@@ -90,6 +90,60 @@ def _parse_time_to_hhmm(time_str: str) -> Optional[str]:
     return None
 
 
+async def _extract_date_with_llm(
+    user_id: str,
+    user_response: str,
+    field_name: str,
+    question_asked: str,
+) -> tuple[Optional[str], Optional[str]]:
+    """Use the route LLM to extract a date only when direct parsing failed."""
+    llm_result = await call_extract(
+        user_id=user_id,
+        field_name=field_name,
+        question_asked=question_asked,
+        user_response=user_response,
+        expected_format="date",
+    )
+    if (
+        llm_result
+        and llm_result.get("is_valid")
+        and llm_result.get("extracted_value")
+    ):
+        extracted_date = _parse_date_to_iso(str(llm_result["extracted_value"]))
+        if extracted_date:
+            return extracted_date, None
+    if llm_result and llm_result.get("guidance_message"):
+        return None, str(llm_result["guidance_message"]).strip()
+    return None, None
+
+
+async def _extract_time_with_llm(
+    user_id: str,
+    user_response: str,
+    field_name: str,
+    question_asked: str,
+) -> tuple[Optional[str], Optional[str]]:
+    """Use the route LLM to extract a time only when direct parsing failed."""
+    llm_result = await call_extract(
+        user_id=user_id,
+        field_name=field_name,
+        question_asked=question_asked,
+        user_response=user_response,
+        expected_format="time",
+    )
+    if (
+        llm_result
+        and llm_result.get("is_valid")
+        and llm_result.get("extracted_value")
+    ):
+        extracted_time = _parse_time_to_hhmm(str(llm_result["extracted_value"]))
+        if extracted_time:
+            return extracted_time, None
+    if llm_result and llm_result.get("guidance_message"):
+        return None, str(llm_result["guidance_message"]).strip()
+    return None, None
+
+
 def _fmt_time_display(hhmm: str) -> str:
     """Convert stored HH:MM (24-hour) to 12-hour display format with AM/PM.
 
@@ -427,7 +481,7 @@ def _build_trip_summary_text(data: dict) -> str:
     arrive_date_raw = data.get("arrive_date", "")
     arrive_date_disp = _fmt_date(arrive_date_raw) if arrive_date_raw else ""
     arrive_date_line = (
-        f"Arr Date\t\t*{arrive_date_disp}*\n" if arrive_date_disp else ""
+        f"Arr Date\t\t\t*{arrive_date_disp}*\n" if arrive_date_disp else ""
     )
     dep_date_disp = _fmt_date(data.get("date", ""))
     booking_ref = data.get("booking_ref", "")
@@ -1424,14 +1478,6 @@ async def handle_buy_cover_flow(
 
     # ── Name ──────────────────────────────────────────────────────────────────
     elif step == "buy_cover_name":
-        if text and await _maybe_answer_question(
-            text,
-            sender_wa_id,
-            phone_number_id,
-            "👤 Please enter your *full name* (first name and surname) as it appears on your ticket.\n\n_Example: Yusuf Abdullahi_",
-            current_node="buy_cover_name",
-        ):
-            return
         if not text or not _is_valid_name(text):
             if text and "@" in text:
                 await _send_text(
@@ -1452,20 +1498,6 @@ async def handle_buy_cover_flow(
                     sender_wa_id,
                     "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Yusuf Abdullahi_",
                     phone_number_id,
-                )
-                return
-            # Multi-word sentence that is not a valid name → call LLM generic to respond
-            if (
-                text
-                and _is_sentence_like(text, min_words=2)
-                and not any(c.isdigit() for c in text)
-            ):
-                await _call_llm_and_reprompt(
-                    text,
-                    sender_wa_id,
-                    phone_number_id,
-                    "👤 Please enter your *full name* (first name and surname) as it appears on your ticket.\n\n_Example: Yusuf Abdullahi_",
-                    current_node="buy_cover_name",
                 )
                 return
             llm_result = await call_extract(
@@ -1492,13 +1524,24 @@ async def handle_buy_cover_flow(
                         [
                             {
                                 "id": "name_confirm_yes",
-                                "title": "✅ Yes, that's correct",
+                                "title": "Yes, correct",
                             },
-                            {"id": "name_confirm_no", "title": "✏️ Re-enter name"},
+                            {"id": "name_confirm_no", "title": "Re-enter"},
                         ],
                         phone_number_id,
                     )
                     return
+
+            if llm_result and llm_result.get("guidance_message"):
+                await _send_text(sender_wa_id, llm_result["guidance_message"], phone_number_id)
+                # Re-prompt
+                await _send_text(
+                    sender_wa_id,
+                    "👤 Please enter your *full name* (first name and surname) as it appears on your ticket.\n\n_Example: Yusuf Abdullahi_",
+                    phone_number_id,
+                )
+                return
+
             await _send_text(
                 sender_wa_id,
                 "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Yusuf Abdullahi_",
@@ -1873,9 +1916,9 @@ async def handle_buy_cover_flow(
                         [
                             {
                                 "id": "name_confirm_yes",
-                                "title": "✅ Yes, that's correct",
+                                "title": "Yes, correct",
                             },
-                            {"id": "name_confirm_no", "title": "✏️ Re-enter name"},
+                            {"id": "name_confirm_no", "title": "Re-enter"},
                         ],
                         phone_number_id,
                     )
@@ -1998,24 +2041,40 @@ async def handle_buy_cover_flow(
 
     # ── Email ─────────────────────────────────────────────────────────────────
     elif step == "buy_cover_email":
-        if text and (
-            _looks_like_question(text) or _is_sentence_like(text, min_words=3)
-        ):
-            await _call_llm_and_reprompt(
-                text,
-                sender_wa_id,
-                phone_number_id,
-                "📧 Please enter your *email address* so we can send your policy documents.\n\n_Example: yusuf@email.com_",
-                current_node="buy_cover_email",
-            )
-            return
         if not text or not _is_valid_email(text):
-            await _send_text(
-                sender_wa_id,
-                ("⚠️ Please enter a valid email address\n\n_Example: yusuf@email.com_"),
-                phone_number_id,
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="email",
+                question_asked="Please enter your email address so we can send your policy documents.",
+                user_response=text or "",
+                expected_format="email",
             )
-            return
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                extracted = str(llm_result["extracted_value"]).strip()
+                if _is_valid_email(extracted):
+                    text = extracted
+                else:
+                    await _send_text(
+                        sender_wa_id,
+                        "⚠️ Please enter a valid email address\n\n_Example: yusuf@email.com_",
+                        phone_number_id,
+                    )
+                    return
+            elif llm_result and llm_result.get("guidance_message"):
+                await _send_text(sender_wa_id, llm_result["guidance_message"], phone_number_id)
+                await _send_text(
+                    sender_wa_id,
+                    "📧 Please enter your *email address* so we can send your policy documents.\n\n_Example: yusuf@email.com_",
+                    phone_number_id,
+                )
+                return
+            else:
+                await _send_text(
+                    sender_wa_id,
+                    "⚠️ Please enter a valid email address\n\n_Example: yusuf@email.com_",
+                    phone_number_id,
+                )
+                return
         email_clean = text.strip().lower()
         data["email"] = email_clean
         policy_id = session.get("api_data", {}).get("policy_id")
@@ -2078,30 +2137,52 @@ async def handle_buy_cover_flow(
 
     # ── Booking reference ─────────────────────────────────────────────────────
     elif step == "buy_cover_booking_ref":
-        if text and (
-            _looks_like_question(text) or _is_sentence_like(text, min_words=3)
-        ):
-            await _call_llm_and_reprompt(
-                text,
-                sender_wa_id,
-                phone_number_id,
-                "🎫 Please enter your *booking reference* — a short alphanumeric code from your airline confirmation email.\n\n_Examples: AB1XY2, 2990FA62_",
-                current_node="buy_cover_booking_ref",
-            )
-            return
         if not text or not _is_valid_booking_ref(text):
-            await _send_text(
-                sender_wa_id,
-                (
-                    "🎫 That doesn't look like a valid booking reference.\n\n"
-                    "Your booking reference is a short alphanumeric code found in "
-                    "your airline confirmation email or ticket.\n\n"
-                    "_Examples: AB1XY2, 2990FA62, XYZ123_\n\n"
-                    "Please enter your booking reference, or type *0* to go back."
-                ),
-                phone_number_id,
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="booking_ref",
+                question_asked="Please enter your booking reference — a short alphanumeric code from your airline confirmation email.",
+                user_response=text or "",
+                expected_format="pnr",
             )
-            return
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                extracted = str(llm_result["extracted_value"]).strip()
+                if _is_valid_booking_ref(extracted):
+                    text = extracted
+                else:
+                    await _send_text(
+                        sender_wa_id,
+                        (
+                            "🎫 That doesn't look like a valid booking reference.\n\n"
+                            "Your booking reference is a short alphanumeric code found in "
+                            "your airline confirmation email or ticket.\n\n"
+                            "_Examples: AB1XY2, 2990FA62, XYZ123_\n\n"
+                            "Please enter your booking reference, or type *0* to go back."
+                        ),
+                        phone_number_id,
+                    )
+                    return
+            elif llm_result and llm_result.get("guidance_message"):
+                await _send_text(sender_wa_id, llm_result["guidance_message"], phone_number_id)
+                await _send_text(
+                    sender_wa_id,
+                    "🎫 Please enter your *booking reference* — a short alphanumeric code from your airline confirmation email.\n\n_Examples: AB1XY2, 2990FA62_",
+                    phone_number_id,
+                )
+                return
+            else:
+                await _send_text(
+                    sender_wa_id,
+                    (
+                        "🎫 That doesn't look like a valid booking reference.\n\n"
+                        "Your booking reference is a short alphanumeric code found in "
+                        "your airline confirmation email or ticket.\n\n"
+                        "_Examples: AB1XY2, 2990FA62, XYZ123_\n\n"
+                        "Please enter your booking reference, or type *0* to go back."
+                    ),
+                    phone_number_id,
+                )
+                return
         data["booking_ref"] = text.strip().upper()
         if data.pop("_edit_mode", False):
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
@@ -2142,21 +2223,17 @@ async def handle_buy_cover_flow(
     # ── Flying date ───────────────────────────────────────────────────────────
     elif step == "buy_cover_date":
         iso_date = _parse_date_to_iso(text or "")
+        llm_guidance = None
         if not iso_date and text:
-            llm_result = await call_extract(
+            iso_date, llm_guidance = await _extract_date_with_llm(
                 user_id=sender_wa_id,
-                field_name="departure_date",
-                question_asked="What is your departure date? Please provide in DD/MM/YYYY format.",
                 user_response=text,
-                expected_format="date",
+                field_name="departure_date",
+                question_asked="What date are you flying?",
             )
-            if (
-                llm_result
-                and llm_result.get("is_valid")
-                and llm_result.get("extracted_value")
-            ):
-                iso_date = _parse_date_to_iso(str(llm_result["extracted_value"]))
         if not iso_date:
+            if llm_guidance:
+                await _send_text(sender_wa_id, llm_guidance, phone_number_id)
             await _send_text(
                 sender_wa_id,
                 (
@@ -2264,7 +2341,17 @@ async def handle_buy_cover_flow(
             )
             return
         parsed_dep_time = _parse_time_to_hhmm(text or "")
+        llm_guidance = None
+        if not parsed_dep_time and text:
+            parsed_dep_time, llm_guidance = await _extract_time_with_llm(
+                user_id=sender_wa_id,
+                user_response=text,
+                field_name="departure_time",
+                question_asked="What time is your flight scheduled to depart?",
+            )
         if not parsed_dep_time:
+            if llm_guidance:
+                await _send_text(sender_wa_id, llm_guidance, phone_number_id)
             await _send_text(
                 sender_wa_id,
                 (
@@ -2432,21 +2519,17 @@ async def handle_buy_cover_flow(
     # ── Arrival date ──────────────────────────────────────────────────────────
     elif step == "buy_cover_arrive_date":
         iso_arr_date = _parse_date_to_iso(text or "")
+        llm_guidance = None
         if not iso_arr_date and text:
-            llm_result = await call_extract(
+            iso_arr_date, llm_guidance = await _extract_date_with_llm(
                 user_id=sender_wa_id,
-                field_name="arrival_date",
-                question_asked="What is your arrival date? Please provide in DD/MM/YYYY format.",
                 user_response=text,
-                expected_format="date",
+                field_name="arrival_date",
+                question_asked="What date does your flight arrive?",
             )
-            if (
-                llm_result
-                and llm_result.get("is_valid")
-                and llm_result.get("extracted_value")
-            ):
-                iso_arr_date = _parse_date_to_iso(str(llm_result["extracted_value"]))
         if not iso_arr_date:
+            if llm_guidance:
+                await _send_text(sender_wa_id, llm_guidance, phone_number_id)
             await _send_text(
                 sender_wa_id,
                 (
@@ -2569,7 +2652,17 @@ async def handle_buy_cover_flow(
             )
             return
         parsed_arr_time = _parse_time_to_hhmm(text or "")
+        llm_guidance = None
+        if not parsed_arr_time and text:
+            parsed_arr_time, llm_guidance = await _extract_time_with_llm(
+                user_id=sender_wa_id,
+                user_response=text,
+                field_name="arrival_time",
+                question_asked="What time is your flight scheduled to arrive?",
+            )
         if not parsed_arr_time:
+            if llm_guidance:
+                await _send_text(sender_wa_id, llm_guidance, phone_number_id)
             await _send_text(
                 sender_wa_id,
                 (

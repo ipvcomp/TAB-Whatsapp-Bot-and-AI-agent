@@ -335,18 +335,29 @@ async def _process_change(entry_id: str, change):
                         )
                         if _wakeup_llm and _wakeup_llm.get("is_valid") and _wakeup_llm.get("extracted_value"):
                             _wk_ev = str(_wakeup_llm["extracted_value"]).lower()
-                            # Word-level matching — split on whitespace/punctuation to avoid
-                            # substring collisions e.g. "travel" matching inside "TravelAssist"
-                            _wk_words = set(_wk_ev.replace(",", " ").replace("/", " ").replace(".", " ").split())
-                            _wk_intent = None
-                            if any(k in _wk_words for k in ("draft", "existing", "check", "view", "saved", "status")):
-                                _wk_intent = "check_policy"
-                            elif any(k in _wk_words for k in ("buy", "purchase", "cover", "insurance", "travel")):
-                                _wk_intent = "welcome_purchase_policy"
-                            elif any(k in _wk_words for k in ("boarding", "pass", "submit", "upload")):
-                                _wk_intent = "welcome_submit_boarding"
-                            elif any(k in _wk_words for k in ("support", "help", "question", "assist", "enquiry")):
-                                _wk_intent = "welcome_get_support"
+
+                            # ── Direct enum mapping (new /api/v1/route returns clean values) ──
+                            _DIRECT_ENUM_MAP = {
+                                "buy_cover":               "welcome_purchase_policy",
+                                "check_policy":            "check_policy",
+                                "welcome_submit_boarding": "welcome_submit_boarding",
+                                "welcome_get_support":     "welcome_get_support",
+                                "help":                    "welcome_get_support",
+                            }
+                            _wk_intent = _DIRECT_ENUM_MAP.get(_wk_ev)
+
+                            # ── Fallback: word-level matching for legacy free-text responses ──
+                            if not _wk_intent:
+                                _wk_words = set(_wk_ev.replace(",", " ").replace("/", " ").replace(".", " ").replace("_", " ").split())
+                                if any(k in _wk_words for k in ("draft", "existing", "check", "view", "saved", "status")):
+                                    _wk_intent = "check_policy"
+                                elif any(k in _wk_words for k in ("buy", "purchase", "cover", "insurance", "travel")):
+                                    _wk_intent = "welcome_purchase_policy"
+                                elif any(k in _wk_words for k in ("boarding", "pass", "submit", "upload")):
+                                    _wk_intent = "welcome_submit_boarding"
+                                elif any(k in _wk_words for k in ("support", "help", "question", "assist", "enquiry")):
+                                    _wk_intent = "welcome_get_support"
+
                             if _wk_intent:
                                 await _handle_welcome_button(
                                     reply_id=_wk_intent,
