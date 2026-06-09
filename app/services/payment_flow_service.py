@@ -260,6 +260,9 @@ async def _show_payment_summary(
     if not rows:
         rows = [{"id": "pay_m_bank", "title": "🏦 Bank Transfer"}]
 
+    data["pay_method_options_visible"] = [row["id"] for row in rows]
+    await save_session(session)
+
     await _send_list(
         wa_id,
         f"🎫 *You're one step away from activating your cover*\n\n"
@@ -536,6 +539,10 @@ async def start_payment_flow(
     payout_buttons = [{"id": "pay_bank", "title": "🏦 Bank transfer"}]
     if any(pt in _WALLET_PAYOUT_TYPES for pt in payout_types):
         payout_buttons.append({"id": "pay_wallet_payout", "title": "👛 Wallet"})
+    session["temp_data"][PAYMENT_FLOW_KEY]["data"]["pay_payout_options_visible"] = [
+        button["id"] for button in payout_buttons
+    ]
+    await save_session(session)
 
     await _send_buttons(
         wa_id,
@@ -580,12 +587,28 @@ async def handle_payment_flow(
     # ── Payout options ────────────────────────────────────────────────────────
     if step == "pay_payout_options":
         if not reply_id and text:
+            payout_allowed_values = [
+                {
+                    "value": "bank_transfer",
+                    "label": "bank transfer",
+                    "synonyms": ["bank", "transfer", "account", "bank account"],
+                }
+            ]
+            if "pay_wallet_payout" in data.get("pay_payout_options_visible", []):
+                payout_allowed_values.append(
+                    {
+                        "value": "wallet",
+                        "label": "wallet",
+                        "synonyms": ["mobile wallet", "mobile money", "smartcash", "opay", "9psb"],
+                    }
+                )
             llm_result = await call_extract(
                 user_id=sender_wa_id,
                 field_name="payout_method",
                 question_asked="Choose how you would like to receive money: Bank Transfer or Wallet.",
                 user_response=text,
                 expected_format="text",
+                allowed_values=payout_allowed_values,
             )
             if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
                 ev = str(llm_result["extracted_value"]).lower()
@@ -755,12 +778,21 @@ async def handle_payment_flow(
         else:
             if text:
                 banks = data.get("pay_bank_list", [])
+                bank_allowed_values = [
+                    {
+                        "value": b["name"],
+                        "label": b["name"],
+                        "synonyms": [b["name"], b["code"]],
+                    }
+                    for b in banks[:9]
+                ]
                 llm_result = await call_extract(
                     user_id=sender_wa_id,
                     field_name="bank_selection",
                     question_asked="Please select a bank from the list provided.",
                     user_response=text,
                     expected_format="text",
+                    allowed_values=bank_allowed_values,
                 )
                 if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
                     ev = str(llm_result["extracted_value"]).lower()
@@ -930,12 +962,47 @@ async def handle_payment_flow(
     # ── Payment method choice ─────────────────────────────────────────────────
     elif step == "pay_method_choice":
         if not reply_id and text:
+            method_allowed_values = []
+            for method_id in data.get("pay_method_options_visible", []):
+                if method_id == "pay_m_bank":
+                    method_allowed_values.append(
+                        {
+                            "value": "bank_transfer",
+                            "label": "bank transfer",
+                            "synonyms": ["bank", "transfer", "bank transfer"],
+                        }
+                    )
+                elif method_id == "pay_m_card":
+                    method_allowed_values.append(
+                        {
+                            "value": "card",
+                            "label": "card payment",
+                            "synonyms": ["card", "debit card", "credit card"],
+                        }
+                    )
+                elif method_id == "pay_m_ussd":
+                    method_allowed_values.append(
+                        {
+                            "value": "ussd",
+                            "label": "ussd",
+                            "synonyms": ["ussd"],
+                        }
+                    )
+                elif method_id == "pay_m_wallet":
+                    method_allowed_values.append(
+                        {
+                            "value": "mobile_money",
+                            "label": "mobile money",
+                            "synonyms": ["wallet", "mobile money", "smartcash", "opay"],
+                        }
+                    )
             llm_result = await call_extract(
                 user_id=sender_wa_id,
                 field_name="payment_method",
                 question_asked="Choose a payment method: Bank Transfer, Card Payment, USSD, or Mobile Money.",
                 user_response=text,
                 expected_format="text",
+                allowed_values=method_allowed_values or None,
             )
             if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
                 ev = str(llm_result["extracted_value"]).lower()
@@ -1121,6 +1188,18 @@ async def handle_payment_flow(
                 question_asked="Payment is being processed. Have you paid or would you like to refresh the payment status?",
                 user_response=text,
                 expected_format="text",
+                allowed_values=[
+                    {
+                        "value": "paid",
+                        "label": "i have paid",
+                        "synonyms": ["paid", "done", "completed payment", "already paid"],
+                    },
+                    {
+                        "value": "refresh_status",
+                        "label": "refresh status",
+                        "synonyms": ["refresh", "check status", "status", "update", "verify"],
+                    },
+                ],
             )
             if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
                 ev = str(llm_result["extracted_value"]).lower()
@@ -1259,6 +1338,23 @@ async def handle_payment_flow(
                 question_asked="Payment successful. What would you like to do next? View policy document, Upload boarding pass, or Go to main menu.",
                 user_response=text,
                 expected_format="text",
+                allowed_values=[
+                    {
+                        "value": "view_policy",
+                        "label": "view policy document",
+                        "synonyms": ["view policy", "policy document", "view doc", "pdf"],
+                    },
+                    {
+                        "value": "upload_boarding_pass",
+                        "label": "upload boarding pass",
+                        "synonyms": ["upload boarding", "boarding pass", "upload boarding pass"],
+                    },
+                    {
+                        "value": "main_menu",
+                        "label": "main menu",
+                        "synonyms": ["menu", "home", "main menu", "exit"],
+                    },
+                ],
             )
             if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
                 ev = str(llm_result["extracted_value"]).lower()
@@ -1480,6 +1576,18 @@ async def handle_payment_flow(
                 question_asked="Policy submission failed. Would you like to retry submission or go to the main menu?",
                 user_response=text,
                 expected_format="text",
+                allowed_values=[
+                    {
+                        "value": "retry_submission",
+                        "label": "retry submission",
+                        "synonyms": ["retry", "try again", "resubmit", "submit again"],
+                    },
+                    {
+                        "value": "main_menu",
+                        "label": "main menu",
+                        "synonyms": ["menu", "home", "main menu", "cancel", "exit"],
+                    },
+                ],
             )
             if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
                 ev = str(llm_result["extracted_value"]).lower()

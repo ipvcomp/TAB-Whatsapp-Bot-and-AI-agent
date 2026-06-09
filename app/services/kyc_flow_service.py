@@ -373,12 +373,33 @@ async def handle_kyc_flow(
                 ", ".join(f"{t['type']} ({t['countryName']})" for t in supported)
                 or "NIN (Nigeria), BVN (Nigeria)"
             )
+            kyc_method_allowed_values = [
+                {
+                    "value": f"{t['countryCode']}_{t['type']}",
+                    "label": f"{t['type']} ({t['countryName']})",
+                    "synonyms": [
+                        t["type"],
+                        t["displayName"],
+                        t["countryName"],
+                        f"{t['type']} {t['countryName']}",
+                    ],
+                }
+                for t in supported
+            ]
+            kyc_method_allowed_values.append(
+                {
+                    "value": "get_help",
+                    "label": "get help",
+                    "synonyms": ["help", "support", "assist", "question"],
+                }
+            )
             llm_result = await call_extract(
                 user_id=sender_wa_id,
                 field_name="kyc_method_choice",
                 question_asked=f"How would you like to verify your identity? Options: {type_names}, or Get Help.",
                 user_response=text,
                 expected_format="text",
+                allowed_values=kyc_method_allowed_values,
             )
             if (
                 llm_result
@@ -474,6 +495,18 @@ async def handle_kyc_flow(
                 question_asked="Do you consent to using your National Biometric ID for identity verification?",
                 user_response=text,
                 expected_format="text",
+                allowed_values=[
+                    {
+                        "value": "yes",
+                        "label": "yes continue",
+                        "synonyms": ["yes", "continue", "proceed", "agree", "accept", "consent"],
+                    },
+                    {
+                        "value": "go_back",
+                        "label": "go back",
+                        "synonyms": ["no", "back", "go back", "cancel", "decline", "refuse"],
+                    },
+                ],
             )
             if (
                 llm_result
@@ -1114,6 +1147,23 @@ async def handle_kyc_flow(
                 question_asked="Identity verified. What would you like to do next? Continue to payment, Review trip details, or Go to Main menu.",
                 user_response=text,
                 expected_format="text",
+                allowed_values=[
+                    {
+                        "value": "continue_payment",
+                        "label": "continue to payment",
+                        "synonyms": ["pay", "payment", "continue", "proceed", "activate"],
+                    },
+                    {
+                        "value": "review_trip",
+                        "label": "review trip details",
+                        "synonyms": ["review", "trip", "details", "summary"],
+                    },
+                    {
+                        "value": "main_menu",
+                        "label": "main menu",
+                        "synonyms": ["menu", "home", "main menu", "exit"],
+                    },
+                ],
             )
             if (
                 llm_result
@@ -1204,11 +1254,28 @@ async def handle_kyc_flow(
                 user_id=sender_wa_id,
                 field_name="kyc_failed_action",
                 question_asked=(
-                    f"Verification failed. Would you like to try {method} again, "
-                    f"try {_other} instead, or get help?"
+                    "Verification incomplete. What would you like to do next? "
+                    "Continue to payment, review your trip details, or go to the main menu?"
                 ),
                 user_response=text,
                 expected_format="text",
+                allowed_values=[
+                    {
+                        "value": "continue_payment",
+                        "label": "continue to payment",
+                        "synonyms": ["continue", "purchase", "proceed", "payment", "skip"],
+                    },
+                    {
+                        "value": "review_trip",
+                        "label": "review trip details",
+                        "synonyms": ["review", "trip", "details", "summary"],
+                    },
+                    {
+                        "value": "main_menu",
+                        "label": "main menu",
+                        "synonyms": ["menu", "home", "main menu", "exit"],
+                    },
+                ],
             )
             if (
                 llm_result
@@ -1221,25 +1288,10 @@ async def handle_kyc_flow(
                     for k in ("continue", "purchase", "proceed", "payment", "skip")
                 ):
                     reply_id = "kyc_continue_purchase"
-                elif any(
-                    k in ev for k in ("retry", "again", "same", "re-enter", "reenter")
-                ):
-                    reply_id = "kyc_retry_same"
-                elif any(
-                    k in ev
-                    for k in ("another", "different", "other", "instead", "switch")
-                ):
-                    reply_id = "kyc_try_another_id"
-                elif "bvn" in ev:
-                    reply_id = (
-                        "kyc_retry_same" if method == "BVN" else "kyc_try_another_id"
-                    )
-                elif "nin" in ev:
-                    reply_id = (
-                        "kyc_retry_same" if method == "NIN" else "kyc_try_another_id"
-                    )
-                elif any(k in ev for k in ("help", "support", "agent")):
-                    reply_id = "kyc_help"
+                elif any(k in ev for k in ("review", "trip", "details", "summary")):
+                    reply_id = "kyc_review"
+                elif any(k in ev for k in ("menu", "home", "main", "exit")):
+                    reply_id = "kyc_home"
             if not reply_id:
                 await _send_buttons(
                     sender_wa_id,
@@ -1392,6 +1444,28 @@ async def handle_kyc_flow(
                 ),
                 user_response=text,
                 expected_format="text",
+                allowed_values=[
+                    {
+                        "value": "continue_payment",
+                        "label": "continue to payment",
+                        "synonyms": ["pay", "payment", "continue", "proceed"],
+                    },
+                    {
+                        "value": "review_trip",
+                        "label": "review trip details",
+                        "synonyms": ["review", "trip", "details", "summary"],
+                    },
+                    {
+                        "value": "main_menu",
+                        "label": "main menu",
+                        "synonyms": ["menu", "home", "main menu", "exit"],
+                    },
+                    {
+                        "value": "get_help",
+                        "label": "get help",
+                        "synonyms": ["help", "support", "agent"],
+                    },
+                ],
             )
             if (
                 llm_result

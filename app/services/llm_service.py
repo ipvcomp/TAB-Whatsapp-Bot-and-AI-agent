@@ -52,7 +52,12 @@ async def call_route(
     history: Optional[list] = None,
     session_data: Optional[dict] = None,
 ) -> Optional[dict]:
-    """Single orchestrator endpoint for all LLM routing, extraction, and answering."""
+    """Single orchestrator endpoint for all LLM routing, extraction, and answering.
+
+    This is the only HTTP LLM endpoint used by the bot. Legacy wrapper helpers
+    below (`call_generic`, `call_extract`, `call_policy_flow_validate`) all
+    dispatch through this function so the app always calls `/api/v1/route`.
+    """
     settings = get_settings()
 
     if not settings.LLM_API_URL:
@@ -132,7 +137,7 @@ async def call_generic(
     user_name: str,
     current_node: str,
 ) -> Optional[dict]:
-    """Legacy wrapper for generic routing, now using call_route."""
+    """Compatibility wrapper that always dispatches through `/api/v1/route`."""
     # Pass an empty expected_input since we are just doing generic conversational routing
     res = await call_route(
         user_id=user_id,
@@ -178,8 +183,9 @@ async def call_extract(
     question_asked: str,
     user_response: str,
     expected_format: str = "text",
+    allowed_values: Optional[list] = None,
 ) -> Optional[dict]:
-    """Legacy wrapper for field extraction, now using call_route."""
+    """Compatibility wrapper that always dispatches through `/api/v1/route`."""
     input_type = _map_expected_format_to_type(expected_format)
     
     expected_input_payload = {
@@ -188,7 +194,10 @@ async def call_extract(
         "field_name": field_name
     }
     
-    if field_name in ("menu_intent", "navigation_intent"):
+    if allowed_values:
+        expected_input_payload["type"] = "enum"
+        expected_input_payload["allowed_values"] = allowed_values
+    elif field_name in ("menu_intent", "navigation_intent"):
         expected_input_payload["type"] = "enum"
         expected_input_payload["allowed_values"] = [
             {"value": "buy_cover", "label": "buy cover", "synonyms": ["buy insurance", "purchase policy", "travel cover"]},
@@ -249,7 +258,7 @@ async def call_policy_flow_validate(
     validation_rules: Optional[dict] = None,
     context_data: Optional[dict] = None,
 ) -> Optional[dict]:
-    """Legacy wrapper for policy flow validation, now using call_route."""
+    """Compatibility wrapper that always dispatches through `/api/v1/route`."""
     input_type = _map_expected_format_to_type(step_type if step_type else (expected_format or ""))
     
     # Map allowed_values to the new format if provided

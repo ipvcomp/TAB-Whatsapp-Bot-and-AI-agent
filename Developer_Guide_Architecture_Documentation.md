@@ -691,8 +691,7 @@ If a boarding pass already exists for the selected policy, the system asks the u
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/v1/generic` | POST | Conversational AI responses |
-| `/api/v1/extract` | POST | Structured data extraction |
+| `/api/v1/route` | POST | Unified routing, extraction, clarification, and answer dispatch |
 
 **Base URL:** `https://staging-tab-whatsappllm.ipurvey.com`
 **Timeout:** 120 seconds

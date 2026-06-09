@@ -401,9 +401,9 @@ This is the **brain** of the bot. All inbound WhatsApp messages pass through her
 
 ### `app/services/llm_service.py`
 
-- `call_generic()` — POSTs to `LLM_API_URL/api/v1/generic`; expects `{success, response, suggested_node, detected_intent, confidence}`; 3 retries with backoff (2/4/8 s)
-- `call_extract()` — POSTs to `LLM_API_URL/api/v1/extract`; expects `{success, is_valid, extracted_value}`; same retry logic
-- Timeout: 120 seconds for both calls
+- `call_route()` — POSTs to `LLM_API_URL/api/v1/route`; this is the only HTTP LLM endpoint used by the bot
+- `call_generic()`, `call_extract()`, and `call_policy_flow_validate()` are compatibility wrappers that all dispatch through `call_route()`
+- Timeout: 120 seconds for all LLM route-backed calls
 
 ### `app/services/contact_service.py`
 
@@ -773,8 +773,7 @@ Every outbound API call (success only) is saved to `messages` with `direction=ou
 
 | Purpose | Method | Endpoint |
 |---------|--------|----------|
-| Generic Q&A conversation | POST | `{LLM_API_URL}/api/v1/generic` |
-| Input field extraction | POST | `{LLM_API_URL}/api/v1/extract` |
+| All bot LLM routing, extraction, clarification, and answer flows | POST | `{LLM_API_URL}/api/v1/route` |
 
 **Request payload (generic):**
 ```json
