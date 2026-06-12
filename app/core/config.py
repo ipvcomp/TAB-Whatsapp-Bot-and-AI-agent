@@ -7,6 +7,10 @@ def _get_env_file():
     debug = os.getenv("DEBUG", "DEV").upper()
     if debug == "FALSE":
         return "env-prod"
+    if debug == "LOCAL":
+        return "env-local"
+    if os.path.exists("env-local"):
+        return "env-local"
     return "env-stage"
 
 
