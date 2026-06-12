@@ -1,7 +1,7 @@
 APP_ENV = "staging"
 MONGODB_URI = "mongodb+srv://tab_wappbot_ai_stg_usr:sJx5rIjzmuHAmwxL@cluster0.efcvr.mongodb.net/tab_wappbot_ai_stg_db?retryWrites=true&w=majority"
 MONGODB_DB_NAME = "tab_wappbot_ai_stg_db"
-WHATSAPP_PHONE_NUMBER_ID = "1124729714057406"
+WHATSAPP_PHONE_NUMBER_ID = "1169286009597726"
 WHATSAPP_API_URL = "https://graph.facebook.com/v22.0/139595842566038/messages"
 WHATSAPP_API_BASE_URL = "https://graph.facebook.com/v22.0"
 WHATSAPP_API_TOKEN = "EAAF5fZCVdNfwBRohac0s6NGw8OJGT9phocjc0YlsKw32pW7mEMsXoZBnpFMHDn82GtGnapIvUXUOl26LDGZAzffrS3QE1Q3ZCZBA4PfnOIHMN7GZBQGH0EcXKJg532Oyv00gv4XnVBo6LtlMUV5SfCZCENcIwrOlrwiG9uYMK4ZCRksw1AASTZA7fZCahPjpzpB8xjmwZDZD"
