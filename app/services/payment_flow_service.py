@@ -5,7 +5,7 @@ import app.services.ipurvey_service as ipurvey_service
 
 from app.core.test_overrides import get_msisdn
 from app.services.document_poll_service import schedule_document_poll
-from app.services.llm_service import call_extract, call_generic, call_policy_flow_validate
+from app.services.llm_service import call_extract, call_generic, call_policy_flow_validate, get_llm_guidance
 from app.services.session_service import get_session, save_session, invalidate_policy_cache
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -617,6 +617,9 @@ async def handle_payment_flow(
                 elif any(k in ev for k in ("wallet", "mobile", "9psb", "opay", "smartcash", "mobile money")):
                     reply_id = "pay_wallet_payout"
             if not reply_id:
+                guidance = get_llm_guidance(llm_result)
+                if guidance:
+                    await _send_text(sender_wa_id, guidance, phone_number_id)
                 await start_payment_flow(sender_wa_id, phone_number_id)
                 return
         if reply_id == "pay_bank":
@@ -725,6 +728,16 @@ async def handle_payment_flow(
                     country_code="NG",
                 )
             if not banks:
+                guidance = get_llm_guidance(llm_resp)
+                if guidance:
+                    # User asked a question instead of a bank name — answer
+                    # it, then re-show the original search prompt.
+                    await _send_text(sender_wa_id, guidance, phone_number_id)
+                    await _send_text(sender_wa_id,
+                        "Please enter at least the first 3 characters of your bank name:\n\n"
+                        "_Example: Zen, GT, Wem_",
+                        phone_number_id)
+                    return
                 await _send_buttons(sender_wa_id,
                     f"❌ *No banks found matching \"{query}\"*\n\n"
                     "We couldn't find any bank matching your entry.\n"
@@ -844,6 +857,16 @@ async def handle_payment_flow(
                             return
                     except (ValueError, IndexError):
                         pass
+                guidance = get_llm_guidance(llm_result)
+                if guidance:
+                    # User asked a question — answer it, then re-show the
+                    # same bank list so they can pick from it.
+                    await _send_text(sender_wa_id, guidance, phone_number_id)
+                    if banks:
+                        await _send_bank_results(sender_wa_id, banks, phone_number_id)
+                    else:
+                        await _send_text(sender_wa_id, "⚠️ Please select a bank from the list.", phone_number_id)
+                    return
             await _send_text(sender_wa_id, "⚠️ Please select a bank from the list.", phone_number_id)
 
     # ── Wallet payout — select (legacy redirect) ──────────────────────────────
@@ -1025,6 +1048,9 @@ async def handle_payment_flow(
                 elif "ussd" in ev:
                     reply_id = "pay_m_ussd"
             if not reply_id:
+                guidance = get_llm_guidance(llm_result)
+                if guidance:
+                    await _send_text(sender_wa_id, guidance, phone_number_id)
                 await _show_payment_summary(sender_wa_id, session, flow, phone_number_id)
                 return
         if reply_id == "pay_m_bank":
@@ -1218,6 +1244,9 @@ async def handle_payment_flow(
                 elif any(k in ev for k in ("refresh", "check", "status", "update", "verify")):
                     reply_id = "pay_m_refresh"
             if not reply_id:
+                guidance = get_llm_guidance(llm_result)
+                if guidance:
+                    await _send_text(sender_wa_id, guidance, phone_number_id)
                 _method_display = data.get("pay_method_display", "Bank Transfer")
                 await _send_buttons(
                     sender_wa_id,
@@ -1374,6 +1403,12 @@ async def handle_payment_flow(
                     reply_id = "pay_upload_bp"
                 elif any(k in ev for k in ("menu", "home", "main", "exit")):
                     reply_id = "pay_home"
+            if not reply_id:
+                guidance = get_llm_guidance(llm_result)
+                if guidance:
+                    # Answer the user's question first; the fallback below
+                    # re-shows the post-payment options.
+                    await _send_text(sender_wa_id, guidance, phone_number_id)
         if reply_id in ("pay_view_policy", "pay_view_doc", "pay_pol_view_doc"):
             bc_data_v = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
             flight_v  = bc_data_v.get("flight_num", "—")
@@ -1606,6 +1641,9 @@ async def handle_payment_flow(
                 elif any(k in ev for k in ("menu", "home", "main", "exit", "cancel")):
                     reply_id = "pay_home"
             if not reply_id:
+                guidance = get_llm_guidance(llm_result)
+                if guidance:
+                    await _send_text(sender_wa_id, guidance, phone_number_id)
                 await _send_buttons(
                     sender_wa_id,
                     "⚠️ *Policy Submission Failed*\n\nWhat would you like to do?",

@@ -6,7 +6,7 @@ from typing import Optional
 import app.services.ipurvey_service as ipurvey_service
 
 from app.core.test_overrides import get_msisdn
-from app.services.llm_service import call_policy_flow_validate
+from app.services.llm_service import call_policy_flow_validate, get_llm_guidance
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -559,6 +559,16 @@ async def handle_update_details_flow(
                     country_code="NG",
                 )
             if not banks:
+                guidance = get_llm_guidance(llm_resp)
+                if guidance:
+                    # User asked a question instead of a bank name — answer
+                    # it, then re-show the original search prompt.
+                    await _send_text(sender_wa_id, guidance, phone_number_id)
+                    await _send_text(sender_wa_id,
+                        "🔍 Enter at least 3 characters of your\n"
+                        "bank name to search:\n\n_Example: Zen, GT, Wem_",
+                        phone_number_id)
+                    return
                 await _send_buttons(sender_wa_id,
                     f"❌ *No banks found matching \"{query}\"*\n\n"
                     "We couldn't find any bank matching your entry.\n"

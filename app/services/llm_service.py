@@ -14,6 +14,28 @@ LLM_RETRY_MAX_ATTEMPTS = 3
 LLM_RETRY_BACKOFF = [2, 4, 8]
 
 
+def get_llm_guidance(llm_result: Optional[dict]) -> Optional[str]:
+    """Return the answer/clarification text from a wrapper result, if any.
+
+    `call_extract` / `call_policy_flow_validate` map the route actions
+    `answer` and `clarify` into `guidance_message`. When the LLM answered a
+    user question (or asked for clarification) instead of extracting a value,
+    step handlers must surface this text to the user and then re-show the
+    original step prompt — otherwise the bot looks like it ignored the user.
+
+    Returns None when a value was extracted (`is_valid`) or when there is no
+    usable guidance text, so callers can fall back to their existing
+    invalid-input handling unchanged.
+    """
+    if not llm_result or llm_result.get("is_valid"):
+        return None
+    guidance = llm_result.get("guidance_message")
+    if guidance is None:
+        return None
+    guidance = str(guidance).strip()
+    return guidance or None
+
+
 def _map_expected_format_to_type(fmt: str) -> str:
     """Map legacy string formats to the strict enum allowed by /v1/route"""
     fmt_lower = str(fmt).lower()
@@ -223,15 +245,16 @@ async def call_extract(
         return None
         
     action = res.get("action")
-    
+
     legacy_response = {
         "success": True,
+        "action": action,
         "is_valid": False,
         "extracted_value": None,
         "normalized_value": None,
         "guidance_message": None
     }
-    
+
     if action == "extract" and res.get("extracted"):
         legacy_response["is_valid"] = True
         extracted = res["extracted"]
@@ -248,7 +271,7 @@ async def call_extract(
             legacy_response["guidance_message"] = str(clarification or "")
     elif action == "answer" and res.get("answer"):
         legacy_response["guidance_message"] = res["answer"].get("text", "")
-        
+
     return legacy_response
 
 
@@ -301,15 +324,16 @@ async def call_policy_flow_validate(
         return None
         
     action = res.get("action")
-    
+
     legacy_response = {
         "success": True,
+        "action": action,
         "is_valid": False,
         "extracted_value": None,
         "normalized_value": None,
         "guidance_message": None
     }
-    
+
     if action == "extract" and res.get("extracted"):
         legacy_response["is_valid"] = True
         extracted = res["extracted"]
@@ -326,5 +350,5 @@ async def call_policy_flow_validate(
             legacy_response["guidance_message"] = str(clarification or "")
     elif action == "answer" and res.get("answer"):
         legacy_response["guidance_message"] = res["answer"].get("text")
-        
+
     return legacy_response

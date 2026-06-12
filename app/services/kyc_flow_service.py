@@ -5,7 +5,7 @@ from typing import Optional
 import app.services.ipurvey_service as ipurvey_service
 
 from app.core.test_overrides import get_msisdn
-from app.services.llm_service import call_extract, call_generic
+from app.services.llm_service import call_extract, call_generic, get_llm_guidance
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -419,6 +419,9 @@ async def handle_kyc_flow(
                 elif any(k in ev for k in ("help", "support", "assist", "question")):
                     reply_id = "kyc_help"
             if not reply_id:
+                guidance = get_llm_guidance(llm_result)
+                if guidance:
+                    await _send_text(sender_wa_id, guidance, phone_number_id)
                 await start_kyc_flow(sender_wa_id, phone_number_id)
                 return
 
@@ -534,6 +537,9 @@ async def handle_kyc_flow(
                 ):
                     reply_id = "kyc_consent_no"
             if not reply_id:
+                guidance = get_llm_guidance(llm_result)
+                if guidance:
+                    await _send_text(sender_wa_id, guidance, phone_number_id)
                 method = data.get("kyc_method", "BVN")
                 await _send_buttons(
                     sender_wa_id,
@@ -1181,6 +1187,9 @@ async def handle_kyc_flow(
                 elif any(k in ev for k in ("menu", "home", "main", "exit")):
                     reply_id = "kyc_home"
             if not reply_id:
+                guidance = get_llm_guidance(llm_result)
+                if guidance:
+                    await _send_text(sender_wa_id, guidance, phone_number_id)
                 await _send_buttons(
                     sender_wa_id,
                     "✅ *Identity Verified*\n\nWhat would you like to do next?",
@@ -1293,6 +1302,9 @@ async def handle_kyc_flow(
                 elif any(k in ev for k in ("menu", "home", "main", "exit")):
                     reply_id = "kyc_home"
             if not reply_id:
+                guidance = get_llm_guidance(llm_result)
+                if guidance:
+                    await _send_text(sender_wa_id, guidance, phone_number_id)
                 await _send_buttons(
                     sender_wa_id,
                     f"⚠️ *Verification Incomplete*\n\n"
@@ -1482,6 +1494,9 @@ async def handle_kyc_flow(
                 elif any(k in ev for k in ("help", "support", "agent")):
                     reply_id = "kyc_bypass_help"
             if not reply_id:
+                guidance = get_llm_guidance(llm_result)
+                if guidance:
+                    await _send_text(sender_wa_id, guidance, phone_number_id)
                 await _show_bypass_screen(sender_wa_id, session, phone_number_id)
                 return
 

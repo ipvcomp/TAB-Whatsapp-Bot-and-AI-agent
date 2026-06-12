@@ -10,6 +10,7 @@ from app.services.llm_service import (
     call_extract,
     call_generic,
     call_policy_flow_validate,
+    get_llm_guidance,
 )
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
@@ -1219,6 +1220,9 @@ async def handle_buy_cover_flow(
                 ):
                     reply_id = "cover_others"
             if not reply_id:
+                guidance = get_llm_guidance(llm_result)
+                if guidance:
+                    await _send_text(sender_wa_id, guidance, phone_number_id)
                 await _send_buttons(
                     sender_wa_id,
                     "✈️ *Who is this cover for?*\n\nPlease select an option:",
@@ -1923,6 +1927,15 @@ async def handle_buy_cover_flow(
                         phone_number_id,
                     )
                     return
+            guidance = get_llm_guidance(llm_result)
+            if guidance:
+                await _send_text(sender_wa_id, guidance, phone_number_id)
+                await _send_text(
+                    sender_wa_id,
+                    "👤 Please enter the traveler's *full name* (first name and surname) as it appears on their ticket.\n\n_Example: Amina Bello_",
+                    phone_number_id,
+                )
+                return
             await _send_text(
                 sender_wa_id,
                 "⚠️ Please enter a valid *full name* (first name and surname).\n\n_Example: Amina Bello_",
@@ -2469,6 +2482,17 @@ async def handle_buy_cover_flow(
                         extracted.strip(), country_code="NG"
                     )
                 if not airports:
+                    guidance = get_llm_guidance(llm_resp)
+                    if guidance:
+                        # User asked a question instead of an airport — answer
+                        # it, then re-show the original search prompt.
+                        await _send_text(sender_wa_id, guidance, phone_number_id)
+                        await _send_text(
+                            sender_wa_id,
+                            "*✈️ What airport are you flying from?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, ABV, KAD_",
+                            phone_number_id,
+                        )
+                        return
                     await _send_buttons(
                         sender_wa_id,
                         (
@@ -3056,6 +3080,17 @@ async def handle_buy_cover_flow(
                         extracted.strip(), country_code="NG"
                     )
                 if not airports:
+                    guidance = get_llm_guidance(llm_resp)
+                    if guidance:
+                        # User asked a question instead of an airport — answer
+                        # it, then re-show the original search prompt.
+                        await _send_text(sender_wa_id, guidance, phone_number_id)
+                        await _send_text(
+                            sender_wa_id,
+                            "*✈️ What airport are you arriving at?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: ABV, LOS, KAN_",
+                            phone_number_id,
+                        )
+                        return
                     await _send_buttons(
                         sender_wa_id,
                         (
@@ -3126,6 +3161,17 @@ async def handle_buy_cover_flow(
         ):
             data["airline"] = str(llm_airline["extracted_value"])
         else:
+            guidance = get_llm_guidance(llm_airline)
+            if guidance:
+                # User asked a question instead of an airline name — answer
+                # it, then re-show the original prompt without saving.
+                await _send_text(sender_wa_id, guidance, phone_number_id)
+                await _send_text(
+                    sender_wa_id,
+                    "*✈️  Who are you flying with?*\n\n_Example: Ibom Air, Air Peace_",
+                    phone_number_id,
+                )
+                return
             data["airline"] = text
         await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
 
@@ -3262,6 +3308,16 @@ async def handle_buy_cover_flow(
                     )
                 ):
                     reply_id = "summary_edit"
+            if not reply_id:
+                guidance = get_llm_guidance(llm_result)
+                if guidance:
+                    # User asked a question — answer it, then re-show the
+                    # trip summary and stay on this step.
+                    await _send_text(sender_wa_id, guidance, phone_number_id)
+                    await _show_trip_summary(
+                        sender_wa_id, data, flow, session, phone_number_id
+                    )
+                    return
 
         if reply_id == "summary_edit":
             # Block editing once itinerary has been submitted to the API — editing
@@ -3597,6 +3653,12 @@ async def handle_buy_cover_flow(
                     reply_id = "next_ask"
                 elif any(k in ev for k in ("cancel", "stop", "exit", "no")):
                     reply_id = "next_cancel"
+            if not reply_id:
+                guidance = get_llm_guidance(llm_next)
+                if guidance:
+                    # Answer the user's question first; the fallback below
+                    # re-shows the same next-steps buttons.
+                    await _send_text(sender_wa_id, guidance, phone_number_id)
 
         if reply_id == "next_kyc":
             from app.services.kyc_flow_service import start_kyc_flow
