@@ -2452,7 +2452,10 @@ async def handle_buy_cover_flow(
                     expected_format="3+ alpha characters or IATA code",
                     validation_rules={"pattern": "alpha_only", "min_len": 3},
                 )
-                extracted = (llm_resp or {}).get("extracted_value", "")
+                extracted = (
+                    (llm_resp or {}).get("normalized_value")
+                    or (llm_resp or {}).get("extracted_value", "")
+                )
                 if (
                     llm_resp
                     and llm_resp.get("is_valid")
@@ -2462,7 +2465,7 @@ async def handle_buy_cover_flow(
                     logger.info(
                         f"[airport_dep] LLM extracted '{extracted}', retrying airport search"
                     )
-                    airports = await ipurvey_service.search_airports(
+                    airports = await ipurvey_service.search_airports_resilient(
                         extracted.strip(), country_code="NG"
                     )
                 if not airports:
@@ -3036,7 +3039,10 @@ async def handle_buy_cover_flow(
                     expected_format="3+ alpha characters or IATA code",
                     validation_rules={"pattern": "alpha_only", "min_len": 3},
                 )
-                extracted = (llm_resp or {}).get("extracted_value", "")
+                extracted = (
+                    (llm_resp or {}).get("normalized_value")
+                    or (llm_resp or {}).get("extracted_value", "")
+                )
                 if (
                     llm_resp
                     and llm_resp.get("is_valid")
@@ -3046,7 +3052,7 @@ async def handle_buy_cover_flow(
                     logger.info(
                         f"[airport_arr] LLM extracted '{extracted}', retrying airport search"
                     )
-                    airports = await ipurvey_service.search_airports(
+                    airports = await ipurvey_service.search_airports_resilient(
                         extracted.strip(), country_code="NG"
                     )
                 if not airports:

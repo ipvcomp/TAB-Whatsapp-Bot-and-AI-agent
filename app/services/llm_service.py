@@ -228,12 +228,18 @@ async def call_extract(
         "success": True,
         "is_valid": False,
         "extracted_value": None,
+        "normalized_value": None,
         "guidance_message": None
     }
     
     if action == "extract" and res.get("extracted"):
         legacy_response["is_valid"] = True
-        legacy_response["extracted_value"] = res["extracted"].get("value")
+        extracted = res["extracted"]
+        legacy_response["extracted_value"] = (
+            extracted.get("value")
+            or extracted.get("normalized")
+        )
+        legacy_response["normalized_value"] = extracted.get("normalized")
     elif action == "clarify":
         clarification = res.get("clarification")
         if isinstance(clarification, dict):
@@ -300,12 +306,18 @@ async def call_policy_flow_validate(
         "success": True,
         "is_valid": False,
         "extracted_value": None,
+        "normalized_value": None,
         "guidance_message": None
     }
     
     if action == "extract" and res.get("extracted"):
         legacy_response["is_valid"] = True
-        legacy_response["extracted_value"] = res["extracted"].get("value")
+        extracted = res["extracted"]
+        legacy_response["extracted_value"] = (
+            extracted.get("value")
+            or extracted.get("normalized")
+        )
+        legacy_response["normalized_value"] = extracted.get("normalized")
     elif action == "clarify":
         clarification = res.get("clarification")
         if isinstance(clarification, dict):

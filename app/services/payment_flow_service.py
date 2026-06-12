@@ -705,15 +705,25 @@ async def handle_payment_flow(
                 step_type="free_text",
                 expected_format="Bank name or abbreviation (3+ characters)",
             )
-            extracted = (llm_resp or {}).get("extracted_value", "")
+            normalized = (llm_resp or {}).get("normalized_value", "")
+            extracted_value = (llm_resp or {}).get("extracted_value", "")
+            selected = normalized or extracted_value
             logger.info(
                 f"[bank_search] LLM result: is_valid={( llm_resp or {}).get('is_valid')}, "
-                f"extracted='{extracted}', "
+                f"extracted='{extracted_value}', "
+                f"normalized='{normalized}', "
+                f"selected='{selected}', "
                 f"guidance='{(llm_resp or {}).get('guidance_message')}'"
             )
-            if llm_resp and llm_resp.get("is_valid") and extracted and len(extracted.strip()) >= 3:
-                logger.info(f"[bank_search] Retrying with LLM extracted term '{extracted}'")
-                banks = await ipurvey_service.search_banks(extracted.strip())
+            if llm_resp and llm_resp.get("is_valid") and selected and len(selected.strip()) >= 2:
+                logger.info(
+                    f"[bank_search] Retrying with resilient bank terms normalized='{normalized}' extracted='{extracted_value}'"
+                )
+                banks = await ipurvey_service.search_banks_resilient(
+                    normalized,
+                    extracted_value,
+                    country_code="NG",
+                )
             if not banks:
                 await _send_buttons(sender_wa_id,
                     f"❌ *No banks found matching \"{query}\"*\n\n"

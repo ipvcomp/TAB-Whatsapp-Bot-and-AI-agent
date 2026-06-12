@@ -6,6 +6,7 @@ from typing import Optional
 import app.services.ipurvey_service as ipurvey_service
 
 from app.core.test_overrides import get_msisdn
+from app.services.llm_service import call_policy_flow_validate
 from app.services.session_service import get_session, save_session
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
 
@@ -530,13 +531,41 @@ async def handle_update_details_flow(
             return
         banks = await ipurvey_service.search_banks(query)
         if not banks:
-            await _send_buttons(sender_wa_id,
-                f"❌ *No banks found matching \"{query}\"*\n\n"
-                "We couldn't find any bank matching your entry.\n"
-                "Please check the spelling or try searching again.",
-                [{"id": "upd_bsearch", "title": "🔍 Search again"}],
-                phone_number_id)
-            return
+            logger.info(f"[upd_bank_search] No results for '{query}', calling LLM to extract clean bank term")
+            llm_resp = await call_policy_flow_validate(
+                step_id=27,
+                context="Bank name search",
+                field_name="bank_name",
+                question_asked="Which bank do you use? Please type the bank name or abbreviation (e.g. GTB, Zenith, First Bank).",
+                user_response=query,
+                step_type="free_text",
+                expected_format="Full Nigerian bank name or abbreviation (e.g. GTB, Zenith, First Bank)",
+                validation_rules={"min_chars": 2},
+            )
+            normalized = (llm_resp or {}).get("normalized_value", "")
+            extracted_value = (llm_resp or {}).get("extracted_value", "")
+            selected = normalized or extracted_value
+            logger.info(
+                f"[upd_bank_search] LLM result: is_valid={(llm_resp or {}).get('is_valid')}, "
+                f"extracted='{extracted_value}', "
+                f"normalized='{normalized}', "
+                f"selected='{selected}', "
+                f"guidance='{(llm_resp or {}).get('guidance_message')}'"
+            )
+            if llm_resp and llm_resp.get("is_valid") and selected and len(selected.strip()) >= 2:
+                banks = await ipurvey_service.search_banks_resilient(
+                    normalized,
+                    extracted_value,
+                    country_code="NG",
+                )
+            if not banks:
+                await _send_buttons(sender_wa_id,
+                    f"❌ *No banks found matching \"{query}\"*\n\n"
+                    "We couldn't find any bank matching your entry.\n"
+                    "Please check the spelling or try searching again.",
+                    [{"id": "upd_bsearch", "title": "🔍 Search again"}],
+                    phone_number_id)
+                return
         await _save_data(session, "upd_blist", banks)
         await _set_step(session, "upd_bank_select")
         await _send_bank_results(sender_wa_id, banks, phone_number_id)

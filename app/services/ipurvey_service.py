@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from collections import OrderedDict
 from typing import Optional
@@ -19,6 +20,153 @@ _AIRPORT_CACHE_MAX_SIZE: int = 256   # maximum number of cached queries
 # OrderedDict preserves insertion order so we can evict the oldest entry when full.
 # Each value is a tuple of (timestamp: float, results: list[dict]).
 _airport_cache: OrderedDict[str, tuple[float, list]] = OrderedDict()
+
+NIGERIAN_AIRPORTS: tuple[dict, ...] = (
+    {
+        "code": "ABV",
+        "name": "Nnamdi Azikiwe International Airport",
+        "country": "Nigeria",
+        "aliases": ("abuja", "nnamdi azikiwe", "nnamdi azikiwe airport"),
+    },
+    {
+        "code": "LOS",
+        "name": "Murtala Muhammed International Airport",
+        "country": "Nigeria",
+        "aliases": ("lagos", "murtala muhammed", "murtala mohammed", "mma"),
+    },
+    {
+        "code": "KAN",
+        "name": "Mallam Aminu Kano International Airport",
+        "country": "Nigeria",
+        "aliases": ("kano", "mallam aminu kano", "aminu kano"),
+    },
+    {
+        "code": "PHC",
+        "name": "Port Harcourt International Airport",
+        "country": "Nigeria",
+        "aliases": ("port harcourt", "omagwa"),
+    },
+    {
+        "code": "ENU",
+        "name": "Akanu Ibiam International Airport",
+        "country": "Nigeria",
+        "aliases": ("enugu", "akanu ibiam"),
+    },
+    {
+        "code": "KAD",
+        "name": "Kaduna Airport",
+        "country": "Nigeria",
+        "aliases": ("kaduna",),
+    },
+    {
+        "code": "QOW",
+        "name": "Sam Mbakwe Airport",
+        "country": "Nigeria",
+        "aliases": ("owerri", "sam mbakwe"),
+    },
+    {
+        "code": "CBQ",
+        "name": "Margaret Ekpo International Airport",
+        "country": "Nigeria",
+        "aliases": ("calabar", "margaret ekpo"),
+    },
+    {
+        "code": "BEN",
+        "name": "Benin Airport",
+        "country": "Nigeria",
+        "aliases": ("benin", "benin city"),
+    },
+    {
+        "code": "ABB",
+        "name": "Asaba International Airport",
+        "country": "Nigeria",
+        "aliases": ("asaba",),
+    },
+    {
+        "code": "QUO",
+        "name": "Akwa Ibom International Airport",
+        "country": "Nigeria",
+        "aliases": ("uyo", "akwa ibom", "victor attah"),
+    },
+    {
+        "code": "ILR",
+        "name": "Ilorin International Airport",
+        "country": "Nigeria",
+        "aliases": ("ilorin",),
+    },
+    {
+        "code": "JOS",
+        "name": "Yakubu Gowon Airport",
+        "country": "Nigeria",
+        "aliases": ("jos", "yakubu gowon"),
+    },
+    {
+        "code": "SKO",
+        "name": "Sadiq Abubakar III International Airport",
+        "country": "Nigeria",
+        "aliases": ("sokoto", "sadiq abubakar"),
+    },
+    {
+        "code": "YOL",
+        "name": "Yola Airport",
+        "country": "Nigeria",
+        "aliases": ("yola",),
+    },
+    {
+        "code": "MIU",
+        "name": "Maiduguri International Airport",
+        "country": "Nigeria",
+        "aliases": ("maiduguri",),
+    },
+    {
+        "code": "AKR",
+        "name": "Akure Airport",
+        "country": "Nigeria",
+        "aliases": ("akure",),
+    },
+    {
+        "code": "IBA",
+        "name": "Ibadan Airport",
+        "country": "Nigeria",
+        "aliases": ("ibadan",),
+    },
+    {
+        "code": "GMO",
+        "name": "Gombe Lawanti International Airport",
+        "country": "Nigeria",
+        "aliases": ("gombe", "lawanti"),
+    },
+    {
+        "code": "BCU",
+        "name": "Sir Abubakar Tafawa Balewa Airport",
+        "country": "Nigeria",
+        "aliases": ("bauchi", "tafawa balewa"),
+    },
+    {
+        "code": "DKA",
+        "name": "Katsina Airport",
+        "country": "Nigeria",
+        "aliases": ("katsina",),
+    },
+    {
+        "code": "MXJ",
+        "name": "Minna Airport",
+        "country": "Nigeria",
+        "aliases": ("minna",),
+    },
+    {
+        "code": "MDI",
+        "name": "Makurdi Airport",
+        "country": "Nigeria",
+        "aliases": ("makurdi",),
+    },
+    {
+        "code": "JAL",
+        "name": "Danbaba Suntai Airport",
+        "country": "Nigeria",
+        "aliases": ("jalingo", "danbaba suntai"),
+    },
+)
 
 NIGERIAN_BANK_CODES: dict[str, str] = {
     "Access Bank":             "044",
@@ -69,6 +217,117 @@ def _extract(resp: dict):
     return resp.get("data") if resp.get("data") is not None else resp
 
 
+def _normalize_airport_text(value: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", (value or "").lower()))
+
+
+def _filter_airport_items(items: list, country_code: Optional[str] = None) -> list[dict]:
+    seen_codes: set = set()
+    results = []
+    restrict_to_ng = bool(country_code and country_code.upper() == "NG")
+
+    for item in items[:20]:
+        code = (
+            item.get("iataCode") or item.get("iata_code") or
+            item.get("code") or item.get("airportCode") or ""
+        )
+        name = (
+            item.get("name") or item.get("airportName") or
+            item.get("airport_name") or ""
+        )
+        country = (
+            item.get("country") or item.get("countryName") or
+            item.get("country_name") or ""
+        )
+        item_country_code = (
+            item.get("countryCode") or item.get("country_code") or
+            item.get("country_iso2") or item.get("iso2") or ""
+        ).upper()
+        if not (code or name):
+            continue
+        if restrict_to_ng:
+            is_nigeria = "nigeria" in country.lower() or item_country_code == "NG"
+            if not is_nigeria:
+                continue
+        dedup_key = code.upper() if code else name.lower()
+        if dedup_key in seen_codes:
+            continue
+        seen_codes.add(dedup_key)
+        results.append({"code": code, "name": name, "country": country})
+        if len(results) >= 10:
+            break
+
+    return results
+
+
+def _search_airports_local(query: str, country_code: Optional[str] = None) -> list[dict]:
+    if country_code and country_code.upper() != "NG":
+        return []
+
+    normalized_query = _normalize_airport_text(query)
+    if len(normalized_query) < 3:
+        return []
+
+    scored_results: list[tuple[int, dict]] = []
+    for airport in NIGERIAN_AIRPORTS:
+        code = str(airport["code"]).upper()
+        aliases = {
+            _normalize_airport_text(code),
+            _normalize_airport_text(str(airport["name"])),
+            *[_normalize_airport_text(alias) for alias in airport.get("aliases", ())],
+        }
+
+        score = 0
+        if normalized_query == code.lower():
+            score = 400
+        elif normalized_query in aliases:
+            score = 300
+        elif any(alias.startswith(normalized_query) for alias in aliases):
+            score = 200
+        elif any(
+            normalized_query in alias or alias in normalized_query
+            for alias in aliases
+            if len(alias) >= 4
+        ):
+            score = 100
+
+        if score:
+            scored_results.append(
+                (
+                    score,
+                    {
+                        "code": code,
+                        "name": str(airport["name"]),
+                        "country": str(airport["country"]),
+                    },
+                )
+            )
+
+    scored_results.sort(key=lambda item: (-item[0], item[1]["name"]))
+    return [result for _, result in scored_results[:10]]
+
+
+async def _remote_airport_search(query: str, country_code: Optional[str] = None) -> list[dict]:
+    encoded = quote(query.strip(), safe="")
+    url = f"{_base()}/api/v2/airports/search?search={encoded}"
+    if country_code:
+        url += f"&country_code={quote(country_code, safe='')}"
+
+    async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+        r = await c.get(url)
+        if r.status_code != 200:
+            logger.warning(f"[ipurvey] airport search {r.status_code} for '{query}'")
+            return []
+
+        payload = r.json()
+        items = payload if isinstance(payload, list) else payload.get("data", payload.get("airports", []))
+        if not isinstance(items, list):
+            logger.warning(f"[ipurvey] search_airports -> unexpected payload type for '{query}'")
+            return []
+
+        return _filter_airport_items(items, country_code=country_code)
+
+
 # ── BANK SEARCH ───────────────────────────────────────────────────────────────
 
 async def search_banks(query: str, country_code: str = "NG") -> list[dict]:
@@ -98,6 +357,75 @@ async def search_banks(query: str, country_code: str = "NG") -> list[dict]:
     except Exception as e:
         logger.error(f"[ipurvey] search_banks failed: {e}")
         return []
+
+
+def _build_bank_search_variants(*terms: str) -> list[str]:
+    variants: list[str] = []
+    seen: set[str] = set()
+    stop_words = {
+        "bank",
+        "plc",
+        "limited",
+        "ltd",
+        "nigeria",
+        "choose",
+        "select",
+        "the",
+        "my",
+        "use",
+        "using",
+    }
+
+    def add_variant(value: str) -> None:
+        cleaned = " ".join((value or "").strip().split())
+        key = cleaned.lower()
+        if len(cleaned) >= 2 and key not in seen:
+            seen.add(key)
+            variants.append(cleaned)
+
+    for term in terms:
+        cleaned = " ".join((term or "").strip().split())
+        if not cleaned:
+            continue
+        add_variant(cleaned)
+
+        alnum_words = re.findall(r"[A-Za-z0-9]+", cleaned)
+        if not alnum_words:
+            continue
+
+        simplified_words = [word for word in alnum_words if word.lower() not in stop_words]
+        if simplified_words:
+            add_variant(" ".join(simplified_words))
+
+            acronym = "".join(word[0] for word in simplified_words if word)
+            if len(acronym) >= 2:
+                add_variant(acronym.upper())
+
+            if len(simplified_words) > 1:
+                add_variant(" ".join(simplified_words[:2]))
+
+        upper_tokens = [word.upper() for word in alnum_words if word.isalpha() and word.upper() == word and len(word) >= 2]
+        for token in upper_tokens:
+            add_variant(token)
+
+    return variants
+
+
+async def search_banks_resilient(*terms: str, country_code: str = "NG") -> list[dict]:
+    """Try dynamic bank-search variants before giving up.
+
+    This keeps the flow API-driven, but allows the bot to retry with cleaned LLM
+    output such as `GTB`, `GTB Bank`, or `Guaranty Trust Bank` before showing
+    the `Search again` state.
+    """
+    for variant in _build_bank_search_variants(*terms):
+        results = await search_banks(variant, country_code=country_code)
+        if results:
+            logger.info(
+                f"[ipurvey] resilient bank search -> {len(results)} result(s) using '{variant}'"
+            )
+            return results
+    return []
 
 
 # ── KYC SUPPORTED COUNTRIES ───────────────────────────────────────────────────
@@ -240,6 +568,50 @@ async def search_airports(query: str, country_code: Optional[str] = None) -> lis
     except Exception as e:
         logger.error(f"[ipurvey] search_airports failed: {e}")
         return []
+
+
+async def search_airports_resilient(
+    query: str,
+    country_code: Optional[str] = None,
+) -> list[dict]:
+    """Search airports with extra fallbacks for LLM-normalized values.
+
+    This is meant for the second-pass lookup after the LLM has already cleaned
+    the user's input. We first try the existing API-backed search, then retry a
+    3-letter IATA code without the country filter, and finally use a local
+    Nigerian airport fallback list when the upstream search API is unavailable.
+    """
+    results = await search_airports(query, country_code=country_code)
+    if results:
+        return results
+
+    cleaned_query = query.strip()
+    if (
+        country_code
+        and re.fullmatch(r"[A-Za-z]{3}", cleaned_query)
+    ):
+        logger.info(
+            f"[ipurvey] resilient airport retry without country filter for '{cleaned_query}'"
+        )
+        retry_results = await _remote_airport_search(cleaned_query, country_code=None)
+        if country_code.upper() == "NG":
+            retry_results = [
+                item
+                for item in retry_results
+                if "nigeria" in (item.get("country") or "").lower()
+            ]
+        if retry_results:
+            logger.info(
+                f"[ipurvey] resilient airport retry -> {len(retry_results)} result(s) for '{cleaned_query}'"
+            )
+            return retry_results
+
+    local_results = _search_airports_local(cleaned_query, country_code=country_code)
+    if local_results:
+        logger.info(
+            f"[ipurvey] resilient airport local fallback -> {len(local_results)} result(s) for '{cleaned_query}'"
+        )
+    return local_results
 
 
 # ── USER MANAGEMENT ───────────────────────────────────────────────────────────
