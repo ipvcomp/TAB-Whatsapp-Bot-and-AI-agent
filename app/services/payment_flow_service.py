@@ -51,11 +51,11 @@ _UTILITY = (
 
 
 async def _send_text(to: str, body: str, phone_number_id: Optional[str]):
-    await send_text_message(to=to, body=body, phone_number_id=phone_number_id, source="payment_flow")
-    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="payment_flow")
+    await send_text_message(to=to, body=f"{body}\n\n\n{_UTILITY}", phone_number_id=phone_number_id, source="payment_flow")
 
 
-async def _send_buttons(to: str, body: str, buttons: list, phone_number_id: Optional[str]):
+async def _send_buttons(to: str, body: str, buttons: list, phone_number_id: Optional[str], include_utility: bool = True):
+    text = f"{body}\n\n\n{_UTILITY}" if include_utility else body
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
@@ -63,7 +63,7 @@ async def _send_buttons(to: str, body: str, buttons: list, phone_number_id: Opti
         "type": "interactive",
         "interactive": {
             "type": "button",
-            "body": {"text": body},
+            "body": {"text": text},
             "action": {
                 "buttons": [
                     {"type": "reply", "reply": {"id": b["id"], "title": b["title"]}}
@@ -73,7 +73,6 @@ async def _send_buttons(to: str, body: str, buttons: list, phone_number_id: Opti
         },
     }
     await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="payment_flow")
-    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="payment_flow")
 
 
 async def _send_list(
@@ -83,10 +82,12 @@ async def _send_list(
     sections: list,
     phone_number_id: Optional[str],
     header: Optional[str] = None,
+    include_utility: bool = True,
 ):
+    text = f"{body}\n\n\n{_UTILITY}" if include_utility else body
     interactive = {
         "type": "list",
-        "body": {"text": body},
+        "body": {"text": text},
         "action": {"button": button_label, "sections": sections},
     }
     if header:
@@ -99,7 +100,6 @@ async def _send_list(
         "interactive": interactive,
     }
     await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="payment_flow")
-    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="payment_flow")
 
 
 async def _send_bank_results(wa_id: str, banks: list, phone_number_id: Optional[str]):
@@ -318,6 +318,7 @@ async def _send_success(
             f"of disruption meets the policy terms,\n"
             f"you will be notified of a payout.\n"
             f"If not, we will advise you accordingly."
+            f"\n\n\n{_UTILITY}"
         ),
         phone_number_id=phone_number_id,
         source="payment_flow",
@@ -334,6 +335,7 @@ async def _send_success(
             {"id": "pay_home",      "title": "🏠 Main menu"},
         ],
         phone_number_id,
+        include_utility=False,
     )
 
 
@@ -470,6 +472,7 @@ async def _submit_and_confirm(
                 f"We were unable to submit your policy at this time.\n\n"
                 f"*Error:* {err_msg}\n\n"
                 "Please tap *Retry* to try again, or contact support if the problem persists."
+                f"\n\n\n{_UTILITY}"
             ),
             phone_number_id=phone_number_id,
             source="payment_flow",
@@ -482,6 +485,7 @@ async def _submit_and_confirm(
                 {"id": "pay_home",         "title": "🏠 Main menu"},
             ],
             phone_number_id,
+            include_utility=False,
         )
 
 
@@ -1489,6 +1493,7 @@ async def handle_payment_flow(
                         "Your document is still being generated. "
                         "Tap *Try again* in a moment to check if it's ready, "
                         "or we'll send it to you automatically once it's ready."
+                        f"\n\n\n{_UTILITY}"
                     ),
                     phone_number_id=phone_number_id,
                     source="payment_flow",
@@ -1502,6 +1507,7 @@ async def handle_payment_flow(
                         {"id": "pay_home",         "title": "🏠 Main Menu"},
                     ],
                     phone_number_id,
+                    include_utility=False,
                 )
                 schedule_document_poll(
                     wa_id=sender_wa_id,
@@ -1592,6 +1598,7 @@ async def handle_payment_flow(
                     f"of disruption meets the policy terms,\n"
                     f"you will be notified of a payout.\n"
                     f"If not, we will advise you accordingly."
+                    f"\n\n\n{_UTILITY}"
                 ),
                 phone_number_id=phone_number_id,
                 source="payment_flow",
@@ -1607,6 +1614,7 @@ async def handle_payment_flow(
                     {"id": "pay_home",      "title": "🏠 Main menu"},
                 ],
                 phone_number_id,
+                include_utility=False,
             )
 
     # ── Submission retry (legacy — submission removed, redirect to success) ────
@@ -1683,6 +1691,7 @@ async def handle_payment_flow(
                     f"⚠️ *Policy Submission Failed*\n\n"
                     f"*Error:* {err_msg}\n\n"
                     "Tap Retry to try again or go to the main menu:"
+                    f"\n\n\n{_UTILITY}"
                 ),
                 phone_number_id=phone_number_id,
                 source="payment_flow",
@@ -1695,6 +1704,7 @@ async def handle_payment_flow(
                     {"id": "pay_home",         "title": "🏠 Main menu"},
                 ],
                 phone_number_id,
+                include_utility=False,
             )
 
     # ── Catch-all ─────────────────────────────────────────────────────────────

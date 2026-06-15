@@ -241,7 +241,7 @@ async def send_welcome_message(
 
     await send_text_message(
         to=to,
-        body=welcome_body,
+        body=f"{welcome_body}\n\n\n{UTILITY_TEXT}",
         phone_number_id=phone_number_id,
         source="auto_reply",
     )
@@ -277,13 +277,6 @@ async def send_welcome_message(
     }
     result = await send_whatsapp_payload(
         whatsapp_payload=group2_payload,
-        phone_number_id=phone_number_id,
-        source="auto_reply",
-    )
-
-    await send_text_message(
-        to=to,
-        body=UTILITY_TEXT,
         phone_number_id=phone_number_id,
         source="auto_reply",
     )

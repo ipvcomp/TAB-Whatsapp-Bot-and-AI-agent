@@ -83,8 +83,7 @@ def _fmt_time_display(hhmm: str) -> str:
 
 
 async def _send_text(to: str, body: str, phone_number_id: Optional[str]):
-    await send_text_message(to=to, body=body, phone_number_id=phone_number_id, source="check_policy_flow")
-    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="check_policy_flow")
+    await send_text_message(to=to, body=f"{body}\n\n\n{_UTILITY}", phone_number_id=phone_number_id, source="check_policy_flow")
 
 
 async def _send_list(
@@ -94,10 +93,12 @@ async def _send_list(
     sections: list,
     phone_number_id: Optional[str],
     header: Optional[str] = None,
+    include_utility: bool = True,
 ):
+    text = f"{body}\n\n\n{_UTILITY}" if include_utility else body
     interactive = {
         "type": "list",
-        "body": {"text": body},
+        "body": {"text": text},
         "action": {"button": button_label, "sections": sections},
     }
     if header:
@@ -110,7 +111,6 @@ async def _send_list(
         "interactive": interactive,
     }
     await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="check_policy_flow")
-    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="check_policy_flow")
 
 
 async def _send_buttons(
@@ -119,10 +119,12 @@ async def _send_buttons(
     buttons: list,
     phone_number_id: Optional[str],
     header: Optional[str] = None,
+    include_utility: bool = True,
 ):
+    text = f"{body}\n\n\n{_UTILITY}" if include_utility else body
     interactive = {
         "type": "button",
-        "body": {"text": body},
+        "body": {"text": text},
         "action": {"buttons": [{"type": "reply", "reply": {"id": b["id"], "title": b["title"]}} for b in buttons]},
     }
     if header:
@@ -135,7 +137,6 @@ async def _send_buttons(
         "interactive": interactive,
     }
     await send_whatsapp_payload(whatsapp_payload=payload, phone_number_id=phone_number_id, source="check_policy_flow")
-    await send_text_message(to=to, body=_UTILITY, phone_number_id=phone_number_id, source="check_policy_flow")
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
@@ -629,6 +630,7 @@ async def _show_phone_policies(
                 f"🔍 Here are the *{total} {'policy' if total == 1 else 'policies'}* "
                 f"linked to your WhatsApp number.\n\n"
                 "Tap any policy below to view its details."
+                f"\n\n\n{_UTILITY}"
             ),
             phone_number_id=phone_number_id,
             source="check_policy_flow",
@@ -641,6 +643,7 @@ async def _show_phone_policies(
         [{"title": "Your Policies", "rows": rows}],
         phone_number_id,
         header="📱 My Policies",
+        include_utility=(page != 0),
     )
 
 
@@ -677,7 +680,7 @@ async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Op
 
     await send_text_message(
         to=wa_id,
-        body=f"📁 *Your Policy Details*\n\n{card_body}",
+        body=f"📁 *Your Policy Details*\n\n{card_body}\n\n\n{_UTILITY}",
         phone_number_id=phone_number_id,
         source="check_policy_flow",
     )
@@ -690,6 +693,7 @@ async def _show_detail(session: dict, wa_id: str, pol: dict, phone_number_id: Op
             {"id": "pol_all",           "title": "📋 All my policies"},
         ],
         phone_number_id,
+        include_utility=False,
     )
 
 
@@ -787,6 +791,7 @@ async def _show_document(session: dict, wa_id: str, pol: dict, phone_number_id: 
                 "⏳ Your policy document is still being prepared. "
                 "Tap *Try again* in a moment to check if it's ready, "
                 "or we'll send it to you automatically once it's ready."
+                f"\n\n\n{_UTILITY}"
             ),
             phone_number_id=phone_number_id,
             source="check_policy_flow",
@@ -798,7 +803,8 @@ async def _show_document(session: dict, wa_id: str, pol: dict, phone_number_id: 
                 {"id": "pol_back_detail", "title": "↩️ Back to Details"},
                 {"id": "pol_home",        "title": "🏠 Main Menu"},
             ],
-            phone_number_id)
+            phone_number_id,
+            include_utility=False)
         schedule_document_poll(
             wa_id=wa_id,
             policy_code=p["ref"],

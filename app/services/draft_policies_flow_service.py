@@ -164,23 +164,16 @@ async def _send_buttons(
     )
 
 
-async def _send_utility(wa_id: str, phone_number_id: Optional[str]) -> None:
+async def _send_list(wa_id: str, drafts: list, phone_number_id: Optional[str], include_utility: bool = True) -> None:
+    body = _build_list_body(drafts)
+    if include_utility:
+        body = f"{body}\n\n\n{_UTILITY}"
     await send_text_message(
         to=wa_id,
-        body=_UTILITY,
+        body=body,
         phone_number_id=phone_number_id,
         source="draft_policies_flow",
     )
-
-
-async def _send_list(wa_id: str, drafts: list, phone_number_id: Optional[str]) -> None:
-    await send_text_message(
-        to=wa_id,
-        body=_build_list_body(drafts),
-        phone_number_id=phone_number_id,
-        source="draft_policies_flow",
-    )
-    await _send_utility(wa_id, phone_number_id)
 
 
 async def _send_no_drafts(wa_id: str, phone_number_id: Optional[str]) -> None:
@@ -275,11 +268,10 @@ async def handle_draft_policies_input(
         if not valid:
             await send_text_message(
                 to=wa_id,
-                body=f"Please reply with a number between 1 and {n}.\n\n{_build_list_body(drafts)}",
+                body=f"Please reply with a number between 1 and {n}.\n\n{_build_list_body(drafts)}\n\n\n{_UTILITY}",
                 phone_number_id=phone_number_id,
                 source="draft_policies_flow",
             )
-            await _send_utility(wa_id, phone_number_id)
             return
 
         selected = drafts[chosen_idx - 1]
@@ -289,14 +281,13 @@ async def handle_draft_policies_input(
 
         await _send_buttons(
             wa_id,
-            _build_detail_card(selected),
+            f"{_build_detail_card(selected)}\n\n\n{_UTILITY}",
             [
                 {"id": "draft_continue", "title": "✅ Continue policy"},
                 {"id": "draft_delete",   "title": "🗑️ Delete policy"},
             ],
             phone_number_id,
         )
-        await _send_utility(wa_id, phone_number_id)
         return
 
     # ── Step: draft_action ─────────────────────────────────────────────────────
@@ -559,6 +550,7 @@ async def handle_draft_policies_input(
                         f"🗑️ Draft policy deleted.\n\n"
                         f"| {policy_code}\n\n"
                         f"has been removed from your drafts."
+                        f"\n\n\n{_UTILITY}"
                     ),
                     phone_number_id=phone_number_id,
                     source="draft_policies_flow",
@@ -570,7 +562,7 @@ async def handle_draft_policies_input(
                     data.pop("selected_idx", None)
                     flow["step"] = "select_draft"
                     await save_session(session)
-                    await _send_list(wa_id, new_drafts, phone_number_id)
+                    await _send_list(wa_id, new_drafts, phone_number_id, include_utility=False)
                 else:
                     flow["active"] = False
                     await save_session(session)
@@ -578,25 +570,23 @@ async def handle_draft_policies_input(
             else:
                 await send_text_message(
                     to=wa_id,
-                    body="⚠️ Could not delete the draft. Please try again later.",
+                    body=f"⚠️ Could not delete the draft. Please try again later.\n\n\n{_UTILITY}",
                     phone_number_id=phone_number_id,
                     source="draft_policies_flow",
                 )
-                await _send_utility(wa_id, phone_number_id)
             return
 
         # Unknown input at draft_action — re-show action buttons for selected draft
         if drafts and 0 < idx <= len(drafts):
             await _send_buttons(
                 wa_id,
-                _build_detail_card(drafts[idx - 1]),
+                f"{_build_detail_card(drafts[idx - 1])}\n\n\n{_UTILITY}",
                 [
                     {"id": "draft_continue", "title": "✅ Continue policy"},
                     {"id": "draft_delete",   "title": "🗑️ Delete policy"},
                 ],
                 phone_number_id,
             )
-            await _send_utility(wa_id, phone_number_id)
         return
 
     # Unknown step — restart flow
