@@ -33,7 +33,7 @@ MENU_GROUP1_BUTTONS = [
 
 MENU_GROUP2_BUTTONS = [
     {"type": "reply", "reply": {"id": "welcome_draft_policies", "title": "📑 Draft Policies"}},
-    {"type": "reply", "reply": {"id": "boarding_pass",          "title": "🛂 Boarding Pass"}},
+    {"type": "reply", "reply": {"id": "boarding_pass",          "title": "🛂 Upload Proof"}},
     {"type": "reply", "reply": {"id": "help",                   "title": "🙋 Help"}},
 ]
 

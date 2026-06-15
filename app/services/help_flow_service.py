@@ -201,9 +201,9 @@ _TOPIC_META = {
     },
     "hlp_boarding": {
         "emoji":      "🛫",
-        "title":      "Boarding Pass",
+        "title":      "Upload Proof",
         "action_id":  "hlp_act_boarding",
-        "action_btn": "Upload boarding pass →",
+        "action_btn": "Upload Proof →",
         "action_body": "Ready to upload?",
         "info": (
             "🛫 *Help — Boarding Pass Upload*\n\n"
@@ -548,7 +548,7 @@ async def start_help_flow(
         body="📋 *Policy & Travel Docs*",
         buttons=[
             {"id": "hlp_policy",   "title": "📋 My policy"},
-            {"id": "hlp_boarding", "title": "🛫 Boarding pass"},
+            {"id": "hlp_boarding", "title": "🛫 Upload Proof"},
             {"id": "hlp_claim",    "title": "🏥 Claim support"},
         ],
         phone_number_id=phone_number_id,

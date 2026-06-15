@@ -777,7 +777,7 @@ async def _show_document(session: dict, wa_id: str, pol: dict, phone_number_id: 
         await _send_buttons(wa_id,
             "What would you like to do next?",
             [
-                {"id": "pol_upload_bp",   "title": "📤 Upload Boarding Pass"},
+                {"id": "pol_upload_bp",   "title": "📤 Upload Proof"},
                 {"id": "pol_back_detail", "title": "↩️ Back to Details"},
                 {"id": "pol_home",        "title": "🏠 Main Menu"},
             ],
@@ -978,7 +978,7 @@ async def _show_eligibility(session: dict, wa_id: str, pol: dict, phone_number_i
             ).upper()
             bp_done = bp_raw_status in ("UPLOADED", "VERIFIED", "LINKED", "CONFIRMED", "APPROVED")
             if not bp_done:
-                eligible_buttons.append({"id": "pol_upload_bp", "title": "📤 Upload Boarding Pass"})
+                eligible_buttons.append({"id": "pol_upload_bp", "title": "📤 Upload Proof"})
             eligible_buttons.append({"id": "pol_back_detail", "title": "↩️ Back"})
             await _send_buttons(
                 wa_id,

@@ -331,7 +331,7 @@ async def _send_success(
         "What would you like to do next?",
         [
             {"id": "pay_view_doc",  "title": "📄 View policy doc"},
-            {"id": "pay_upload_bp", "title": "📤 Upload boarding"},
+            {"id": "pay_upload_bp", "title": "📤 Upload Proof"},
             {"id": "pay_home",      "title": "🏠 Main menu"},
         ],
         phone_number_id,
@@ -1610,7 +1610,7 @@ async def handle_payment_flow(
                 "What would you like to do next?",
                 [
                     {"id": "pay_view_doc",  "title": "📄 View policy doc"},
-                    {"id": "pay_upload_bp", "title": "📤 Upload boarding"},
+                    {"id": "pay_upload_bp", "title": "📤 Upload Proof"},
                     {"id": "pay_home",      "title": "🏠 Main menu"},
                 ],
                 phone_number_id,

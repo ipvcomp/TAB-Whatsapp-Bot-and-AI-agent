@@ -529,7 +529,7 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
             # Build up to 3 buttons in one card — no separate "More options" message
             not_elig_buttons = [{"id": "bp_keep_alerts", "title": "🔔 Keep alerts on"}]
             if not bp_already_uploaded:
-                not_elig_buttons.append({"id": "bp_upload_first", "title": "📤 Upload pass"})
+                not_elig_buttons.append({"id": "bp_upload_first", "title": "📤 Upload Proof"})
                 not_elig_buttons.append({"id": "bp_home",         "title": "🏠 Main menu"})
             else:
                 not_elig_buttons.append({"id": "bp_get_help", "title": "🧑 Get help"})
@@ -590,14 +590,14 @@ async def _show_eligibility(wa_id: str, session: dict, flow: dict, phone_number_
         if not kyc_verified:
             result_buttons.append({"id": "bp_kyc_verify", "title": "🪪 KYC Verification"})
         if not bp_already_uploaded:
-            result_buttons.append({"id": "bp_upload_first", "title": "📤 Upload Boarding Pass"})
+            result_buttons.append({"id": "bp_upload_first", "title": "📤 Upload Proof"})
         # Always include Main menu (max 3 buttons total)
         if len(result_buttons) < 3:
             result_buttons.append({"id": "bp_home", "title": "🏠 Main menu"})
     else:
         result_buttons = []
         if not bp_already_uploaded:
-            result_buttons.append({"id": "bp_upload_first", "title": "📤 Upload pass"})
+            result_buttons.append({"id": "bp_upload_first", "title": "📤 Upload Proof"})
         result_buttons.append({"id": "bp_home", "title": "🏠 Main menu"})
 
     await _send_buttons(
@@ -719,11 +719,11 @@ async def start_bp_link_flow(
     await _send_buttons(wa_id,
         "Please choose an option:",
         [
-            {"id": "bp_upload_me", "title": "📋 Upload pass"},
+            {"id": "bp_upload_me", "title": "📋 Upload Proof"},
             {"id": "bp_help",      "title": "🙋 Help"},
         ],
         phone_number_id,
-        header="🧳 Upload boarding pass")
+        header="🧳 Upload Proof")
 
 
 async def start_eligibility_check_flow(
@@ -1109,11 +1109,11 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         await _send_buttons(wa_id,
             "Please choose an option:",
             [
-                {"id": "bp_upload_me", "title": "📋 Upload pass"},
+                {"id": "bp_upload_me", "title": "📋 Upload Proof"},
                 {"id": "bp_help",      "title": "🙋 Help"},
             ],
             phone_number_id,
-            header="🧳 Upload boarding pass")
+            header="🧳 Upload Proof")
 
     elif prev == "bp_policy":
         await _show_policy_list(wa_id, session, flow,
