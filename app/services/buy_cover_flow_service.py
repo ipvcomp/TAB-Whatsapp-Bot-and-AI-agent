@@ -1,6 +1,6 @@
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import app.services.ipurvey_service as ipurvey_service
@@ -2219,11 +2219,11 @@ async def handle_buy_cover_flow(
         if data.pop("_edit_mode", False):
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
             return
-        flow["step"] = "buy_cover_date"
+        flow["step"] = "buy_cover_depart_airport_pick"
         await save_session(session)
         await _send_text(
             sender_wa_id,
-            "*📅 What date are you flying?*\n\n_Example: 12 April 2026, 12/04/2026, 12-04-2026_",
+            "*✈️ What airport are you flying from?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, ABV, KAD_",
             phone_number_id,
         )
 
@@ -2338,12 +2338,11 @@ async def handle_buy_cover_flow(
                     phone_number_id,
                 )
                 return
-            flow["step"] = "buy_cover_arrive_date"
+            flow["step"] = "buy_cover_arrive_airport_pick"
             await save_session(session)
             await _send_text(
                 sender_wa_id,
-                "*📅 What date does your flight arrive?*\n\n"
-                "_Example: 12 April 2026, 12/04/2026, 12-04-2026_",
+                "*✈️ What airport are you arriving at?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: ABV, LOS, KAN_",
                 phone_number_id,
             )
             return
@@ -2400,6 +2399,26 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
+        dep_date_str = data.get("date", "")
+        if dep_date_str:
+            try:
+                dep_gmt_val = float(data.get("dep_gmt", "1") or "1")
+                dy, dmo, dd = map(int, dep_date_str.split("-"))
+                dh, dmi = map(int, parsed_dep_time.split(":"))
+                dep_local = datetime(
+                    dy, dmo, dd, dh, dmi, tzinfo=timezone(timedelta(hours=dep_gmt_val))
+                )
+                if dep_local < datetime.now(timezone.utc):
+                    await _send_text(
+                        sender_wa_id,
+                        "⚠️ *Departure time has already passed*\n\n"
+                        "Please enter a future departure time for this airport.\n\n"
+                        "_Example: 13:40 · 1:40 PM_",
+                        phone_number_id,
+                    )
+                    return
+            except (ValueError, TypeError):
+                pass
         data["depart_time"] = parsed_dep_time
         # Track whether the user explicitly wrote "AM" so the arrival-time
         # sanity check can show a validation error instead of a PM suggestion.
@@ -2418,11 +2437,11 @@ async def handle_buy_cover_flow(
         if data.pop("_edit_mode", False):
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
             return
-        flow["step"] = "buy_cover_depart_airport_pick"
+        flow["step"] = "buy_cover_arrive_airport_pick"
         await save_session(session)
         await _send_text(
             sender_wa_id,
-            "*✈️ What airport are you flying from?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, ABV, KAD_",
+            "*✈️ What airport are you arriving at?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: ABV, LOS, KAN_",
             phone_number_id,
         )
 
@@ -2436,9 +2455,10 @@ async def handle_buy_cover_flow(
             )
             return
         elif reply_id and reply_id.startswith("dep_"):
-            parts = reply_id.replace("dep_", "", 1).split("|", 1)
+            parts = reply_id.replace("dep_", "", 1).split("|", 2)
             code = parts[0]
             name = parts[1] if len(parts) > 1 else code
+            data["dep_gmt"] = parts[2] if len(parts) > 2 else "1"
             data["depart_airport"] = f"{code} — {name}"
         elif text and len(text.strip()) >= 3:
             search_term = text.strip()
@@ -2472,7 +2492,7 @@ async def handle_buy_cover_flow(
                     logger.info(
                         f"[airport_dep] LLM extracted '{extracted}', retrying airport search"
                     )
-                    airports = await ipurvey_service.search_airports_resilient(
+                    airports = await ipurvey_service.search_airports(
                         extracted.strip(), country_code="NG"
                     )
                 if not airports:
@@ -2501,7 +2521,7 @@ async def handle_buy_cover_flow(
                     return
             rows = [
                 {
-                    "id": f"dep_{a['code']}|{a['name']}",
+                    "id": f"dep_{a['code']}|{a['name']}|{a.get('gmt', '1')}",
                     "title": f"{a['code']}  {a['name']}"[:24],
                     "description": (a.get("country") or "")[:72],
                 }
@@ -2526,14 +2546,11 @@ async def handle_buy_cover_flow(
         if data.pop("_edit_mode", False):
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
             return
-        flow["step"] = "buy_cover_arrive_date"
+        flow["step"] = "buy_cover_date"
         await save_session(session)
         await _send_text(
             sender_wa_id,
-            (
-                "*📅 What date does your flight arrive?*\n\n"
-                "_Example: 12 April 2026, 12/04/2026, 12-04-2026_"
-            ),
+            "*📅 What date are you flying?*\n\n_Example: 12 April 2026, 12/04/2026, 12-04-2026_",
             phone_number_id,
         )
 
@@ -2642,11 +2659,11 @@ async def handle_buy_cover_flow(
                     sender_wa_id, data, flow, session, phone_number_id
                 )
                 return
-            flow["step"] = "buy_cover_arrive_airport_pick"
+            flow["step"] = "buy_cover_airline"
             await save_session(session)
             await _send_text(
                 sender_wa_id,
-                "*✈️ What airport are you arriving at?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, Lagos, ABV, Abuja_",
+                "*✈️  Who are you flying with?*\n\n_Example: Ibom Air, Air Peace_",
                 phone_number_id,
             )
             return
@@ -2699,7 +2716,29 @@ async def handle_buy_cover_flow(
         dep_time = data.get("depart_time", "")
         dep_date = data.get("date", "")
         arr_date = data.get("arrive_date", dep_date)
-        if arr_date == dep_date and dep_time and parsed_arr_time <= dep_time:
+        dep_gmt_val = float(data.get("dep_gmt", "1") or "1")
+        arr_gmt_val = float(data.get("arr_gmt", "1") or "1")
+        _times_reversed = False
+        if dep_time and dep_date and arr_date:
+            try:
+                _dy, _dmo, _dd = map(int, dep_date.split("-"))
+                _ay, _amo, _ad = map(int, arr_date.split("-"))
+                _dh, _dmi = map(int, dep_time.split(":"))
+                _ah, _ami = map(int, parsed_arr_time.split(":"))
+                _dep_utc = datetime(
+                    _dy, _dmo, _dd, _dh, _dmi,
+                    tzinfo=timezone(timedelta(hours=dep_gmt_val)),
+                ).astimezone(timezone.utc)
+                _arr_utc = datetime(
+                    _ay, _amo, _ad, _ah, _ami,
+                    tzinfo=timezone(timedelta(hours=arr_gmt_val)),
+                ).astimezone(timezone.utc)
+                _times_reversed = _arr_utc <= _dep_utc
+            except (ValueError, TypeError):
+                _times_reversed = (
+                    arr_date == dep_date and bool(dep_time) and parsed_arr_time <= dep_time
+                )
+        if _times_reversed:
             # ── PM intelligence: check if switching arrival to PM fixes the gap ──
             # e.g. dep=13:00, arr=02:00 AM → arr+12h=14:00 PM → 1h flight (valid)
             _pm_arr_offered = False
@@ -2926,11 +2965,11 @@ async def handle_buy_cover_flow(
         if data.pop("_edit_mode", False):
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
             return
-        flow["step"] = "buy_cover_arrive_airport_pick"
+        flow["step"] = "buy_cover_airline"
         await save_session(session)
         await _send_text(
             sender_wa_id,
-            "*✈️ What airport are you arriving at?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, Lagos, ABV, Abuja_",
+            "*✈️  Who are you flying with?*\n\n_Example: Ibom Air, Air Peace_",
             phone_number_id,
         )
 
@@ -2963,7 +3002,7 @@ async def handle_buy_cover_flow(
         await save_session(session)
         await _send_text(
             sender_wa_id,
-            "*✈️ What airport are you arriving at?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, Lagos, ABV, Abuja_",
+            "*✈️ What airport are you arriving at?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: ABV, LOS, KAN_",
             phone_number_id,
         )
 
@@ -3003,11 +3042,11 @@ async def handle_buy_cover_flow(
         if edit_mode:
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
             return
-        flow["step"] = "buy_cover_arrive_airport_pick"
+        flow["step"] = "buy_cover_airline"
         await save_session(session)
         await _send_text(
             sender_wa_id,
-            "*✈️ What airport are you arriving at?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, Lagos, ABV, Abuja_",
+            "*✈️  Who are you flying with?*\n\n_Example: Ibom Air, Air Peace_",
             phone_number_id,
         )
 
@@ -3021,7 +3060,7 @@ async def handle_buy_cover_flow(
             )
             return
         elif reply_id and reply_id.startswith("arr_"):
-            parts = reply_id.replace("arr_", "", 1).split("|", 1)
+            parts = reply_id.replace("arr_", "", 1).split("|", 2)
             code = parts[0]
             name = parts[1] if len(parts) > 1 else code
             dep_code = data.get("depart_airport", "").split("—")[0].strip().split()[0]
@@ -3037,6 +3076,7 @@ async def handle_buy_cover_flow(
                     phone_number_id,
                 )
                 return
+            data["arr_gmt"] = parts[2] if len(parts) > 2 else "1"
             data["arrive_airport"] = f"{code} — {name}"
         elif text and len(text.strip()) >= 3:
             search_term = text.strip()
@@ -3070,7 +3110,7 @@ async def handle_buy_cover_flow(
                     logger.info(
                         f"[airport_arr] LLM extracted '{extracted}', retrying airport search"
                     )
-                    airports = await ipurvey_service.search_airports_resilient(
+                    airports = await ipurvey_service.search_airports(
                         extracted.strip(), country_code="NG"
                     )
                 if not airports:
@@ -3099,7 +3139,7 @@ async def handle_buy_cover_flow(
                     return
             rows = [
                 {
-                    "id": f"arr_{a['code']}|{a['name']}",
+                    "id": f"arr_{a['code']}|{a['name']}|{a.get('gmt', '1')}",
                     "title": f"{a['code']}  {a['name']}"[:24],
                     "description": (a.get("country") or "")[:72],
                 }
@@ -3124,11 +3164,12 @@ async def handle_buy_cover_flow(
         if data.pop("_edit_mode", False):
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
             return
-        flow["step"] = "buy_cover_airline"
+        flow["step"] = "buy_cover_arrive_date"
         await save_session(session)
         await _send_text(
             sender_wa_id,
-            "*✈️  Who are you flying with?*\n\n_Example: Ibom Air, Air Peace_",
+            "*📅 What date does your flight arrive?*\n\n"
+            "_Example: 12 April 2026, 12/04/2026, 12-04-2026_",
             phone_number_id,
         )
 
@@ -3802,15 +3843,15 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         "buy_cover_trip_type": "buy_cover_email",
         "buy_cover_booking_ref": "buy_cover_trip_type",
         "buy_cover_flight_num": "buy_cover_booking_ref",
-        "buy_cover_date": "buy_cover_flight_num",
+        "buy_cover_depart_airport_pick": "buy_cover_flight_num",     # after flight_num
+        "buy_cover_date": "buy_cover_depart_airport_pick",           # after depart_airport
         "buy_cover_depart_time": "buy_cover_date",
-        "buy_cover_depart_airport_pick": "buy_cover_depart_time",
-        "buy_cover_arrive_date": "buy_cover_depart_airport_pick",
-        "buy_cover_arrive_time": "buy_cover_arrive_date",
         "buy_cover_depart_ampm_confirm": "buy_cover_depart_time",
+        "buy_cover_arrive_airport_pick": "buy_cover_depart_time",    # after depart_time
+        "buy_cover_arrive_date": "buy_cover_arrive_airport_pick",    # after arrive_airport
+        "buy_cover_arrive_time": "buy_cover_arrive_date",
         "buy_cover_arrive_ampm_confirm": "buy_cover_arrive_time",
-        "buy_cover_arrive_airport_pick": "buy_cover_arrive_time",
-        "buy_cover_airline": "buy_cover_arrive_airport_pick",
+        "buy_cover_airline": "buy_cover_arrive_time",                # handled specially below
         "buy_cover_edit_select": "buy_cover_summary",
         "buy_cover_summary": "buy_cover_airline",
         "buy_cover_select_cover": "buy_cover_summary",
@@ -3826,6 +3867,8 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             if data.get("who") == "me_and_others"
             else "buy_cover_name"
         )
+    elif step == "buy_cover_airline":
+        prev = "buy_cover_arrive_time"
     else:
         prev = _PREV.get(step)
 

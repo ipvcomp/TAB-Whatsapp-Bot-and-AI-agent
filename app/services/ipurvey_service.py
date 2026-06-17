@@ -299,6 +299,7 @@ def _search_airports_local(query: str, country_code: Optional[str] = None) -> li
                         "code": code,
                         "name": str(airport["name"]),
                         "country": str(airport["country"]),
+                        "gmt": str(airport.get("gmt", "1")),
                     },
                 )
             )
@@ -554,7 +555,8 @@ async def search_airports(query: str, country_code: Optional[str] = None) -> lis
                 if dedup_key in seen_codes:
                     continue
                 seen_codes.add(dedup_key)
-                results.append({"code": code, "name": name, "country": country})
+                gmt = str(item.get("gmt") or "1")
+                results.append({"code": code, "name": name, "country": country, "gmt": gmt})
                 if len(results) >= 10:
                     break
 
