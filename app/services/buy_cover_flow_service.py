@@ -22,6 +22,52 @@ KYC_FLOW_KEY = "kyc_flow"
 PAYMENT_FLOW_KEY = "payment_flow"
 
 
+def _parse_llm_airport(llm_resp: Optional[dict]) -> tuple[str, str, str]:
+    """Read IATA code, GMT offset and airport name from a route-LLM response.
+
+    The LLM returns a structured `airport` object e.g.::
+
+        {"iata": "LOS", "name": "Murtala Muhammed International Airport",
+         "utc_offset_minutes": 60, "utc_offset_str": "+01:00", ...}
+
+    The IATA code is taken from `airport.iata` and falls back to the
+    `normalized_value` / `extracted_value` field when the airport object is
+    missing it. The GMT offset is derived from `utc_offset_minutes`
+    (preferred, supports half-hour zones) or `utc_offset_str`. No extra LLM
+    call is made — everything comes from this single response.
+
+    Returns ``(iata, gmt, name)``; iata/name may be empty strings if absent.
+    """
+    resp = llm_resp or {}
+    airport = resp.get("airport") or {}
+    if not isinstance(airport, dict):
+        airport = {}
+
+    iata = (
+        (airport.get("iata") or "").strip().upper()
+        or (resp.get("normalized_value") or "").strip().upper()
+        or (resp.get("extracted_value") or "").strip().upper()
+    )
+
+    gmt = "1"
+    mins = airport.get("utc_offset_minutes")
+    if mins is not None:
+        try:
+            hrs = float(mins) / 60.0
+            gmt = str(int(hrs)) if hrs == int(hrs) else str(hrs)
+        except (ValueError, TypeError):
+            pass
+    else:
+        m = re.match(r"^\s*([+-]?)(\d{1,2}):(\d{2})\s*$", str(airport.get("utc_offset_str") or ""))
+        if m:
+            sign = -1 if m.group(1) == "-" else 1
+            hrs = sign * (int(m.group(2)) + int(m.group(3)) / 60.0)
+            gmt = str(int(hrs)) if hrs == int(hrs) else str(hrs)
+
+    name = (airport.get("name") or "").strip() or iata
+    return iata, gmt, name
+
+
 def _parse_date_to_iso(date_str: str) -> Optional[str]:
     """Parse user date input → ISO YYYY-MM-DD.  Returns None if unrecognised."""
     clean = date_str.strip()
@@ -2476,18 +2522,12 @@ async def handle_buy_cover_flow(
                     question_asked="✈️ What airport are you flying from?\n\nType at least 3 characters of the airport name or IATA code to search.",
                     user_response=search_term,
                     step_type="airport",
-                    expected_format="IATA airport code, numeric UTC/GMT offset number, and airport full name, pipe-separated. Example: LOS|1|Murtala Muhammed International or JFK|-5|John F Kennedy International",
-                    validation_rules={"format": "IATA|GMT_OFFSET|AIRPORT_NAME", "include_gmt_offset": True},
+                    expected_format="Airport name or IATA code (e.g. LOS, ABV, KAN, Lagos, Abuja)",
+                    validation_rules={"min_chars": 3},
                 )
-                extracted_raw = (
-                    (llm_resp or {}).get("normalized_value")
-                    or (llm_resp or {}).get("extracted_value", "")
-                    or ""
-                )
-                llm_parts = [p.strip() for p in extracted_raw.split("|")] if extracted_raw else []
-                llm_iata = llm_parts[0].upper() if llm_parts else ""
-                llm_gmt = llm_parts[1] if len(llm_parts) > 1 else "1"
-                llm_airport_name = llm_parts[2] if len(llm_parts) > 2 else ""
+                # The LLM returns the IATA code and the GMT offset together in a
+                # single response — no separate GMT call needed.
+                llm_iata, llm_gmt, llm_airport_name = _parse_llm_airport(llm_resp)
                 if (
                     llm_resp
                     and llm_resp.get("is_valid")
@@ -3105,18 +3145,12 @@ async def handle_buy_cover_flow(
                     question_asked="✈️ What airport are you arriving at?\n\nType at least 3 characters of the airport name or IATA code to search.",
                     user_response=search_term,
                     step_type="airport",
-                    expected_format="IATA airport code, numeric UTC/GMT offset number, and airport full name, pipe-separated. Example: ABV|1|Nnamdi Azikiwe International or JFK|-5|John F Kennedy International",
-                    validation_rules={"format": "IATA|GMT_OFFSET|AIRPORT_NAME", "include_gmt_offset": True},
+                    expected_format="Airport name or IATA code (e.g. LOS, ABV, KAN, Lagos, Abuja)",
+                    validation_rules={"min_chars": 3},
                 )
-                extracted_raw = (
-                    (llm_resp or {}).get("normalized_value")
-                    or (llm_resp or {}).get("extracted_value", "")
-                    or ""
-                )
-                llm_parts = [p.strip() for p in extracted_raw.split("|")] if extracted_raw else []
-                llm_iata = llm_parts[0].upper() if llm_parts else ""
-                llm_gmt = llm_parts[1] if len(llm_parts) > 1 else "1"
-                llm_airport_name = llm_parts[2] if len(llm_parts) > 2 else ""
+                # The LLM returns the IATA code and the GMT offset together in a
+                # single response — no separate GMT call needed.
+                llm_iata, llm_gmt, llm_airport_name = _parse_llm_airport(llm_resp)
                 if (
                     llm_resp
                     and llm_resp.get("is_valid")

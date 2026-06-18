@@ -252,7 +252,8 @@ async def call_extract(
         "is_valid": False,
         "extracted_value": None,
         "normalized_value": None,
-        "guidance_message": None
+        "guidance_message": None,
+        "airport": None,
     }
 
     if action == "extract" and res.get("extracted"):
@@ -263,6 +264,10 @@ async def call_extract(
             or extracted.get("normalized")
         )
         legacy_response["normalized_value"] = extracted.get("normalized")
+        # The route LLM returns a structured airport object (iata, name,
+        # utc_offset_minutes, utc_offset_str, ...) for airport fields. Pass it
+        # through so callers can read the IATA code and GMT offset directly.
+        legacy_response["airport"] = extracted.get("airport")
     elif action == "clarify":
         clarification = res.get("clarification")
         if isinstance(clarification, dict):
@@ -331,7 +336,8 @@ async def call_policy_flow_validate(
         "is_valid": False,
         "extracted_value": None,
         "normalized_value": None,
-        "guidance_message": None
+        "guidance_message": None,
+        "airport": None,
     }
 
     if action == "extract" and res.get("extracted"):
@@ -342,6 +348,10 @@ async def call_policy_flow_validate(
             or extracted.get("normalized")
         )
         legacy_response["normalized_value"] = extracted.get("normalized")
+        # The route LLM returns a structured airport object (iata, name,
+        # utc_offset_minutes, utc_offset_str, ...) for airport fields. Pass it
+        # through so callers can read the IATA code and GMT offset directly.
+        legacy_response["airport"] = extracted.get("airport")
     elif action == "clarify":
         clarification = res.get("clarification")
         if isinstance(clarification, dict):
