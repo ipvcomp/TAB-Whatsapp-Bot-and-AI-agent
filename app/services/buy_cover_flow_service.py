@@ -2476,53 +2476,64 @@ async def handle_buy_cover_flow(
                     question_asked="✈️ What airport are you flying from?\n\nType at least 3 characters of the airport name or IATA code to search.",
                     user_response=search_term,
                     step_type="airport",
-                    expected_format="3+ alpha characters or IATA code",
-                    validation_rules={"pattern": "alpha_only", "min_len": 3},
+                    expected_format="IATA airport code, numeric UTC/GMT offset number, and airport full name, pipe-separated. Example: LOS|1|Murtala Muhammed International or JFK|-5|John F Kennedy International",
+                    validation_rules={"format": "IATA|GMT_OFFSET|AIRPORT_NAME", "include_gmt_offset": True},
                 )
-                extracted = (
+                extracted_raw = (
                     (llm_resp or {}).get("normalized_value")
                     or (llm_resp or {}).get("extracted_value", "")
+                    or ""
                 )
+                llm_parts = [p.strip() for p in extracted_raw.split("|")] if extracted_raw else []
+                llm_iata = llm_parts[0].upper() if llm_parts else ""
+                llm_gmt = llm_parts[1] if len(llm_parts) > 1 else "1"
+                llm_airport_name = llm_parts[2] if len(llm_parts) > 2 else ""
                 if (
                     llm_resp
                     and llm_resp.get("is_valid")
-                    and extracted
-                    and len(extracted.strip()) >= 3
+                    and llm_iata
+                    and len(llm_iata) >= 2
                 ):
                     logger.info(
-                        f"[airport_dep] LLM extracted '{extracted}', retrying airport search"
+                        f"[airport_dep] LLM extracted IATA='{llm_iata}' GMT='{llm_gmt}', retrying airport search"
                     )
                     airports = await ipurvey_service.search_airports(
-                        extracted.strip(), country_code="NG"
+                        llm_iata, country_code="NG"
                     )
                 if not airports:
-                    guidance = get_llm_guidance(llm_resp)
-                    if guidance:
-                        # User asked a question instead of an airport — answer
-                        # it, then re-show the original search prompt.
-                        await _send_text(sender_wa_id, guidance, phone_number_id)
-                        await _send_text(
+                    if llm_resp and llm_resp.get("is_valid") and llm_iata:
+                        logger.info(
+                            f"[airport_dep] API still empty, using LLM data: IATA={llm_iata} GMT={llm_gmt}"
+                        )
+                        airports = [{"code": llm_iata, "name": llm_airport_name, "country": "", "gmt": llm_gmt}]
+                    else:
+                        guidance = get_llm_guidance(llm_resp)
+                        if guidance:
+                            # User asked a question instead of an airport — answer
+                            # it, then re-show the original search prompt.
+                            await _send_text(sender_wa_id, guidance, phone_number_id)
+                            await _send_text(
+                                sender_wa_id,
+                                "*✈️ What airport are you flying from?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, ABV, KAD_",
+                                phone_number_id,
+                            )
+                            return
+                        await _send_buttons(
                             sender_wa_id,
-                            "*✈️ What airport are you flying from?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: LOS, ABV, KAD_",
+                            (
+                                f'❌ *No airports found matching "{search_term}"*\n\n'
+                                "We couldn't find any Nigerian airport matching your entry.\n"
+                                "Please check the spelling or try a different name or IATA code.\n\n"
+                                "_Example: LOS, ABV, KAD, PHC_"
+                            ),
+                            [{"id": "dep_search_again", "title": "🔍 Search again"}],
                             phone_number_id,
                         )
                         return
-                    await _send_buttons(
-                        sender_wa_id,
-                        (
-                            f'❌ *No airports found matching "{search_term}"*\n\n'
-                            "We couldn't find any Nigerian airport matching your entry.\n"
-                            "Please check the spelling or try a different name or IATA code.\n\n"
-                            "_Example: LOS, ABV, KAD, PHC_"
-                        ),
-                        [{"id": "dep_search_again", "title": "🔍 Search again"}],
-                        phone_number_id,
-                    )
-                    return
             rows = [
                 {
                     "id": f"dep_{a['code']}|{a['name']}|{a.get('gmt', '1')}",
-                    "title": f"{a['code']}  {a['name']}"[:24],
+                    "title": (f"{a['code']}  {a['name']}".strip() if a.get("name") else a["code"])[:24],
                     "description": (a.get("country") or "")[:72],
                 }
                 for a in airports
@@ -3094,53 +3105,64 @@ async def handle_buy_cover_flow(
                     question_asked="✈️ What airport are you arriving at?\n\nType at least 3 characters of the airport name or IATA code to search.",
                     user_response=search_term,
                     step_type="airport",
-                    expected_format="3+ alpha characters or IATA code",
-                    validation_rules={"pattern": "alpha_only", "min_len": 3},
+                    expected_format="IATA airport code, numeric UTC/GMT offset number, and airport full name, pipe-separated. Example: ABV|1|Nnamdi Azikiwe International or JFK|-5|John F Kennedy International",
+                    validation_rules={"format": "IATA|GMT_OFFSET|AIRPORT_NAME", "include_gmt_offset": True},
                 )
-                extracted = (
+                extracted_raw = (
                     (llm_resp or {}).get("normalized_value")
                     or (llm_resp or {}).get("extracted_value", "")
+                    or ""
                 )
+                llm_parts = [p.strip() for p in extracted_raw.split("|")] if extracted_raw else []
+                llm_iata = llm_parts[0].upper() if llm_parts else ""
+                llm_gmt = llm_parts[1] if len(llm_parts) > 1 else "1"
+                llm_airport_name = llm_parts[2] if len(llm_parts) > 2 else ""
                 if (
                     llm_resp
                     and llm_resp.get("is_valid")
-                    and extracted
-                    and len(extracted.strip()) >= 3
+                    and llm_iata
+                    and len(llm_iata) >= 2
                 ):
                     logger.info(
-                        f"[airport_arr] LLM extracted '{extracted}', retrying airport search"
+                        f"[airport_arr] LLM extracted IATA='{llm_iata}' GMT='{llm_gmt}', retrying airport search"
                     )
                     airports = await ipurvey_service.search_airports(
-                        extracted.strip(), country_code="NG"
+                        llm_iata, country_code="NG"
                     )
                 if not airports:
-                    guidance = get_llm_guidance(llm_resp)
-                    if guidance:
-                        # User asked a question instead of an airport — answer
-                        # it, then re-show the original search prompt.
-                        await _send_text(sender_wa_id, guidance, phone_number_id)
-                        await _send_text(
+                    if llm_resp and llm_resp.get("is_valid") and llm_iata:
+                        logger.info(
+                            f"[airport_arr] API still empty, using LLM data: IATA={llm_iata} GMT={llm_gmt}"
+                        )
+                        airports = [{"code": llm_iata, "name": llm_airport_name, "country": "", "gmt": llm_gmt}]
+                    else:
+                        guidance = get_llm_guidance(llm_resp)
+                        if guidance:
+                            # User asked a question instead of an airport — answer
+                            # it, then re-show the original search prompt.
+                            await _send_text(sender_wa_id, guidance, phone_number_id)
+                            await _send_text(
+                                sender_wa_id,
+                                "*✈️ What airport are you arriving at?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: ABV, LOS, KAN_",
+                                phone_number_id,
+                            )
+                            return
+                        await _send_buttons(
                             sender_wa_id,
-                            "*✈️ What airport are you arriving at?*\n\nType at least 3 characters of the airport name or IATA code to search.\n\n_Example: ABV, LOS, KAN_",
+                            (
+                                f'❌ *No airports found matching "{search_term}"*\n\n'
+                                "We couldn't find any Nigerian airport matching your entry.\n"
+                                "Please check the spelling or try a different name or IATA code.\n\n"
+                                "_Example: ABV, LOS, KAN, PHC_"
+                            ),
+                            [{"id": "arr_search_again", "title": "🔍 Search again"}],
                             phone_number_id,
                         )
                         return
-                    await _send_buttons(
-                        sender_wa_id,
-                        (
-                            f'❌ *No airports found matching "{search_term}"*\n\n'
-                            "We couldn't find any Nigerian airport matching your entry.\n"
-                            "Please check the spelling or try a different name or IATA code.\n\n"
-                            "_Example: ABV, LOS, KAN, PHC_"
-                        ),
-                        [{"id": "arr_search_again", "title": "🔍 Search again"}],
-                        phone_number_id,
-                    )
-                    return
             rows = [
                 {
                     "id": f"arr_{a['code']}|{a['name']}|{a.get('gmt', '1')}",
-                    "title": f"{a['code']}  {a['name']}"[:24],
+                    "title": (f"{a['code']}  {a['name']}".strip() if a.get("name") else a["code"])[:24],
                     "description": (a.get("country") or "")[:72],
                 }
                 for a in airports
