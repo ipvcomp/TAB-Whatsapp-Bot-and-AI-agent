@@ -38,7 +38,6 @@ MENU_GROUP2_BUTTONS = [
 ]
 
 UTILITY_TEXT = (
-    "*Utility options:*\n"
     "0 ↩️ Back  |  9 🆘 Help  |  00 🏠 Main menu\n"
     "99 ❌ Cancel/Exit"
 )

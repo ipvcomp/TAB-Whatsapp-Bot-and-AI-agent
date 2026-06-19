@@ -64,7 +64,6 @@ async def _reset(session: dict):
 
 
 _UTILITY = (
-    "*Utility options:*\n"
     "0 ↩️ Back  |  9 🆘 Help  |  00 🏠 Main menu\n"
     "99 ❌ Cancel/Exit"
 )

@@ -919,7 +919,7 @@ async def _send_edit_menu(to: str, phone_number_id: Optional[str], page: int = 1
 
 
 _UTILITY = (
-    "*Utility options:*\n0 ↩️ Back  |  9 🆘 Help  |  00 🏠 Main menu\n99 ❌ Cancel/Exit"
+    "0 ↩️ Back  |  9 🆘 Help  |  00 🏠 Main menu\n99 ❌ Cancel/Exit"
 )
 
 
@@ -933,8 +933,10 @@ async def _send_text(to: str, body: str, phone_number_id: Optional[str]):
 
 
 async def _send_buttons(
-    to: str, body: str, buttons: list, phone_number_id: Optional[str]
+    to: str, body: str, buttons: list, phone_number_id: Optional[str],
+    *, include_utility: bool = True,
 ):
+    _body_text = f"{body}\n\n\n{_UTILITY}" if include_utility else body
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
@@ -942,7 +944,7 @@ async def _send_buttons(
         "type": "interactive",
         "interactive": {
             "type": "button",
-            "body": {"text": f"{body}\n\n\n{_UTILITY}"},
+            "body": {"text": _body_text},
             "action": {
                 "buttons": [
                     {"type": "reply", "reply": {"id": b["id"], "title": b["title"]}}
@@ -1090,6 +1092,72 @@ async def _send_cover_page(
         [{"title": "🛡️ Available Covers", "rows": rows}],
         phone_number_id,
         header="🛡️ Select from available cover(s)",
+    )
+
+
+async def _finish_cover_selection(
+    sender_wa_id: str,
+    session: dict,
+    flow: dict,
+    data: dict,
+    quote: dict,
+    phone_number_id: Optional[str],
+    *,
+    retry_id: Optional[str] = None,
+) -> None:
+    """Select a cover via API, save the policy code, and advance to next_steps.
+
+    Shared by both the single-quote auto-path and the multi-quote user-pick path
+    so the selection + error logic is never duplicated.
+    """
+    prod_id = quote.get("productId") or quote.get("id") or ""
+    q_name = str(quote.get("name") or quote.get("productName") or "Selected cover")
+    q_price = quote.get("price") or quote.get("premiumAmount") or 0
+    data["cover"] = q_name
+    data["cover_price"] = q_price
+    data["selected_quote"] = quote
+
+    policy_id = session.get("api_data", {}).get("policy_id")
+    if policy_id and prod_id:
+        _retry_btn = [{"id": retry_id or "summary_confirm", "title": "🔄 Try again"}]
+        try:
+            policy_code = await ipurvey_service.select_cover(policy_id, prod_id)
+            if policy_code:
+                session.setdefault("api_data", {})["policy_code"] = policy_code
+                logger.info(f"[buy_cover] saved policyCode='{policy_code}'")
+            else:
+                logger.error(
+                    f"[buy_cover] select_cover returned no policyCode for productId='{prod_id}'"
+                )
+                await _send_buttons(
+                    sender_wa_id,
+                    "⚠️ *We couldn't confirm your cover selection*\n\nPlease try selecting it again",
+                    _retry_btn,
+                    phone_number_id,
+                )
+                return
+        except Exception as exc:
+            logger.error(f"[buy_cover] select_cover API failed: {exc}")
+            await _send_buttons(
+                sender_wa_id,
+                "⚠️ *We're unable to complete that right now*\n\nPlease try again shortly",
+                _retry_btn,
+                phone_number_id,
+            )
+            return
+
+    flow["step"] = "buy_cover_next_steps"
+    flow["active"] = True
+    await save_session(session)
+    await _send_buttons(
+        sender_wa_id,
+        _build_cover_card_body(data),
+        [
+            {"id": "next_kyc", "title": "🛒 Buy Cover"},
+            {"id": "next_terms", "title": "📄 View Policy Terms"},
+            {"id": "next_ask", "title": "❓ Ask a Question"},
+        ],
+        phone_number_id,
     )
 
 
@@ -3603,9 +3671,16 @@ async def handle_buy_cover_flow(
             return
 
         session.setdefault("api_data", {})["quotes"] = quotes
-        flow["step"] = "buy_cover_select_cover"
-        await save_session(session)
-        await _send_cover_page(sender_wa_id, quotes, 0, phone_number_id)
+        if len(quotes) == 1:
+            # Only one cover available — skip the selection list entirely and
+            # auto-confirm it, saving the user an unnecessary extra tap.
+            await _finish_cover_selection(
+                sender_wa_id, session, flow, data, quotes[0], phone_number_id
+            )
+        else:
+            flow["step"] = "buy_cover_select_cover"
+            await save_session(session)
+            await _send_cover_page(sender_wa_id, quotes, 0, phone_number_id)
 
     # ── Select cover (from real quotes) ───────────────────────────────────────
     elif step == "buy_cover_select_cover":
@@ -3620,62 +3695,13 @@ async def handle_buy_cover_flow(
             return
 
         selected_q = None
+        selected_idx = None
         if reply_id and reply_id.startswith("cov_"):
             try:
                 idx = int(reply_id.split("_")[1])
                 if 0 <= idx < len(quotes):
                     selected_q = quotes[idx]
-                    prod_id = selected_q.get("productId") or selected_q.get("id") or ""
-                    q_name = str(
-                        selected_q.get("name")
-                        or selected_q.get("productName")
-                        or "Selected cover"
-                    )
-                    q_price = (
-                        selected_q.get("price") or selected_q.get("premiumAmount") or 0
-                    )
-                    data["cover"] = q_name
-                    data["cover_price"] = q_price
-                    data["selected_quote"] = selected_q
-                    policy_id = session.get("api_data", {}).get("policy_id")
-                    if policy_id and prod_id:
-                        try:
-                            policy_code = await ipurvey_service.select_cover(
-                                policy_id, prod_id
-                            )
-                            if policy_code:
-                                session.setdefault("api_data", {})["policy_code"] = (
-                                    policy_code
-                                )
-                                logger.info(
-                                    f"[buy_cover] saved policyCode='{policy_code}'"
-                                )
-                            else:
-                                logger.error(
-                                    f"[buy_cover] select_cover returned no policyCode for productId='{prod_id}'"
-                                )
-                                await _send_buttons(
-                                    sender_wa_id,
-                                    (
-                                        "⚠️ *We couldn't confirm your cover selection*\n\n"
-                                        "Please try selecting it again"
-                                    ),
-                                    [{"id": f"cov_{idx}", "title": "🔄 Try again"}],
-                                    phone_number_id,
-                                )
-                                return
-                        except Exception as exc:
-                            logger.error(f"[buy_cover] select_cover API failed: {exc}")
-                            await _send_buttons(
-                                sender_wa_id,
-                                (
-                                    "⚠️ *We're unable to complete that right now*\n\n"
-                                    "Please try again shortly"
-                                ),
-                                [{"id": f"cov_{idx}", "title": "🔄 Try again"}],
-                                phone_number_id,
-                            )
-                            return
+                    selected_idx = idx
             except (ValueError, IndexError):
                 pass
         if not selected_q:
@@ -3700,18 +3726,9 @@ async def handle_buy_cover_flow(
                     phone_number_id,
                 )
             return
-        flow["step"] = "buy_cover_next_steps"
-        flow["active"] = True
-        await save_session(session)
-        await _send_buttons(
-            sender_wa_id,
-            _build_cover_card_body(data),
-            [
-                {"id": "next_kyc", "title": "🛒 Buy Cover"},
-                {"id": "next_terms", "title": "📄 View Policy Terms"},
-                {"id": "next_ask", "title": "❓ Ask a Question"},
-            ],
-            phone_number_id,
+        await _finish_cover_selection(
+            sender_wa_id, session, flow, data, selected_q, phone_number_id,
+            retry_id=f"cov_{selected_idx}" if selected_idx is not None else None,
         )
 
     # ── Next steps ────────────────────────────────────────────────────────────

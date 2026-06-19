@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 DRAFT_POLICIES_FLOW_KEY = "draft_policies_flow"
 
 _UTILITY = (
-    "*Utility options:*\n"
     "0 ↩️ Back  |  9 🆘 Help  |  00 🏠 Main menu\n"
     "99 ❌ Cancel/Exit"
 )

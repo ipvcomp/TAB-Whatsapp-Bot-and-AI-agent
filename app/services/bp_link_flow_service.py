@@ -68,7 +68,6 @@ async def _get_flow_state(wa_id: str) -> tuple:
 
 
 _UTILITY = (
-    "*Utility options:*\n"
     "0 ↩️ Back  |  9 🆘 Help  |  00 🏠 Main menu\n"
     "99 ❌ Cancel/Exit"
 )

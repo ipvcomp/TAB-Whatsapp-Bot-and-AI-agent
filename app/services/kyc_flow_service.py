@@ -34,7 +34,7 @@ def _mask_id(val: str) -> str:
 
 
 _UTILITY = (
-    "*Utility options:*\n0 ↩️ Back  |  9 🆘 Help  |  00 🏠 Main menu\n99 ❌ Cancel/Exit"
+    "0 ↩️ Back  |  9 🆘 Help  |  00 🏠 Main menu\n99 ❌ Cancel/Exit"
 )
 
 
