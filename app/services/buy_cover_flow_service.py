@@ -2570,22 +2570,35 @@ async def handle_buy_cover_flow(
                             phone_number_id,
                         )
                         return
-            rows = [
-                {
-                    "id": f"dep_{a['code']}|{a['name']}|{a.get('gmt', '1')}",
-                    "title": (f"{a['code']}  {a['name']}".strip() if a.get("name") else a["code"])[:24],
-                    "description": (a.get("country") or "")[:72],
-                }
-                for a in airports
-            ]
-            rows.append({"id": "dep_search_again", "title": "🔍 Search again"})
-            await _send_list(
-                sender_wa_id,
-                "Found these matches! ✈️ Please select your airport below.\n\nNot on the list? Try searching again.",
-                "Select airport",
-                [{"title": "🛫 Departure Airports", "rows": rows}],
-                phone_number_id,
-            )
+            if len(airports) == 1:
+                a = airports[0]
+                airport_name = a.get("name") or a["code"]
+                await _send_buttons(
+                    sender_wa_id,
+                    f"Found a match! ✈️\n\n*{a['code']}* — {airport_name}\n\nConfirm this airport or search again.",
+                    [
+                        {"id": f"dep_{a['code']}|{a['name']}|{a.get('gmt', '1')}", "title": f"✓ {a['code']}"},
+                        {"id": "dep_search_again", "title": "🔍 Search again"},
+                    ],
+                    phone_number_id,
+                )
+            else:
+                rows = [
+                    {
+                        "id": f"dep_{a['code']}|{a['name']}|{a.get('gmt', '1')}",
+                        "title": a["code"],
+                        "description": (a.get("name") or "")[:72],
+                    }
+                    for a in airports
+                ]
+                rows.append({"id": "dep_search_again", "title": "🔍 Search again"})
+                await _send_list(
+                    sender_wa_id,
+                    "Found these matches! ✈️ Please select your airport below.\n\nNot on the list? Try searching again.",
+                    "Select airport",
+                    [{"title": "🛫 Departure Airports", "rows": rows}],
+                    phone_number_id,
+                )
             return
         else:
             await _send_text(
@@ -3193,22 +3206,35 @@ async def handle_buy_cover_flow(
                             phone_number_id,
                         )
                         return
-            rows = [
-                {
-                    "id": f"arr_{a['code']}|{a['name']}|{a.get('gmt', '1')}",
-                    "title": (f"{a['code']}  {a['name']}".strip() if a.get("name") else a["code"])[:24],
-                    "description": (a.get("country") or "")[:72],
-                }
-                for a in airports
-            ]
-            rows.append({"id": "arr_search_again", "title": "🔍 Search again"})
-            await _send_list(
-                sender_wa_id,
-                "Found these matches! ✈️ Please select your airport below.\n\nNot on the list? Try searching again.",
-                "Select airport",
-                [{"title": "🛬 Arrival Airports", "rows": rows}],
-                phone_number_id,
-            )
+            if len(airports) == 1:
+                a = airports[0]
+                airport_name = a.get("name") or a["code"]
+                await _send_buttons(
+                    sender_wa_id,
+                    f"Found a match! ✈️\n\n*{a['code']}* — {airport_name}\n\nConfirm this airport or search again.",
+                    [
+                        {"id": f"arr_{a['code']}|{a['name']}|{a.get('gmt', '1')}", "title": f"✓ {a['code']}"},
+                        {"id": "arr_search_again", "title": "🔍 Search again"},
+                    ],
+                    phone_number_id,
+                )
+            else:
+                rows = [
+                    {
+                        "id": f"arr_{a['code']}|{a['name']}|{a.get('gmt', '1')}",
+                        "title": a["code"],
+                        "description": (a.get("name") or "")[:72],
+                    }
+                    for a in airports
+                ]
+                rows.append({"id": "arr_search_again", "title": "🔍 Search again"})
+                await _send_list(
+                    sender_wa_id,
+                    "Found these matches! ✈️ Please select your airport below.\n\nNot on the list? Try searching again.",
+                    "Select airport",
+                    [{"title": "🛬 Arrival Airports", "rows": rows}],
+                    phone_number_id,
+                )
             return
         else:
             await _send_text(

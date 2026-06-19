@@ -23,7 +23,14 @@ with open(APP_LOG_PATH, "w", encoding="utf-8"):
 
 _log_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-_file_handler = RotatingFileHandler(
+class _FlushingRotatingFileHandler(RotatingFileHandler):
+    """Flush after every record so app.log stays in sync with the console."""
+    def emit(self, record):
+        super().emit(record)
+        self.flush()
+
+
+_file_handler = _FlushingRotatingFileHandler(
     APP_LOG_PATH,
     maxBytes=5 * 1024 * 1024,  # 5 MB per file
     backupCount=5,
