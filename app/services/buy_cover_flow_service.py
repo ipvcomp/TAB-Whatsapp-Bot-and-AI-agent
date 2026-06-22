@@ -69,24 +69,65 @@ def _parse_llm_airport(llm_resp: Optional[dict]) -> tuple[str, str, str]:
 
 
 def _parse_date_to_iso(date_str: str) -> Optional[str]:
-    """Parse user date input → ISO YYYY-MM-DD.  Returns None if unrecognised."""
+    """Parse user date input → ISO YYYY-MM-DD.  Returns None if unrecognised.
+
+    Robust against the many shapes users (and the LLM normaliser) produce:
+    named months, any separator (space / - . /), 2- or 4-digit years, and an
+    ISO value with a trailing time component (e.g. ``2026-06-23T00:00:00``).
+    """
     clean = date_str.strip()
     # Strip ordinal suffixes: "14th" → "14", "1st" → "1", "3rd" → "3"
     clean = re.sub(r"(\d+)(st|nd|rd|th)\b", r"\1", clean, flags=re.IGNORECASE)
+    # Drop a trailing time component the LLM sometimes appends:
+    #   "2026-06-23T00:00:00" / "2026-06-23 00:00:00" / "23/06/2026 13:40"
+    clean = re.sub(
+        r"[T\s]+\d{1,2}:\d{2}(:\d{2})?(\.\d+)?(\s*[AaPp][Mm])?(\s*[A-Za-z+\-:0-9]*)?$",
+        "",
+        clean,
+    ).strip()
+
+    # 1) Explicit formats — named months and the common numeric separators.
     for fmt in [
         "%d %B %Y",  # 12 April 2026 / 14th May 2026
         "%d %b %Y",  # 12 Apr 2026
+        "%B %d, %Y",  # April 12, 2026
+        "%b %d, %Y",  # Apr 12, 2026
+        "%B %d %Y",  # April 12 2026
+        "%b %d %Y",  # Apr 12 2026
+        "%d %m %Y",  # 23 06 2026  (space-separated numeric)
+        "%d %m %y",  # 23 06 26
         "%d/%m/%Y",  # 12/04/2026
         "%d-%m-%Y",  # 12-04-2026
+        "%d.%m.%Y",  # 12.04.2026
         "%d/%m/%y",  # 12/04/26
         "%d-%m-%y",  # 12-04-26
-        "%B %d, %Y",  # April 12, 2026
+        "%d.%m.%y",  # 12.04.26
         "%Y-%m-%d",  # 2026-05-15 (ISO input)
+        "%Y/%m/%d",  # 2026/05/15
     ]:
         try:
             return datetime.strptime(clean, fmt).strftime("%Y-%m-%d")
         except ValueError:
             continue
+
+    # 2) Numeric fallback — three numeric groups with any separator(s).
+    #    Locale order is day-month-year; a 4-digit / >31 leading group is a year.
+    nums = re.findall(r"\d+", clean)
+    if len(nums) == 3 and not re.search(r"[A-Za-z]", clean):
+        a, b, c = (int(n) for n in nums)
+        if len(nums[0]) == 4 or a > 31:
+            year, month, day = a, b, c  # YYYY MM DD
+        else:
+            day, month, year = a, b, c  # DD MM YYYY (locale order)
+            if year < 100:
+                year += 2000
+            # Tolerate accidental US order (MM DD YYYY) when unambiguous.
+            if month > 12 and day <= 12:
+                day, month = month, day
+        try:
+            return datetime(year, month, day).strftime("%Y-%m-%d")
+        except ValueError:
+            return None
     return None
 
 
@@ -143,7 +184,12 @@ async def _extract_date_with_llm(
     field_name: str,
     question_asked: str,
 ) -> tuple[Optional[str], Optional[str]]:
-    """Use the route LLM to extract a date only when direct parsing failed."""
+    """Use the route LLM to extract a date only when direct parsing failed.
+
+    Tries the parser on both the raw ``extracted_value`` and the LLM-supplied
+    ``normalized_value`` (ISO format) so that either can succeed.
+    Both values are logged for debugging.
+    """
     llm_result = await call_extract(
         user_id=user_id,
         field_name=field_name,
@@ -151,14 +197,29 @@ async def _extract_date_with_llm(
         user_response=user_response,
         expected_format="date",
     )
-    if (
-        llm_result
-        and llm_result.get("is_valid")
-        and llm_result.get("extracted_value")
-    ):
-        extracted_date = _parse_date_to_iso(str(llm_result["extracted_value"]))
-        if extracted_date:
-            return extracted_date, None
+    if llm_result and llm_result.get("is_valid"):
+        raw_value = llm_result.get("extracted_value")
+        norm_value = llm_result.get("normalized_value")
+        logger.info(
+            f"[buy_cover] LLM date extraction for {field_name}: "
+            f"value={raw_value!r}, normalized={norm_value!r}"
+        )
+        # 1) Try parser on raw extracted_value first
+        if raw_value:
+            extracted_date = _parse_date_to_iso(str(raw_value))
+            if extracted_date:
+                logger.info(f"[buy_cover] Date parsed from value: {extracted_date}")
+                return extracted_date, None
+        # 2) Fallback: try parser on normalized_value (LLM returns ISO here)
+        if norm_value:
+            extracted_date = _parse_date_to_iso(str(norm_value))
+            if extracted_date:
+                logger.info(f"[buy_cover] Date parsed from normalized: {extracted_date}")
+                return extracted_date, None
+        logger.warning(
+            f"[buy_cover] LLM returned is_valid but parser failed both value={raw_value!r} "
+            f"and normalized={norm_value!r} for field {field_name}"
+        )
     if llm_result and llm_result.get("guidance_message"):
         return None, str(llm_result["guidance_message"]).strip()
     return None, None
@@ -170,7 +231,12 @@ async def _extract_time_with_llm(
     field_name: str,
     question_asked: str,
 ) -> tuple[Optional[str], Optional[str]]:
-    """Use the route LLM to extract a time only when direct parsing failed."""
+    """Use the route LLM to extract a time only when direct parsing failed.
+
+    Tries the parser on both the raw ``extracted_value`` and the LLM-supplied
+    ``normalized_value`` so that either can succeed.
+    Both values are logged for debugging.
+    """
     llm_result = await call_extract(
         user_id=user_id,
         field_name=field_name,
@@ -178,14 +244,29 @@ async def _extract_time_with_llm(
         user_response=user_response,
         expected_format="time",
     )
-    if (
-        llm_result
-        and llm_result.get("is_valid")
-        and llm_result.get("extracted_value")
-    ):
-        extracted_time = _parse_time_to_hhmm(str(llm_result["extracted_value"]))
-        if extracted_time:
-            return extracted_time, None
+    if llm_result and llm_result.get("is_valid"):
+        raw_value = llm_result.get("extracted_value")
+        norm_value = llm_result.get("normalized_value")
+        logger.info(
+            f"[buy_cover] LLM time extraction for {field_name}: "
+            f"value={raw_value!r}, normalized={norm_value!r}"
+        )
+        # 1) Try parser on raw extracted_value first
+        if raw_value:
+            extracted_time = _parse_time_to_hhmm(str(raw_value))
+            if extracted_time:
+                logger.info(f"[buy_cover] Time parsed from value: {extracted_time}")
+                return extracted_time, None
+        # 2) Fallback: try parser on normalized_value
+        if norm_value:
+            extracted_time = _parse_time_to_hhmm(str(norm_value))
+            if extracted_time:
+                logger.info(f"[buy_cover] Time parsed from normalized: {extracted_time}")
+                return extracted_time, None
+        logger.warning(
+            f"[buy_cover] LLM returned is_valid but parser failed both value={raw_value!r} "
+            f"and normalized={norm_value!r} for field {field_name}"
+        )
     if llm_result and llm_result.get("guidance_message"):
         return None, str(llm_result["guidance_message"]).strip()
     return None, None
@@ -933,10 +1014,8 @@ async def _send_text(to: str, body: str, phone_number_id: Optional[str]):
 
 
 async def _send_buttons(
-    to: str, body: str, buttons: list, phone_number_id: Optional[str],
-    *, include_utility: bool = True,
+    to: str, body: str, buttons: list, phone_number_id: Optional[str]
 ):
-    _body_text = f"{body}\n\n\n{_UTILITY}" if include_utility else body
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
@@ -944,7 +1023,7 @@ async def _send_buttons(
         "type": "interactive",
         "interactive": {
             "type": "button",
-            "body": {"text": _body_text},
+            "body": {"text": f"{body}\n\n\n{_UTILITY}"},
             "action": {
                 "buttons": [
                     {"type": "reply", "reply": {"id": b["id"], "title": b["title"]}}
