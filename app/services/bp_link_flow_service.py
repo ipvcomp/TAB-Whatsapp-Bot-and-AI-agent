@@ -3,6 +3,7 @@ from typing import Optional
 
 import app.services.ipurvey_service as ipurvey_service
 from app.services.whatsapp_service import download_whatsapp_media
+from app.services.llm_service import call_policy_flow_validate, get_llm_guidance
 
 from app.services.session_service import (
     get_session,
@@ -970,10 +971,61 @@ async def handle_bp_link_flow(
             await save_session(session)
             await _show_upload_confirmed(sender_wa_id, session, flow, phone_number_id)
         else:
-            await _send_text(sender_wa_id,
+            # User sent text instead of a file.
+            # Pass rich context to LLM so it knows:
+            #   1. No file was received (file_received=False)
+            #   2. We are in boarding pass upload step
+            #   3. How to respond to different intents (claim/waiting/question)
+            user_text = text.strip() if text else ""
+            llm_resp = None
+            if user_text:
+                llm_resp = await call_policy_flow_validate(
+                    field_name="boarding_pass_upload",
+                    question_asked=(
+                        "Please upload a clear image or PDF of your boarding pass. "
+                        "Make sure we can see: Passenger name, Booking reference, "
+                        "Airport details, Flight number, Travel date. "
+                        "Accepted formats: JPEG, PDF, GIF, TIFF, PNG. Maximum 20 MB."
+                    ),
+                    user_response=user_text,
+                    step_type="text",
+                    context="boarding_pass_upload",
+                    validation_rules={
+                        "file_received": False,
+                        "awaiting_file_upload": True,
+                        "note": (
+                            "User was asked to upload a boarding pass image or PDF. "
+                            "User sent a text message but NO file or attachment was received by the bot. "
+                            "Respond based on user intent: "
+                            "if they claim to have uploaded (e.g. done, sent, already, kar di), "
+                            "tell them you have not received it yet and ask them to try attaching again; "
+                            "if they need more time (e.g. give me a minute, wait, ok, coming), "
+                            "tell them no problem you will wait; "
+                            "if they ask a question, answer it then remind them to upload."
+                        ),
+                    },
+                    context_data={
+                        "step": "bp_awaiting_doc",
+                        "file_received": False,
+                        "awaiting_boarding_pass": True,
+                    },
+                )
+                logger.info(
+                    "[bp_link] LLM text-intent response for %s: action=%s guidance=%r",
+                    sender_wa_id[:4] + "****",
+                    (llm_resp or {}).get("action"),
+                    get_llm_guidance(llm_resp) if llm_resp else None,
+                )
+            guidance = get_llm_guidance(llm_resp) if llm_resp else None
+            if guidance:
+                # LLM answered/guided — show it, then re-prompt for the file.
+                await _send_text(sender_wa_id, guidance, phone_number_id)
+            await _send_text(
+                sender_wa_id,
                 "⚠️ Please *send an image or PDF* of your boarding pass.\n\n"
                 + UPLOAD_INSTRUCTIONS,
-                phone_number_id)
+                phone_number_id,
+            )
 
     # ── Screen 4 (Path A): After upload confirmed ─────────────────────────────
     elif step == "bp_upload_done":
