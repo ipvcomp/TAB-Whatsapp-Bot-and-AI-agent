@@ -789,6 +789,28 @@ async def _redisplay_step(
             phone_number_id,
         )
 
+    elif step == "buy_cover_returning_name":
+        prefill = session.get("api_data", {}).get("prefill_name", "")
+        if prefill:
+            await _send_buttons(
+                wa_id,
+                f"👋 *Welcome back!*\n\nWe found your account.\n\nIs this the main passenger?\n\n*{prefill}*",
+                [
+                    {"id": "returning_name_yes", "title": "✅ Yes, that's me"},
+                    {"id": "returning_name_no", "title": "✏️ Different name"},
+                ],
+                phone_number_id,
+            )
+        else:
+            await _send_text(
+                wa_id,
+                "👤 👑 *Enter main passenger name*\n"
+                "Enter first name and surname as it appears on the ticket.\n\n"
+                "ℹ️ This person is the main passenger.\n\n"
+                "_Example: Yusuf Usman_",
+                phone_number_id,
+            )
+
     elif step == "buy_cover_other_name":
         collected = len(data.get("travelers", []))
         total = data.get("others_count", 1) + 1
@@ -809,6 +831,28 @@ async def _redisplay_step(
             "_Example: yusuf@email.com_",
             phone_number_id,
         )
+
+    elif step == "buy_cover_returning_email":
+        prefill = session.get("api_data", {}).get("prefill_email", "")
+        if prefill:
+            await _send_buttons(
+                wa_id,
+                f"📧 *We found your registered email:*\n\n*{prefill}*\n\nUse this for your policy documents?",
+                [
+                    {"id": "returning_email_yes", "title": "✅ Yes, use this"},
+                    {"id": "returning_email_no", "title": "✏️ Different email"},
+                ],
+                phone_number_id,
+            )
+        else:
+            n = f"*{name}*\n\n" if name else ""
+            await _send_text(
+                wa_id,
+                f"{n}*📧 Please enter your email address*\n"
+                "So we can send your policy documents\n\n"
+                "_Example: yusuf@email.com_",
+                phone_number_id,
+            )
 
     elif step == "buy_cover_trip_type":
         await _send_trip_type_buttons(wa_id, phone_number_id)
@@ -1240,6 +1284,71 @@ async def _finish_cover_selection(
     )
 
 
+async def _advance_to_name_step(
+    wa_id: str,
+    session: dict,
+    flow: dict,
+    api_data: dict,
+    phone_number_id: Optional[str],
+) -> None:
+    prefill = (api_data.get("prefill_name") or "").strip()
+    if prefill:
+        flow["step"] = "buy_cover_returning_name"
+        await save_session(session)
+        await _send_buttons(
+            wa_id,
+            f"👋 *Welcome back!*\n\nWe found your account.\n\nIs this the main passenger?\n\n*{prefill}*",
+            [
+                {"id": "returning_name_yes", "title": "✅ Yes, that's me"},
+                {"id": "returning_name_no", "title": "✏️ Different name"},
+            ],
+            phone_number_id,
+        )
+    else:
+        flow["step"] = "buy_cover_name"
+        await save_session(session)
+        await _send_text(
+            wa_id,
+            "👤 👑 *Enter main passenger name*\n"
+            "Enter first name and surname as it appears on the ticket.\n\n"
+            "ℹ️ This person is the main passenger.\n\n"
+            "_Example: Yusuf Usman_",
+            phone_number_id,
+        )
+
+
+async def _advance_to_email_step(
+    wa_id: str,
+    session: dict,
+    flow: dict,
+    api_data: dict,
+    phone_number_id: Optional[str],
+) -> None:
+    prefill = (api_data.get("prefill_email") or "").strip()
+    if prefill:
+        flow["step"] = "buy_cover_returning_email"
+        await save_session(session)
+        await _send_buttons(
+            wa_id,
+            f"📧 *We found your registered email:*\n\n*{prefill}*\n\nUse this for your policy documents?",
+            [
+                {"id": "returning_email_yes", "title": "✅ Yes, use this"},
+                {"id": "returning_email_no", "title": "✏️ Different email"},
+            ],
+            phone_number_id,
+        )
+    else:
+        flow["step"] = "buy_cover_email"
+        await save_session(session)
+        await _send_text(
+            wa_id,
+            "*📧 Please enter your email address*\n"
+            "So we can send your policy documents\n\n"
+            "_Example: yusuf@email.com_",
+            phone_number_id,
+        )
+
+
 async def start_buy_cover_flow(
     wa_id: str,
     phone_number_id: Optional[str],
@@ -1266,6 +1375,13 @@ async def start_buy_cover_flow(
             uid = user.get("userId") or user.get("id") or user.get("user_id")
             api_data["user_id"] = uid
             api_data["user_exists"] = True
+            first = (user.get("firstName") or user.get("first_name") or "").strip()
+            last = (user.get("lastName") or user.get("last_name") or "").strip()
+            if first or last:
+                api_data["prefill_name"] = f"{first} {last}".strip()
+            email_pf = (user.get("email") or "").strip().lower()
+            if email_pf:
+                api_data["prefill_email"] = email_pf
         else:
             api_data["user_exists"] = False
 
@@ -1422,14 +1538,12 @@ async def handle_buy_cover_flow(
                 return
         if reply_id == "cover_just_me":
             data["who"] = "just_me"
-            flow["step"] = "buy_cover_name"
-            await save_session(session)
-            policy_id = session.get("api_data", {}).get("policy_id")
+            api_data = session.setdefault("api_data", {})
+            policy_id = api_data.get("policy_id")
             if policy_id:
                 try:
                     pax_ids = await ipurvey_service.set_traveler_count(policy_id, 1)
                     if pax_ids:
-                        api_data = session.setdefault("api_data", {})
                         # pax_ids is already a list of UUID strings e.g. ["492af597-..."]
                         api_data["passenger_ids"] = [
                             (
@@ -1446,16 +1560,7 @@ async def handle_buy_cover_flow(
                         await save_session(session)
                 except Exception as exc:
                     logger.error(f"[BUY_COVER] set_traveler_count(1) failed: {exc}")
-            await _send_text(
-                sender_wa_id,
-                (
-                    "👤 👑 *Enter main passenger name*\n"
-                    "Enter first name and surname as it appears on the ticket.\n\n"
-                    "ℹ️ This person is the main passenger.\n\n"
-                    "_Example: Yusuf Usman_"
-                ),
-                phone_number_id,
-            )
+            await _advance_to_name_step(sender_wa_id, session, flow, api_data, phone_number_id)
         else:
             data["who"] = "me_and_others"
             flow["step"] = "buy_cover_traveler_count"
@@ -1525,14 +1630,12 @@ async def handle_buy_cover_flow(
             data["who"] = "just_me"
             data.pop("others_count", None)
             data["travelers"] = []
-            flow["step"] = "buy_cover_name"
-            await save_session(session)
-            policy_id = session.get("api_data", {}).get("policy_id")
+            api_data = session.setdefault("api_data", {})
+            policy_id = api_data.get("policy_id")
             if policy_id:
                 try:
                     pax_ids = await ipurvey_service.set_traveler_count(policy_id, 1)
                     if pax_ids:
-                        api_data = session.setdefault("api_data", {})
                         api_data["passenger_ids"] = [
                             (
                                 p
@@ -1548,30 +1651,19 @@ async def handle_buy_cover_flow(
                         await save_session(session)
                 except Exception as exc:
                     logger.error(f"[BUY_COVER] set_traveler_count(1) failed: {exc}")
-            await _send_text(
-                sender_wa_id,
-                (
-                    "👤 👑 *Enter main passenger name*\n"
-                    "Enter first name and surname as it appears on the ticket.\n\n"
-                    "ℹ️ This person is the main passenger.\n\n"
-                    "_Example: Yusuf Usman_"
-                ),
-                phone_number_id,
-            )
+            await _advance_to_name_step(sender_wa_id, session, flow, api_data, phone_number_id)
             return
 
         # count_int 1–10: total travellers including primary
         others_count = count_int - 1
         data["others_count"] = others_count
         data["travelers"] = []
-        flow["step"] = "buy_cover_name"
-        await save_session(session)
-        policy_id = session.get("api_data", {}).get("policy_id")
+        api_data = session.setdefault("api_data", {})
+        policy_id = api_data.get("policy_id")
         if policy_id:
             try:
                 pax_ids = await ipurvey_service.set_traveler_count(policy_id, count_int)
                 if pax_ids:
-                    api_data = session.setdefault("api_data", {})
                     api_data["passenger_ids"] = [
                         (
                             p
@@ -1589,16 +1681,7 @@ async def handle_buy_cover_flow(
                 logger.error(
                     f"[BUY_COVER] set_traveler_count({count_int}) failed: {exc}"
                 )
-        await _send_text(
-            sender_wa_id,
-            (
-                "👤 👑 *Enter main passenger name*\n"
-                "Enter first name and surname as it appears on the ticket.\n\n"
-                "ℹ️ This person is the main passenger.\n\n"
-                "_Example: Yusuf Usman_"
-            ),
-            phone_number_id,
-        )
+        await _advance_to_name_step(sender_wa_id, session, flow, api_data, phone_number_id)
 
     # ── Traveler count 9 — disambiguation ────────────────────────────────────
     elif step == "buy_cover_tc_9_confirm":
@@ -1613,16 +1696,14 @@ async def handle_buy_cover_flow(
             count_int = data.pop("pending_traveler_count", 9)
             data["others_count"] = count_int - 1
             data["travelers"] = []
-            flow["step"] = "buy_cover_name"
-            await save_session(session)
-            policy_id = session.get("api_data", {}).get("policy_id")
+            api_data = session.setdefault("api_data", {})
+            policy_id = api_data.get("policy_id")
             if policy_id:
                 try:
                     pax_ids = await ipurvey_service.set_traveler_count(
                         policy_id, count_int
                     )
                     if pax_ids:
-                        api_data = session.setdefault("api_data", {})
                         api_data["passenger_ids"] = [
                             p
                             if isinstance(p, str)
@@ -1636,16 +1717,7 @@ async def handle_buy_cover_flow(
                         await save_session(session)
                 except Exception as exc:
                     logger.error(f"[BUY_COVER] set_traveler_count(9) failed: {exc}")
-            await _send_text(
-                sender_wa_id,
-                (
-                    "👤 👑 *Enter main passenger name*\n"
-                    "Enter first name and surname as it appears on the ticket.\n\n"
-                    "ℹ️ This person is the main passenger.\n\n"
-                    "_Example: Yusuf Usman_"
-                ),
-                phone_number_id,
-            )
+            await _advance_to_name_step(sender_wa_id, session, flow, api_data, phone_number_id)
 
         elif reply_id == "tc_9_help":
             from app.services.help_flow_service import start_help_flow
@@ -1814,17 +1886,7 @@ async def handle_buy_cover_flow(
             others_count = data.get("others_count", 0)
             if others_count == 0:
                 # Only the primary traveller — go straight to email
-                flow["step"] = "buy_cover_email"
-                await save_session(session)
-                await _send_text(
-                    sender_wa_id,
-                    (
-                        "*📧 Please enter your email address*\n"
-                        "So we can send your policy documents\n\n"
-                        "_Example: yusuf@email.com_"
-                    ),
-                    phone_number_id,
-                )
+                await _advance_to_email_step(sender_wa_id, session, flow, session.get("api_data", {}), phone_number_id)
             else:
                 data["others_collected"] = 0
                 flow["step"] = "buy_cover_other_name"
@@ -1840,17 +1902,7 @@ async def handle_buy_cover_flow(
                     phone_number_id,
                 )
         else:
-            flow["step"] = "buy_cover_email"
-            await save_session(session)
-            await _send_text(
-                sender_wa_id,
-                (
-                    "*📧 Please enter your email address*\n"
-                    "So we can send your policy documents\n\n"
-                    "_Example: yusuf@email.com_"
-                ),
-                phone_number_id,
-            )
+            await _advance_to_email_step(sender_wa_id, session, flow, session.get("api_data", {}), phone_number_id)
 
     # ── Name confirmation (LLM-extracted) ─────────────────────────────────────
     elif step == "buy_cover_name_confirm":
@@ -1929,8 +1981,6 @@ async def handle_buy_cover_flow(
                         phone_number_id,
                     )
                 else:
-                    flow["step"] = "buy_cover_email"
-                    await save_session(session)
                     summary_lines = []
                     for i, n in enumerate(travelers):
                         if i == 0:
@@ -1945,11 +1995,7 @@ async def handle_buy_cover_flow(
                         + "\n".join(summary_lines),
                         phone_number_id,
                     )
-                    await _send_text(
-                        sender_wa_id,
-                        "*📧 Please enter your email address*\nSo we can send your policy documents\n\n_Example: yusuf@email.com_",
-                        phone_number_id,
-                    )
+                    await _advance_to_email_step(sender_wa_id, session, flow, session.get("api_data", {}), phone_number_id)
             else:
                 policy_id = session.get("api_data", {}).get("policy_id")
                 existing_pid = session.get("api_data", {}).get("passenger_id")
@@ -2010,13 +2056,7 @@ async def handle_buy_cover_flow(
                     data["travelers"] = travelers
                     others_count = data.get("others_count", 0)
                     if others_count == 0:
-                        flow["step"] = "buy_cover_email"
-                        await save_session(session)
-                        await _send_text(
-                            sender_wa_id,
-                            "*📧 Please enter your email address*\nSo we can send your policy documents\n\n_Example: yusuf@email.com_",
-                            phone_number_id,
-                        )
+                        await _advance_to_email_step(sender_wa_id, session, flow, session.get("api_data", {}), phone_number_id)
                     else:
                         data["others_collected"] = 0
                         flow["step"] = "buy_cover_other_name"
@@ -2028,13 +2068,7 @@ async def handle_buy_cover_flow(
                             phone_number_id,
                         )
                 else:
-                    flow["step"] = "buy_cover_email"
-                    await save_session(session)
-                    await _send_text(
-                        sender_wa_id,
-                        "*📧 Please enter your email address*\nSo we can send your policy documents\n\n_Example: yusuf@email.com_",
-                        phone_number_id,
-                    )
+                    await _advance_to_email_step(sender_wa_id, session, flow, session.get("api_data", {}), phone_number_id)
         else:
             data.pop("_pending_name", None)
             data.pop("_name_confirm_for", None)
@@ -2058,6 +2092,226 @@ async def handle_buy_cover_flow(
                     "👤 *Please enter your full name*\nEnter first name and surname as it appears on the ticket.\n\n_Example: Yusuf Abdullahi_",
                     phone_number_id,
                 )
+
+    # ── Returning user — name confirmation ────────────────────────────────────
+    elif step == "buy_cover_returning_name":
+        _rn_raw = (text or "").strip()
+        if _rn_raw == "1":
+            reply_id = "returning_name_yes"
+        elif _rn_raw == "2":
+            reply_id = "returning_name_no"
+
+        prefill_name = session.get("api_data", {}).get("prefill_name", "")
+
+        # Text alias matching
+        if not reply_id and text:
+            _t = text.strip().lower()
+            if any(k in _t for k in ("yes", "yep", "yeah", "correct", "confirm", "thats me", "that's me", "ok", "sure", "right", "use")):
+                reply_id = "returning_name_yes"
+            elif any(k in _t for k in ("no", "nope", "change", "different", "wrong", "update", "reenter", "re-enter")):
+                reply_id = "returning_name_no"
+
+        # LLM fallback for questions or unrecognized text
+        if not reply_id and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="name_confirm",
+                question_asked=f"We found your account. Is '{prefill_name}' the main passenger name? Please confirm yes or choose to enter a different name.",
+                user_response=text,
+                expected_format="text",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                ev = str(llm_result["extracted_value"]).lower()
+                if any(k in ev for k in ("yes", "correct", "confirm", "true", "same")):
+                    reply_id = "returning_name_yes"
+                elif any(k in ev for k in ("no", "change", "different", "wrong", "new")):
+                    reply_id = "returning_name_no"
+            if not reply_id:
+                guidance = get_llm_guidance(llm_result)
+                if guidance:
+                    await _send_text(sender_wa_id, guidance, phone_number_id)
+                await _send_buttons(
+                    sender_wa_id,
+                    f"👋 *Welcome back!*\n\nWe found your account.\n\nIs this the main passenger?\n\n*{prefill_name}*",
+                    [
+                        {"id": "returning_name_yes", "title": "✅ Yes, that's me"},
+                        {"id": "returning_name_no", "title": "✏️ Different name"},
+                    ],
+                    phone_number_id,
+                )
+                return
+
+        if reply_id == "returning_name_yes" and prefill_name:
+            policy_id = session.get("api_data", {}).get("policy_id")
+            existing_pid = session.get("api_data", {}).get("passenger_id")
+            if policy_id:
+                fn, ln = _split_name(prefill_name)
+                try:
+                    if existing_pid:
+                        ok = await ipurvey_service.update_passenger(
+                            policy_id, existing_pid, fn, ln, is_primary=True
+                        )
+                        if not ok:
+                            await _send_text(
+                                sender_wa_id,
+                                "⚠️ We couldn't save your name. Please type your full name.\n\n_Example: Yusuf Abdullahi_",
+                                phone_number_id,
+                            )
+                            flow["step"] = "buy_cover_name"
+                            await save_session(session)
+                            return
+                    else:
+                        result = await ipurvey_service.add_passenger(
+                            policy_id, fn, ln, is_primary=True
+                        )
+                        if result is None:
+                            await _send_text(
+                                sender_wa_id,
+                                "⚠️ We couldn't save your name. Please type your full name.\n\n_Example: Yusuf Abdullahi_",
+                                phone_number_id,
+                            )
+                            flow["step"] = "buy_cover_name"
+                            await save_session(session)
+                            return
+                        if result and result.get("passengerId"):
+                            session.setdefault("api_data", {})["passenger_id"] = result["passengerId"]
+                except Exception as exc:
+                    logger.error(f"[BUY_COVER] returning_name add/update_passenger failed: {exc}")
+                    await _send_text(
+                        sender_wa_id,
+                        "⚠️ We couldn't save your name. Please type your full name.\n\n_Example: Yusuf Abdullahi_",
+                        phone_number_id,
+                    )
+                    flow["step"] = "buy_cover_name"
+                    await save_session(session)
+                    return
+            data["name"] = prefill_name
+            if data.get("who") == "me_and_others":
+                travelers = data.get("travelers", [])
+                travelers.append(prefill_name)
+                data["travelers"] = travelers
+                others_count = data.get("others_count", 0)
+                if others_count == 0:
+                    await _advance_to_email_step(sender_wa_id, session, flow, session.get("api_data", {}), phone_number_id)
+                else:
+                    data["others_collected"] = 0
+                    flow["step"] = "buy_cover_other_name"
+                    await save_session(session)
+                    total = others_count + 1
+                    await _send_text(
+                        sender_wa_id,
+                        f"👤 *Traveller 2 of {total}*\nEnter first name and surname as it appears on their ticket.\n\n_Example: Amina Bello_",
+                        phone_number_id,
+                    )
+            else:
+                await _advance_to_email_step(sender_wa_id, session, flow, session.get("api_data", {}), phone_number_id)
+
+        elif reply_id == "returning_name_no":
+            flow["step"] = "buy_cover_name"
+            await save_session(session)
+            await _send_text(
+                sender_wa_id,
+                "👤 👑 *Enter main passenger name*\n"
+                "Enter first name and surname as it appears on the ticket.\n\n"
+                "ℹ️ This person is the main passenger.\n\n"
+                "_Example: Yusuf Usman_",
+                phone_number_id,
+            )
+        else:
+            await _send_buttons(
+                sender_wa_id,
+                f"👋 *Welcome back!*\n\nWe found your account.\n\nIs this the main passenger?\n\n*{prefill_name}*",
+                [
+                    {"id": "returning_name_yes", "title": "✅ Yes, that's me"},
+                    {"id": "returning_name_no", "title": "✏️ Different name"},
+                ],
+                phone_number_id,
+            )
+
+    # ── Returning user — email confirmation ───────────────────────────────────
+    elif step == "buy_cover_returning_email":
+        _re_raw = (text or "").strip()
+        if _re_raw == "1":
+            reply_id = "returning_email_yes"
+        elif _re_raw == "2":
+            reply_id = "returning_email_no"
+
+        prefill_email = session.get("api_data", {}).get("prefill_email", "")
+
+        # Text alias matching
+        if not reply_id and text:
+            _te = text.strip().lower()
+            if any(k in _te for k in ("yes", "yep", "yeah", "correct", "confirm", "ok", "sure", "use this", "use it", "right")):
+                reply_id = "returning_email_yes"
+            elif any(k in _te for k in ("no", "nope", "change", "different", "wrong", "update", "new email")):
+                reply_id = "returning_email_no"
+
+        # LLM fallback for questions or unrecognized text
+        if not reply_id and text:
+            llm_result = await call_extract(
+                user_id=sender_wa_id,
+                field_name="email_confirm",
+                question_asked=f"We found your registered email address: {prefill_email}. Should we use this email for your policy documents? Please confirm yes or choose to enter a different email.",
+                user_response=text,
+                expected_format="text",
+            )
+            if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
+                ev = str(llm_result["extracted_value"]).lower()
+                if any(k in ev for k in ("yes", "correct", "confirm", "true", "use", "same")):
+                    reply_id = "returning_email_yes"
+                elif any(k in ev for k in ("no", "change", "different", "wrong", "new")):
+                    reply_id = "returning_email_no"
+            if not reply_id:
+                guidance = get_llm_guidance(llm_result)
+                if guidance:
+                    await _send_text(sender_wa_id, guidance, phone_number_id)
+                await _send_buttons(
+                    sender_wa_id,
+                    f"📧 *We found your registered email:*\n\n*{prefill_email}*\n\nUse this for your policy documents?",
+                    [
+                        {"id": "returning_email_yes", "title": "✅ Yes, use this"},
+                        {"id": "returning_email_no", "title": "✏️ Different email"},
+                    ],
+                    phone_number_id,
+                )
+                return
+
+        if reply_id == "returning_email_yes" and prefill_email:
+            email_clean = prefill_email.strip().lower()
+            data["email"] = email_clean
+            policy_id = session.get("api_data", {}).get("policy_id")
+            if policy_id:
+                try:
+                    await ipurvey_service.set_policy_email(policy_id, email_clean)
+                except Exception:
+                    pass
+            if data.pop("_edit_mode", False):
+                await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
+                return
+            flow["step"] = "buy_cover_trip_type"
+            await save_session(session)
+            await _send_trip_type_buttons(sender_wa_id, phone_number_id)
+
+        elif reply_id == "returning_email_no":
+            flow["step"] = "buy_cover_email"
+            await save_session(session)
+            await _send_text(
+                sender_wa_id,
+                "*📧 Please enter your email address*\n"
+                "So we can send your policy documents\n\n"
+                "_Example: yusuf@email.com_",
+                phone_number_id,
+            )
+        else:
+            await _send_buttons(
+                sender_wa_id,
+                f"📧 *We found your registered email:*\n\n*{prefill_email}*\n\nUse this for your policy documents?",
+                [
+                    {"id": "returning_email_yes", "title": "✅ Yes, use this"},
+                    {"id": "returning_email_no", "title": "✏️ Different email"},
+                ],
+                phone_number_id,
+            )
 
     # ── Additional traveler names ──────────────────────────────────────────────
     elif step == "buy_cover_other_name":
@@ -2215,8 +2469,6 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
         else:
-            flow["step"] = "buy_cover_email"
-            await save_session(session)
             summary_lines = []
             for i, n in enumerate(travelers):
                 if i == 0:
@@ -2229,15 +2481,7 @@ async def handle_buy_cover_flow(
                 f"✅ *All traveller names added*\n\n{names_list}",
                 phone_number_id,
             )
-            await _send_text(
-                sender_wa_id,
-                (
-                    "*📧 Please enter your email address*\n"
-                    "So we can send your policy documents\n\n"
-                    "_Example: yusuf@email.com_"
-                ),
-                phone_number_id,
-            )
+            await _advance_to_email_step(sender_wa_id, session, flow, session.get("api_data", {}), phone_number_id)
 
     # ── Email ─────────────────────────────────────────────────────────────────
     elif step == "buy_cover_email":
@@ -4013,12 +4257,14 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
     data = flow.get("data", {})
 
     _PREV: dict[str, Optional[str]] = {
-        "buy_cover_name": "buy_cover_who",
+        "buy_cover_name": None,
+        "buy_cover_returning_name": None,
         "buy_cover_traveler_count": "buy_cover_who",
         "buy_cover_tc_9_confirm": "buy_cover_traveler_count",
         "buy_cover_other_name": "buy_cover_name",
         "buy_cover_email": None,
-        "buy_cover_trip_type": "buy_cover_email",
+        "buy_cover_returning_email": None,
+        "buy_cover_trip_type": None,
         "buy_cover_booking_ref": "buy_cover_trip_type",
         "buy_cover_flight_num": "buy_cover_booking_ref",
         "buy_cover_depart_airport_pick": "buy_cover_flight_num",     # after flight_num
@@ -4039,12 +4285,37 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
     # clear any lingering edit_mode flag when navigating back
     data.pop("_edit_mode", None)
 
-    if step == "buy_cover_email":
+    api_data = session.get("api_data", {})
+    has_prefill_name = bool(api_data.get("prefill_name"))
+    has_prefill_email = bool(api_data.get("prefill_email"))
+
+    if step == "buy_cover_returning_name":
         prev: Optional[str] = (
-            "buy_cover_other_name"
-            if data.get("who") == "me_and_others"
-            else "buy_cover_name"
+            "buy_cover_traveler_count" if data.get("who") == "me_and_others" else "buy_cover_who"
         )
+    elif step == "buy_cover_returning_email":
+        if data.get("who") == "me_and_others":
+            prev = "buy_cover_other_name"
+        elif has_prefill_name:
+            prev = "buy_cover_returning_name"
+        else:
+            prev = "buy_cover_name"
+    elif step == "buy_cover_name":
+        if has_prefill_name:
+            prev = "buy_cover_returning_name"
+        elif data.get("who") == "me_and_others":
+            prev = "buy_cover_traveler_count"
+        else:
+            prev = "buy_cover_who"
+    elif step == "buy_cover_email":
+        if has_prefill_email:
+            prev = "buy_cover_returning_email"
+        elif data.get("who") == "me_and_others":
+            prev = "buy_cover_other_name"
+        else:
+            prev = "buy_cover_name"
+    elif step == "buy_cover_trip_type":
+        prev = "buy_cover_returning_email" if has_prefill_email else "buy_cover_email"
     elif step == "buy_cover_airline":
         prev = "buy_cover_arrive_time"
     else:
@@ -4104,6 +4375,49 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             "_Example: Yusuf Usman_",
             phone_number_id,
         )
+
+    elif prev == "buy_cover_returning_name":
+        prefill_name = session.get("api_data", {}).get("prefill_name", "")
+        if prefill_name:
+            await _send_buttons(
+                wa_id,
+                f"👋 *Welcome back!*\n\nWe found your account.\n\nIs this the main passenger?\n\n*{prefill_name}*",
+                [
+                    {"id": "returning_name_yes", "title": "✅ Yes, that's me"},
+                    {"id": "returning_name_no", "title": "✏️ Different name"},
+                ],
+                phone_number_id,
+            )
+        else:
+            await _send_text(
+                wa_id,
+                "👤 👑 *Enter main passenger name*\n"
+                "Enter first name and surname as it appears on the ticket.\n\n"
+                "ℹ️ This person is the main passenger.\n\n"
+                "_Example: Yusuf Usman_",
+                phone_number_id,
+            )
+
+    elif prev == "buy_cover_returning_email":
+        prefill_email = session.get("api_data", {}).get("prefill_email", "")
+        if prefill_email:
+            await _send_buttons(
+                wa_id,
+                f"📧 *We found your registered email:*\n\n*{prefill_email}*\n\nUse this for your policy documents?",
+                [
+                    {"id": "returning_email_yes", "title": "✅ Yes, use this"},
+                    {"id": "returning_email_no", "title": "✏️ Different email"},
+                ],
+                phone_number_id,
+            )
+        else:
+            await _send_text(
+                wa_id,
+                "*📧 Please enter your email address*\n"
+                "So we can send your policy documents\n\n"
+                "_Example: yusuf@email.com_",
+                phone_number_id,
+            )
 
     elif prev == "buy_cover_other_name":
         travelers = data.get("travelers", [])
