@@ -947,10 +947,9 @@ async def _redisplay_step(
                 except Exception as exc:
                     logger.error(f"[buy_cover] _redisplay_step fetch_quotes: {exc}")
         if quotes:
-            await _send_cover_page(
+            await _send_cover_selection(
                 wa_id,
                 quotes,
-                0,
                 phone_number_id,
                 intro_body="🎁 *Welcome back!* 👇 Please pick your cover plan:",
             )
@@ -1216,6 +1215,43 @@ async def _send_cover_page(
         phone_number_id,
         header="🛡️ Select from available cover(s)",
     )
+
+
+async def _send_cover_selection(
+    wa_id: str,
+    quotes: list,
+    phone_number_id: Optional[str],
+    *,
+    intro_body: Optional[str] = None,
+) -> None:
+    """Show 1 quote as a confirm button; show multiple quotes as a scrollable list."""
+    if len(quotes) == 1:
+        q = quotes[0]
+        q_name = str(q.get("name") or q.get("productName") or "Cover option")
+        q_price = q.get("price") or q.get("premiumAmount") or 0
+        insurer = q.get("insurer") or q.get("provider") or q.get("providerName") or ""
+        coverage = q.get("coverageTypes") or []
+        default_intro = (
+            "🎁 *With TravelAssist you get:*\n"
+            "📄 Policy on WhatsApp\n"
+            "🔔 Real-time flight alerts\n"
+            "🤝 Support if disruption happens\n"
+            "💰 Automatic payout — no forms needed"
+        )
+        body_lines = [intro_body or default_intro, "", f"🛡️ *{q_name}*", f"💰 ₦{float(q_price):,.0f}"]
+        if insurer:
+            body_lines.append(f"🏢 {insurer}")
+        if coverage:
+            body_lines.append(f"✅ {len(coverage)} covers")
+        body_lines.append("\n👇 Tap to select this cover:")
+        await _send_buttons(
+            wa_id,
+            "\n".join(body_lines),
+            [{"id": "cov_0", "title": "✅ Select cover"}],
+            phone_number_id,
+        )
+    else:
+        await _send_cover_page(wa_id, quotes, 0, phone_number_id, intro_body=intro_body)
 
 
 async def _finish_cover_selection(
@@ -3996,7 +4032,7 @@ async def handle_buy_cover_flow(
         session.setdefault("api_data", {})["quotes"] = quotes
         flow["step"] = "buy_cover_select_cover"
         await save_session(session)
-        await _send_cover_page(sender_wa_id, quotes, 0, phone_number_id)
+        await _send_cover_selection(sender_wa_id, quotes, phone_number_id)
 
     # ── Select cover (from real quotes) ───────────────────────────────────────
     elif step == "buy_cover_select_cover":
@@ -4023,14 +4059,13 @@ async def handle_buy_cover_flow(
         if not selected_q:
             quotes = session.get("api_data", {}).get("quotes") or []
             if quotes:
-                await _send_cover_page(
+                await _send_cover_selection(
                     sender_wa_id,
                     quotes,
-                    0,
                     phone_number_id,
                     intro_body=(
                         "❌ *Invalid selection*\n\n"
-                        "Please tap *Select cover* below to pick your cover from the list.\n\n"
+                        "Please tap *Select cover* below to pick your cover.\n\n"
                         "_You can also use:  0 Back  •  9 Help  •  99 Cancel_"
                     ),
                 )
@@ -4559,10 +4594,9 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
                 except Exception as exc:
                     logger.error(f"[BUY_COVER] go_back fetch_quotes: {exc}")
         if quotes:
-            await _send_cover_page(
+            await _send_cover_selection(
                 wa_id,
                 quotes,
-                0,
                 phone_number_id,
                 intro_body="🛡️ *Please select a cover plan:*",
             )
