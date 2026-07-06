@@ -3994,16 +3994,9 @@ async def handle_buy_cover_flow(
             return
 
         session.setdefault("api_data", {})["quotes"] = quotes
-        if len(quotes) == 1:
-            # Only one cover available — skip the selection list entirely and
-            # auto-confirm it, saving the user an unnecessary extra tap.
-            await _finish_cover_selection(
-                sender_wa_id, session, flow, data, quotes[0], phone_number_id
-            )
-        else:
-            flow["step"] = "buy_cover_select_cover"
-            await save_session(session)
-            await _send_cover_page(sender_wa_id, quotes, 0, phone_number_id)
+        flow["step"] = "buy_cover_select_cover"
+        await save_session(session)
+        await _send_cover_page(sender_wa_id, quotes, 0, phone_number_id)
 
     # ── Select cover (from real quotes) ───────────────────────────────────────
     elif step == "buy_cover_select_cover":
