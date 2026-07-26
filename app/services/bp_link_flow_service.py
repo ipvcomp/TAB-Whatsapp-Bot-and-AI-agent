@@ -18,6 +18,16 @@ from app.services.ipurvey_api import fetch_policies_by_msisdn
 
 logger = logging.getLogger(__name__)
 
+
+def _fmt_date(iso_date: str) -> str:
+    """Convert YYYY-MM-DD to DD-MM-YYYY for display."""
+    try:
+        from datetime import datetime as _dt
+        return _dt.strptime(iso_date, "%Y-%m-%d").strftime("%d-%m-%Y")
+    except (ValueError, TypeError):
+        return iso_date or "—"
+
+
 # WhatsApp list max = 10 rows total.
 # Page 0 has no "Prev" row → 9 policy slots + 1 "Next" = 10.
 # Pages 1+ have "Prev" → 8 policy slots + "Prev" + "Next" = 10.
@@ -341,7 +351,7 @@ async def _show_upload_confirmed(wa_id: str, session: dict, flow: dict, phone_nu
     ref      = data.get("bp_sel_ref",      "—")
     airline  = data.get("bp_sel_airline",  "—")
     flight   = data.get("bp_sel_flight",   "—")
-    date     = data.get("bp_sel_date",     "—")
+    date     = _fmt_date(data.get("bp_sel_date", "—"))
     traveler = data.get("bp_sel_traveler", "—")
 
     from_payment = data.get("bp_from_payment", False)
@@ -375,7 +385,7 @@ async def _show_link_confirm(wa_id: str, session: dict, flow: dict, phone_number
     name     = data.get("bp_sel_name",     "")
     airline  = data.get("bp_sel_airline",  "")
     flight   = data.get("bp_sel_flight",   "")
-    date     = data.get("bp_sel_date",     "")
+    date     = _fmt_date(data.get("bp_sel_date", ""))
     traveler = data.get("bp_sel_traveler", "")
 
     await _send_buttons(wa_id,
@@ -401,7 +411,7 @@ async def _show_linked(wa_id: str, session: dict, flow: dict, phone_number_id: O
     await save_session(session)
     flight   = data.get("bp_sel_flight",   "")
     airline  = data.get("bp_sel_airline",  "")
-    date     = data.get("bp_sel_date",     "")
+    date     = _fmt_date(data.get("bp_sel_date", ""))
     traveler = data.get("bp_sel_traveler", "")
 
     await _send_buttons(wa_id,
@@ -426,7 +436,7 @@ async def _show_policy_card(wa_id: str, session: dict, flow: dict, phone_number_
     name     = data.get("bp_sel_name",     "")
     airline  = data.get("bp_sel_airline",  "")
     flight   = data.get("bp_sel_flight",   "")
-    date     = data.get("bp_sel_date",     "")
+    date     = _fmt_date(data.get("bp_sel_date", ""))
     traveler = data.get("bp_sel_traveler", "")
 
     await _send_buttons(wa_id,

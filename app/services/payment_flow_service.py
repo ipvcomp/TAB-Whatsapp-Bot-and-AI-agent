@@ -155,14 +155,24 @@ async def _initiate_payment_with_link_retry(
     return pay_result
 
 
+def _fmt_date(iso_date: str) -> str:
+    """Convert YYYY-MM-DD to DD-MM-YYYY for display."""
+    try:
+        from datetime import datetime as _dt
+        return _dt.strptime(iso_date, "%Y-%m-%d").strftime("%d-%m-%Y")
+    except (ValueError, TypeError):
+        return iso_date or "—"
+
+
 def _get_trip_details(session: dict, data: dict, ref: str) -> dict:
     """Pull policy/trip info for the payment status screens."""
     bc_data  = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
     api_data = session.get("api_data", {})
+    raw_date = bc_data.get("date") or data.get("pay_dep_date", "—")
     return {
         "pol_ref":   api_data.get("policy_code") or api_data.get("policy_id") or ref or "—",
         "flight":    bc_data.get("flight_num")   or data.get("pay_flight",   "—"),
-        "date":      bc_data.get("date")          or data.get("pay_dep_date", "—"),
+        "date":      _fmt_date(raw_date),
         "traveller": bc_data.get("name")          or data.get("pay_traveller","—"),
     }
 
@@ -235,7 +245,7 @@ async def _show_payment_summary(
     cname     = data.get("pay_cover",     "Local Travel Basic")
     origin    = data.get("pay_origin",    "—")
     dest      = data.get("pay_dest",      "—")
-    dep       = data.get("pay_dep_date",  "—")
+    dep       = _fmt_date(data.get("pay_dep_date", "—"))
     travelers = data.get("pay_travelers", 1)
 
     flow["step"] = "pay_method_choice"
@@ -290,9 +300,15 @@ async def _send_success(
     phone_number_id: Optional[str],
 ):
     bc_data  = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
-    flight   = bc_data.get("flight_num", "—")
-    date     = bc_data.get("date",       "—")
-    name     = bc_data.get("name",       "—")
+    flight    = bc_data.get("flight_num", "—")
+    date      = _fmt_date(bc_data.get("date", "—"))
+    name      = bc_data.get("name",       "—")
+    travelers = bc_data.get("travelers",  [])
+    if len(travelers) > 1:
+        _trav_lines = "\n".join([f"👤 {i + 1} — {n}" for i, n in enumerate(travelers)])
+        traveller_line = f"😊 *Travellers:*\n{_trav_lines}\n\n"
+    else:
+        traveller_line = f"😊 *Traveller:* {name}\n\n"
 
     data = flow.setdefault("data", {})
     data["pay_ref"]    = ref
@@ -310,7 +326,7 @@ async def _send_success(
             f"📋 *Policy No:* {policy}\n"
             f"✈️ *Flight:* {flight}\n"
             f"📅 *Date:* {date}\n"
-            f"😊 *Traveller:* {name}\n\n"
+            f"{traveller_line}"
             f"📢 *WHAT'S NEXT?*\n"
             f"We will continue to monitor your flight\n"
             f"for any travel disruption. If the extent\n"
@@ -1415,7 +1431,7 @@ async def handle_payment_flow(
         if reply_id in ("pay_view_policy", "pay_view_doc", "pay_pol_view_doc"):
             bc_data_v = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
             flight_v  = bc_data_v.get("flight_num", "—")
-            date_v    = bc_data_v.get("date", "—")
+            date_v    = _fmt_date(bc_data_v.get("date", "—"))
             name_v    = bc_data_v.get("name", "—")
             doc_url_v = await _fetch_fresh_policy_document_url(pol)
             card_body_v = (
@@ -1577,10 +1593,16 @@ async def handle_payment_flow(
             from app.services.buy_cover_flow_service import start_buy_cover_flow
             await start_buy_cover_flow(wa_id=sender_wa_id, phone_number_id=phone_number_id)
         else:
-            bc_data = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
-            flight  = bc_data.get("flight_num", "—")
-            date    = bc_data.get("date",       "—")
-            name    = bc_data.get("name",       "—")
+            bc_data   = session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
+            flight    = bc_data.get("flight_num", "—")
+            date      = _fmt_date(bc_data.get("date", "—"))
+            name      = bc_data.get("name",       "—")
+            travelers = bc_data.get("travelers",  [])
+            if len(travelers) > 1:
+                _trav_lines = "\n".join([f"👤 {i + 1} — {n}" for i, n in enumerate(travelers)])
+                traveller_line = f"😊 *Travellers:*\n{_trav_lines}\n\n"
+            else:
+                traveller_line = f"😊 *Traveller:* {name}\n\n"
             await send_text_message(
                 to=sender_wa_id,
                 body=(
@@ -1590,7 +1612,7 @@ async def handle_payment_flow(
                     f"📋 *Policy No:* {pol}\n"
                     f"✈️ *Flight:* {flight}\n"
                     f"📅 *Date:* {date}\n"
-                    f"😊 *Traveller:* {name}\n\n"
+                    f"{traveller_line}"
                     f"📢 *WHAT'S NEXT?*\n"
                     f"We will continue to monitor your flight\n"
                     f"for any travel disruption. If the extent\n"

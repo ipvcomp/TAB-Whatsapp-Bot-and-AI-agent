@@ -284,12 +284,52 @@ def _fmt_time_display(hhmm: str) -> str:
         return hhmm
 
 
+def _is_ambiguous_hour(text: str) -> bool:
+    """True when user typed a bare hour number (1-12) with no AM/PM or minutes."""
+    clean = (text or "").strip()
+    if not re.match(r"^\d{1,2}$", clean):
+        return False
+    return 1 <= int(clean) <= 12
+
+
 def _is_past_date(iso_date: str) -> bool:
     """Return True if the ISO date is strictly before today."""
     try:
         return datetime.strptime(iso_date, "%Y-%m-%d").date() < datetime.now().date()
     except ValueError:
         return False
+
+
+def _correct_past_year(iso_date: str, original_input: str = "") -> str:
+    """Recover from LLMs assigning a wrong past year when the user gave no year.
+
+    E.g. user typed "28nd jull" → LLM returned "2023-07-28" → correct to "2026-07-28".
+    Skips correction when the user's raw input contains a 4-digit year (they were explicit).
+    Tries current year first; falls back to next year if current year is also past.
+    """
+    try:
+        if re.search(r"\b\d{4}\b", original_input or ""):
+            return iso_date  # user specified year explicitly — trust it
+        d = datetime.strptime(iso_date, "%Y-%m-%d").date()
+        today = datetime.now().date()
+        if d >= today:
+            return iso_date  # already fine
+        try:
+            candidate = d.replace(year=today.year)
+            if candidate >= today:
+                logger.info(
+                    f"[buy_cover] Year-corrected past date {iso_date} → {candidate.strftime('%Y-%m-%d')}"
+                )
+                return candidate.strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+        candidate = d.replace(year=today.year + 1)
+        logger.info(
+            f"[buy_cover] Year-corrected past date {iso_date} → {candidate.strftime('%Y-%m-%d')}"
+        )
+        return candidate.strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        return iso_date
 
 
 def _is_too_far_future(iso_date: str, max_days: int = 365) -> bool:
@@ -594,11 +634,12 @@ def _build_trip_summary_text(data: dict) -> str:
     dep = data.get("depart_airport", "").split("—")[0].strip()
     arr = data.get("arrive_airport", "").split("—")[0].strip()
     travelers = data.get("travelers", [])
-    traveler_line = (
-        "  ".join(f"{i + 1} — {n}" for i, n in enumerate(travelers))
-        if travelers
-        else f"1 — {data.get('name', '')}"
-    )
+    if travelers:
+        traveler_line = ("\n" + "  " * 16).join(
+            [f"*{i + 1} — {n}*" for i, n in enumerate(travelers)]
+        )
+    else:
+        traveler_line = f"*1 — {data.get('name', '')}*"
 
     def _fmt_date(iso: str) -> str:
         try:
@@ -624,7 +665,7 @@ def _build_trip_summary_text(data: dict) -> str:
         f"{arrive_date_line}"
         f"Departs\t\t\t*{_fmt_time_display(data.get('depart_time', ''))}*\n"
         f"Arrives\t\t\t*{_fmt_time_display(data.get('arrive_time', ''))}*\n"
-        f"Travellers\t\t*{traveler_line}*"
+        f"Travellers\t\t{traveler_line}"
     )
 
 
@@ -1167,14 +1208,12 @@ async def _send_cover_page(
         full_name = str(q.get("name") or q.get("productName") or "Cover option")
         q_price = q.get("price") or q.get("premiumAmount") or 0
         insurer = q.get("insurer") or q.get("provider") or q.get("providerName") or ""
-        coverage = q.get("coverageTypes") or []
         title = _make_cover_title(full_name)
         price_str = f"💰 ₦{float(q_price):,.0f}"
         insurer_str = f"🏢 {insurer}" if insurer else ""
-        cover_count = f"✅ {len(coverage)} covers" if coverage else ""
         name_prefix = f"{full_name}  •  " if len(full_name) > len(title) else ""
         desc = name_prefix + "  •  ".join(
-            filter(None, [price_str, insurer_str, cover_count])
+            filter(None, [price_str, insurer_str])
         )
         rows.append(
             {"id": f"cov_{start + i}", "title": title, "description": desc[:72]}
@@ -1193,12 +1232,14 @@ async def _send_cover_page(
     if intro_body:
         body = intro_body
     elif page == 0:
+        plan_word = "plan" if len(quotes) == 1 else "plans"
         body = (
             "🎁 *With TravelAssist you get:*\n"
             "📄 Policy on WhatsApp\n"
             "🔔 Real-time flight alerts\n"
             "🤝 Support if disruption happens\n"
             "💰 Automatic payout — no forms needed\n\n"
+            f"✅ *{len(quotes)} {plan_word} available for your trip*\n\n"
             "👇 Tap *Select cover* to choose your plan:"
         )
     else:
@@ -1230,7 +1271,6 @@ async def _send_cover_selection(
         q_name = str(q.get("name") or q.get("productName") or "Cover option")
         q_price = q.get("price") or q.get("premiumAmount") or 0
         insurer = q.get("insurer") or q.get("provider") or q.get("providerName") or ""
-        coverage = q.get("coverageTypes") or []
         default_intro = (
             "🎁 *With TravelAssist you get:*\n"
             "📄 Policy on WhatsApp\n"
@@ -1238,11 +1278,9 @@ async def _send_cover_selection(
             "🤝 Support if disruption happens\n"
             "💰 Automatic payout — no forms needed"
         )
-        body_lines = [intro_body or default_intro, "", f"🛡️ *{q_name}*", f"💰 ₦{float(q_price):,.0f}"]
+        body_lines = [intro_body or default_intro, "", f"✅ *1 plan available for your trip*", "", f"🛡️ *{q_name}*", f"💰 ₦{float(q_price):,.0f}"]
         if insurer:
             body_lines.append(f"🏢 {insurer}")
-        if coverage:
-            body_lines.append(f"✅ {len(coverage)} covers")
         body_lines.append("\n👇 Tap to select this cover:")
         await _send_buttons(
             wa_id,
@@ -2723,6 +2761,7 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
+        iso_date = _correct_past_year(iso_date, text or "")
         if _is_past_date(iso_date):
             await _send_text(
                 sender_wa_id,
@@ -2843,6 +2882,26 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
+        # Bare-hour input (e.g. "10") without AM/PM — must confirm before saving
+        if _is_ambiguous_hour(text or "") and parsed_dep_time:
+            _dep_h = int(parsed_dep_time.split(":")[0])
+            _dep_m = int(parsed_dep_time.split(":")[1])
+            if _dep_h < 12:
+                _pm_time = f"{_dep_h + 12:02d}:{_dep_m:02d}"
+                data["depart_time"] = parsed_dep_time
+                data["_dep_pm_alt"] = _pm_time
+                flow["step"] = "buy_cover_depart_ampm_confirm"
+                await save_session(session)
+                await _send_buttons(
+                    sender_wa_id,
+                    f"⏰ *Is that {_fmt_time_display(parsed_dep_time)} or {_fmt_time_display(_pm_time)}?*\n\nPlease confirm your departure time.",
+                    [
+                        {"id": "ampm_no", "title": f"🌅 {_fmt_time_display(parsed_dep_time)}"},
+                        {"id": "ampm_yes", "title": f"🌆 {_fmt_time_display(_pm_time)}"},
+                    ],
+                    phone_number_id,
+                )
+                return
         # Same-day check: if editing dep_time and arr_time already set, validate order
         arr_time = data.get("arrive_time", "")
         dep_date_chk = data.get("date", "")
@@ -3068,6 +3127,7 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
+        iso_arr_date = _correct_past_year(iso_arr_date, text or "")
         if _is_past_date(iso_arr_date):
             await _send_text(
                 sender_wa_id,
@@ -3204,6 +3264,26 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
+        # Bare-hour input (e.g. "10") without AM/PM — must confirm before saving
+        if _is_ambiguous_hour(text or "") and parsed_arr_time:
+            _arr_h = int(parsed_arr_time.split(":")[0])
+            _arr_m = int(parsed_arr_time.split(":")[1])
+            if _arr_h < 12:
+                _pm_arr = f"{_arr_h + 12:02d}:{_arr_m:02d}"
+                data["arrive_time"] = parsed_arr_time
+                data["_arr_pm_alt"] = _pm_arr
+                flow["step"] = "buy_cover_arrive_ampm_confirm"
+                await save_session(session)
+                await _send_buttons(
+                    sender_wa_id,
+                    f"⏰ *Is that {_fmt_time_display(parsed_arr_time)} or {_fmt_time_display(_pm_arr)}?*\n\nPlease confirm your arrival time.",
+                    [
+                        {"id": "arr_early_am", "title": f"🌅 {_fmt_time_display(parsed_arr_time)}"},
+                        {"id": "arr_early_pm", "title": f"🌆 {_fmt_time_display(_pm_arr)}"},
+                    ],
+                    phone_number_id,
+                )
+                return
         dep_time = data.get("depart_time", "")
         dep_date = data.get("date", "")
         arr_date = data.get("arrive_date", dep_date)
@@ -3503,8 +3583,10 @@ async def handle_buy_cover_flow(
         data.pop("_pending_arr_time", None)
         edit_mode = data.pop("_edit_mode", False)
 
-        if reply_id == "arr_ampm_yes" and pm_alt:
+        if reply_id in ("arr_ampm_yes", "arr_early_pm") and pm_alt:
             data["arrive_time"] = pm_alt
+        elif reply_id == "arr_early_am":
+            pass  # keep arrive_time as AM (already saved before routing here)
         elif reply_id == "arr_ampm_no":
             # User rejected PM — ask them to re-enter arrival time
             data.pop("arrive_time", None)
