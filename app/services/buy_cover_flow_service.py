@@ -292,6 +292,19 @@ def _is_ambiguous_hour(text: str) -> bool:
     return 1 <= int(clean) <= 12
 
 
+def _normalize_month_typos(text: str) -> str:
+    """Fix common unambiguous month misspellings before date parsing.
+
+    Only corrects spellings that have a single obvious target (e.g. 'Jull' → 'July').
+    """
+    return re.sub(r"\bjull\b", "July", text, flags=re.IGNORECASE)
+
+
+def _is_ambiguous_month_ju(text: str) -> bool:
+    """True when text contains standalone 'Ju' — ambiguous between June and July."""
+    return bool(re.search(r"\bju\b", (text or "").strip(), flags=re.IGNORECASE))
+
+
 def _is_past_date(iso_date: str) -> bool:
     """Return True if the ISO date is strictly before today."""
     try:
@@ -634,12 +647,17 @@ def _build_trip_summary_text(data: dict) -> str:
     dep = data.get("depart_airport", "").split("—")[0].strip()
     arr = data.get("arrive_airport", "").split("—")[0].strip()
     travelers = data.get("travelers", [])
-    if travelers:
-        traveler_line = ("\n" + "  " * 16).join(
-            [f"*{i + 1} — {n}*" for i, n in enumerate(travelers)]
+    # Multi-traveller: list on separate lines to stay mobile-friendly.
+    # Space-padding to align under the label breaks on narrow phone screens.
+    if len(travelers) > 1:
+        names_block = "\n".join(
+            [f"  *{i + 1} — {n}*" for i, n in enumerate(travelers)]
         )
+        travellers_section = f"Travellers\n{names_block}"
+    elif travelers:
+        travellers_section = f"Travellers\t\t*1 — {travelers[0]}*"
     else:
-        traveler_line = f"*1 — {data.get('name', '')}*"
+        travellers_section = f"Travellers\t\t*1 — {data.get('name', '')}*"
 
     def _fmt_date(iso: str) -> str:
         try:
@@ -665,7 +683,7 @@ def _build_trip_summary_text(data: dict) -> str:
         f"{arrive_date_line}"
         f"Departs\t\t\t*{_fmt_time_display(data.get('depart_time', ''))}*\n"
         f"Arrives\t\t\t*{_fmt_time_display(data.get('arrive_time', ''))}*\n"
-        f"Travellers\t\t{traveler_line}"
+        f"{travellers_section}"
     )
 
 
@@ -2740,6 +2758,27 @@ async def handle_buy_cover_flow(
 
     # ── Flying date ───────────────────────────────────────────────────────────
     elif step == "buy_cover_date":
+        # Month clarification button response (dep_month_june / dep_month_july)
+        if reply_id in ("dep_month_june", "dep_month_july"):
+            pending = data.pop("_pending_dep_date_text", "") or ""
+            month_word = "June" if reply_id == "dep_month_june" else "July"
+            text = re.sub(r"\bju\b", month_word, pending, flags=re.IGNORECASE)
+        elif _is_ambiguous_month_ju(text or ""):
+            # "26 Ju" could be June or July — ask for clarification
+            data["_pending_dep_date_text"] = text
+            await save_session(session)
+            await _send_buttons(
+                sender_wa_id,
+                "📅 *You wrote 'Ju' — did you mean June or July?*",
+                [
+                    {"id": "dep_month_june", "title": "June"},
+                    {"id": "dep_month_july", "title": "July"},
+                ],
+                phone_number_id,
+            )
+            return
+        # Fix unambiguous typos like "Jull" → "July" before parsing
+        text = _normalize_month_typos(text or "") or text or ""
         iso_date = _parse_date_to_iso(text or "")
         llm_guidance = None
         if not iso_date and text:
@@ -3106,6 +3145,27 @@ async def handle_buy_cover_flow(
 
     # ── Arrival date ──────────────────────────────────────────────────────────
     elif step == "buy_cover_arrive_date":
+        # Month clarification button response (arr_month_june / arr_month_july)
+        if reply_id in ("arr_month_june", "arr_month_july"):
+            pending = data.pop("_pending_arr_date_text", "") or ""
+            month_word = "June" if reply_id == "arr_month_june" else "July"
+            text = re.sub(r"\bju\b", month_word, pending, flags=re.IGNORECASE)
+        elif _is_ambiguous_month_ju(text or ""):
+            # "26 Ju" could be June or July — ask for clarification
+            data["_pending_arr_date_text"] = text
+            await save_session(session)
+            await _send_buttons(
+                sender_wa_id,
+                "📅 *You wrote 'Ju' — did you mean June or July?*",
+                [
+                    {"id": "arr_month_june", "title": "June"},
+                    {"id": "arr_month_july", "title": "July"},
+                ],
+                phone_number_id,
+            )
+            return
+        # Fix unambiguous typos like "Jull" → "July" before parsing
+        text = _normalize_month_typos(text or "") or text or ""
         iso_arr_date = _parse_date_to_iso(text or "")
         llm_guidance = None
         if not iso_arr_date and text:
@@ -3284,6 +3344,28 @@ async def handle_buy_cover_flow(
                     phone_number_id,
                 )
                 return
+        # Arrival past-time check — for unambiguous inputs (e.g. "22:00", "3:30 PM")
+        _arr_ptc_date = data.get("arrive_date", data.get("date", ""))
+        _arr_ptc_gmt = float(data.get("arr_gmt", "1") or "1")
+        if _arr_ptc_date:
+            try:
+                _ayr, _amor, _adr = map(int, _arr_ptc_date.split("-"))
+                _ahr, _amir = map(int, parsed_arr_time.split(":"))
+                _arr_ptc_local = datetime(
+                    _ayr, _amor, _adr, _ahr, _amir,
+                    tzinfo=timezone(timedelta(hours=_arr_ptc_gmt))
+                )
+                if _arr_ptc_local < datetime.now(timezone.utc):
+                    await _send_text(
+                        sender_wa_id,
+                        "⚠️ *Arrival time has already passed*\n\n"
+                        "Please enter a future arrival time for this airport.\n\n"
+                        "_Example: 15:00 · 3:00 PM_",
+                        phone_number_id,
+                    )
+                    return
+            except (ValueError, TypeError):
+                pass
         dep_time = data.get("depart_time", "")
         dep_date = data.get("date", "")
         arr_date = data.get("arrive_date", dep_date)
@@ -3566,6 +3648,54 @@ async def handle_buy_cover_flow(
             )
             return
 
+        # Past-time check: confirm chosen departure time is still in the future
+        _conf_dep = data.get("depart_time", "")
+        _dep_date_ptc = data.get("date", "")
+        if _conf_dep and _dep_date_ptc:
+            try:
+                _dep_gmt_ptc = float(data.get("dep_gmt", "1") or "1")
+                _dy_p, _dmo_p, _dd_p = map(int, _dep_date_ptc.split("-"))
+                _dh_p, _dmi_p = map(int, _conf_dep.split(":"))
+                _dep_local_ptc = datetime(
+                    _dy_p, _dmo_p, _dd_p, _dh_p, _dmi_p,
+                    tzinfo=timezone(timedelta(hours=_dep_gmt_ptc))
+                )
+                if _dep_local_ptc < datetime.now(timezone.utc):
+                    _ch_p = int(_conf_dep.split(":")[0])
+                    _cm_p = int(_conf_dep.split(":")[1])
+                    if _ch_p < 12:
+                        # AM was chosen but it's already past — suggest PM
+                        _pm_sug = f"{_ch_p + 12:02d}:{_cm_p:02d}"
+                        data["_dep_pm_alt"] = _pm_sug
+                        flow["step"] = "buy_cover_depart_ampm_confirm"
+                        await save_session(session)
+                        await _send_buttons(
+                            sender_wa_id,
+                            f"⚠️ *{_fmt_time_display(_conf_dep)} has already passed.*\n\n"
+                            f"Did you mean *{_fmt_time_display(_pm_sug)}*?",
+                            [
+                                {"id": "ampm_yes", "title": f"✅ Yes, {_fmt_time_display(_pm_sug)}"},
+                                {"id": "dep_time_retry", "title": "⏰ Re-enter time"},
+                            ],
+                            phone_number_id,
+                        )
+                        return
+                    else:
+                        # PM was chosen but also in the past — ask to re-enter
+                        data.pop("depart_time", None)
+                        flow["step"] = "buy_cover_depart_time"
+                        await save_session(session)
+                        await _send_text(
+                            sender_wa_id,
+                            "⚠️ *Departure time has already passed*\n\n"
+                            "Please enter a future departure time.\n\n"
+                            "_Example: 13:40 · 1:40 PM_",
+                            phone_number_id,
+                        )
+                        return
+            except (ValueError, TypeError):
+                pass
+
         if edit_mode:
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
             return
@@ -3611,6 +3741,33 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
+
+        # Past-time check: confirm chosen arrival time is still in the future
+        _conf_arr = data.get("arrive_time", "")
+        _arr_date_ptc2 = data.get("arrive_date", data.get("date", ""))
+        if _conf_arr and _arr_date_ptc2:
+            try:
+                _arr_gmt_ptc2 = float(data.get("arr_gmt", "1") or "1")
+                _ay2, _amo2, _ad2 = map(int, _arr_date_ptc2.split("-"))
+                _ah2, _ami2 = map(int, _conf_arr.split(":"))
+                _arr_local_ptc2 = datetime(
+                    _ay2, _amo2, _ad2, _ah2, _ami2,
+                    tzinfo=timezone(timedelta(hours=_arr_gmt_ptc2))
+                )
+                if _arr_local_ptc2 < datetime.now(timezone.utc):
+                    data.pop("arrive_time", None)
+                    flow["step"] = "buy_cover_arrive_time"
+                    await save_session(session)
+                    await _send_text(
+                        sender_wa_id,
+                        "⚠️ *Arrival time has already passed*\n\n"
+                        "Please enter a future arrival time for this airport.\n\n"
+                        "_Example: 15:00 · 3:00 PM_",
+                        phone_number_id,
+                    )
+                    return
+            except (ValueError, TypeError):
+                pass
 
         if edit_mode:
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
