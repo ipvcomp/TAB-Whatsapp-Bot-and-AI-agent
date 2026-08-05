@@ -27,7 +27,7 @@ WELCOME_TEXT = (
 
 MENU_GROUP1_BUTTONS = [
     {"type": "reply", "reply": {"id": "buy_cover",    "title": "✈️ Buy Cover"}},
-    {"type": "reply", "reply": {"id": "check_policy", "title": "📋 Check My Policy"}},
+    {"type": "reply", "reply": {"id": "check_policy", "title": "📋 Check My Policies"}},
     {"type": "reply", "reply": {"id": "update_details","title": "✏️ Update My Details"}},
 ]
 

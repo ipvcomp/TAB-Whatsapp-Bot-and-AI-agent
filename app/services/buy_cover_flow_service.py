@@ -292,6 +292,24 @@ def _is_ambiguous_hour(text: str) -> bool:
     return 1 <= int(clean) <= 12
 
 
+def _is_ambiguous_hhmm(text: str, parsed: str) -> bool:
+    """True when user typed H:MM or H.MM without AM/PM and the parsed hour is 1-12.
+
+    The parser treats H:MM as 24-h (AM), but hours 1-12 are ambiguous — the user
+    may have meant PM. Dot inputs like '11.30' are also caught here via the [:.] match.
+    """
+    clean = (text or "").strip()
+    if re.search(r"\b[AaPp][Mm]\b", clean):
+        return False  # user explicitly stated AM/PM
+    if not re.match(r"^\d{1,2}[:.]\d{2}$", clean):
+        return False  # not an H:MM or H.MM pattern
+    try:
+        h = int((parsed or "").split(":")[0])
+        return 1 <= h <= 12
+    except (ValueError, IndexError):
+        return False
+
+
 def _normalize_month_typos(text: str) -> str:
     """Fix common unambiguous month misspellings before date parsing.
 
@@ -2921,8 +2939,8 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
-        # Bare-hour input (e.g. "10") without AM/PM — must confirm before saving
-        if _is_ambiguous_hour(text or "") and parsed_dep_time:
+        # Bare-hour or H:MM/H.MM input without AM/PM — must confirm before saving
+        if (_is_ambiguous_hour(text or "") or _is_ambiguous_hhmm(text or "", parsed_dep_time)) and parsed_dep_time:
             _dep_h = int(parsed_dep_time.split(":")[0])
             _dep_m = int(parsed_dep_time.split(":")[1])
             if _dep_h < 12:
@@ -3324,8 +3342,8 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
-        # Bare-hour input (e.g. "10") without AM/PM — must confirm before saving
-        if _is_ambiguous_hour(text or "") and parsed_arr_time:
+        # Bare-hour or H:MM/H.MM input without AM/PM — must confirm before saving
+        if (_is_ambiguous_hour(text or "") or _is_ambiguous_hhmm(text or "", parsed_arr_time)) and parsed_arr_time:
             _arr_h = int(parsed_arr_time.split(":")[0])
             _arr_m = int(parsed_arr_time.split(":")[1])
             if _arr_h < 12:

@@ -565,7 +565,7 @@ async def start_payment_flow(
 
     await _send_buttons(
         wa_id,
-        "Payout options\n\nChoose how you would like to receive money:",
+        "💰 *Payout Options*\n\nChoose how you would like to receive money:",
         payout_buttons,
         phone_number_id,
     )
@@ -1849,7 +1849,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             _payout_buttons.append({"id": "pay_wallet_payout", "title": "👛 Wallet"})
         await _send_buttons(
             wa_id,
-            "Payout options\n\nChoose how you would like to receive money:",
+            "💰 *Payout Options*\n\nChoose how you would like to receive money:",
             _payout_buttons,
             phone_number_id,
         )

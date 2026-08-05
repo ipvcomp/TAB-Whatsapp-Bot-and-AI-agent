@@ -116,7 +116,7 @@ def _build_list_body(drafts: list) -> str:
     n = len(drafts)
     header = f"You have {n} draft {'policy' if n == 1 else 'policies'}.\nWhich one would you like to resume?"
     entries = "\n\n".join(_fmt_draft_entry(d, i) for i, d in enumerate(drafts, 1))
-    return f"{header}\n\n{entries}\n\nReply with the number of the policy."
+    return f"{header}\n\n{entries}\n\n_Reply with the list number to resume (e.g. 1 or 2)_"
 
 
 def _build_detail_card(draft: dict) -> str:

@@ -217,7 +217,7 @@ async def _send_success(
     body = title
     if detail:
         body += f"\n\n{detail}"
-    await _send_text(wa_id, body, phone_number_id)
+    body += "\n\nWhat would you like to do next?"
     if multi_traveler:
         buttons = [
             {"id": "upd_more_trav", "title": "✏️ More traveller"},
@@ -229,7 +229,7 @@ async def _send_success(
             {"id": "upd_more", "title": "✏️ Update details"},
             {"id": "upd_home", "title": "🏠 Main menu"},
         ]
-    await _send_buttons(wa_id, "What would you like to do next?", buttons, phone_number_id)
+    await _send_buttons(wa_id, body, buttons, phone_number_id)
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
@@ -296,7 +296,7 @@ async def start_update_details_flow(
     menu_rows += [
         {"id": "upd_opt_bank",   "title": "🏦 Bank payout details"},
         {"id": "upd_opt_wallet", "title": "👛 Wallet payout"},
-        {"id": "upd_opt_kyc",    "title": "🔒 KYC (BVN / NIN)"},
+        {"id": "upd_opt_kyc",    "title": "🔒 KYC (National Biometric ID)"},
     ]
     await _send_list(
         to=wa_id,
@@ -731,7 +731,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         menu_rows += [
             {"id": "upd_opt_bank",   "title": "🏦 Bank payout details"},
             {"id": "upd_opt_wallet", "title": "👛 Wallet payout"},
-            {"id": "upd_opt_kyc",    "title": "🔒 KYC (BVN / NIN)"},
+            {"id": "upd_opt_kyc",    "title": "🔒 KYC (National Biometric ID)"},
         ]
         await _send_list(
             to=wa_id,
