@@ -118,6 +118,7 @@ async def _start_name_or_traveller_flow(
     phone_number_id: Optional[str],
 ):
     """Route to traveller selection list (multi) or single name input."""
+    await _save_data(session, "_upd_name_via_holder", False)
     if len(passengers) > 1:
         await _set_step(session, "upd_travellers")
         rows = []
@@ -160,6 +161,55 @@ async def _start_name_or_traveller_flow(
         # No passengers — update user profile name
         await _save_data(session, "upd_trav_idx", None)
         await _save_data(session, "upd_trav_id", None)
+        api_data = session.get("api_data", {})
+        cur_fn = api_data.get("profile_first_name", "")
+        cur_ln = api_data.get("profile_last_name", "")
+        cur_name = f"{cur_fn} {cur_ln}".strip()
+        cur_line = f"Current name: *{cur_name}*\n\n" if cur_name else ""
+        await _set_step(session, "upd_name_input")
+        await _send_text(
+            wa_id,
+            f"👤 *Update your name*\n\n{cur_line}"
+            "Please enter your new full name as it appears\n"
+            "on your travel document:\n\n"
+            "_e.g. John Adewale Doe_",
+            phone_number_id,
+        )
+
+
+async def _start_holder_name_flow(
+    session: dict,
+    wa_id: str,
+    passengers: list,
+    phone_number_id: Optional[str],
+):
+    """Go directly to name input for the policy holder (primary traveller)."""
+    # Find primary traveller; fall back to first passenger
+    primary = next((p for p in passengers if p.get("isPrimaryTraveller")), passengers[0] if passengers else None)
+    if primary:
+        full_name = _pax_full_name(primary)
+        pax_id = primary.get("passengerId") or primary.get("id") or ""
+        idx = passengers.index(primary)
+        await _save_data(session, "upd_trav_idx", idx)
+        await _save_data(session, "upd_trav_id", pax_id)
+        await _save_data(session, "upd_trav_name", full_name)
+        await _save_data(session, "upd_is_primary", True)
+        await _save_data(session, "_upd_name_via_holder", True)
+        await _set_step(session, "upd_name_input")
+        await _send_text(
+            wa_id,
+            f"👤 *Update your name*\n\n"
+            f"Current name: *{full_name}*\n\n"
+            "Please enter your new full name as it appears\n"
+            "on your travel document:\n\n"
+            "_e.g. John Adewale Doe_",
+            phone_number_id,
+        )
+    else:
+        # No passengers — update user profile name
+        await _save_data(session, "upd_trav_idx", None)
+        await _save_data(session, "upd_trav_id", None)
+        await _save_data(session, "_upd_name_via_holder", True)
         api_data = session.get("api_data", {})
         cur_fn = api_data.get("profile_first_name", "")
         cur_ln = api_data.get("profile_last_name", "")
@@ -334,7 +384,9 @@ async def handle_update_details_flow(
 
     # ── Main menu ──────────────────────────────────────────────────────────────
     if step == "upd_menu":
-        if reply_id in ("upd_opt_name", "upd_opt_travellers"):
+        if reply_id == "upd_opt_name":
+            await _start_holder_name_flow(session, sender_wa_id, passengers, phone_number_id)
+        elif reply_id == "upd_opt_travellers":
             await _start_name_or_traveller_flow(session, sender_wa_id, passengers, phone_number_id)
 
         elif reply_id == "upd_opt_email":
@@ -748,9 +800,11 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         await send_main_menu(to=wa_id, phone_number_id=phone_number_id, wa_id=wa_id)
         return
 
-    # Name input → back to traveller selection (if multi) or menu
+    # Name input → back to menu (if reached via "Name" option) or traveller selection
     if step == "upd_name_input":
-        if len(passengers) > 1:
+        via_holder = session.get("data", {}).pop("_upd_name_via_holder", False)
+        await save_session(session)
+        if len(passengers) > 1 and not via_holder:
             flow["step"] = "upd_travellers"
             await save_session(session)
             await _start_name_or_traveller_flow(session, wa_id, passengers, phone_number_id)
