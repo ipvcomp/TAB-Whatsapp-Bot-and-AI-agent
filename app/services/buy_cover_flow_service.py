@@ -3394,6 +3394,7 @@ async def handle_buy_cover_flow(
         dep_gmt_val = float(data.get("dep_gmt", "1") or "1")
         arr_gmt_val = float(data.get("arr_gmt", "1") or "1")
         _times_reversed = False
+        _utc_done = False
         if dep_time and dep_date and arr_date:
             try:
                 _dy, _dmo, _dd = map(int, dep_date.split("-"))
@@ -3409,6 +3410,7 @@ async def handle_buy_cover_flow(
                     tzinfo=timezone(timedelta(hours=arr_gmt_val)),
                 ).astimezone(timezone.utc)
                 _times_reversed = _arr_utc <= _dep_utc
+                _utc_done = True
             except (ValueError, TypeError):
                 _times_reversed = (
                     arr_date == dep_date and bool(dep_time) and parsed_arr_time <= dep_time
@@ -3455,7 +3457,24 @@ async def handle_buy_cover_flow(
                 pass
             if _pm_arr_offered:
                 return
-            # No PM fix possible — show the standard arrival-before-departure error
+            if _utc_done:
+                # UTC comparison already proved arrival is before departure —
+                # no timezone scenario can make this valid, so reject outright.
+                data.pop("_pending_arr_time", None)
+                flow["step"] = "buy_cover_arrive_time"
+                await save_session(session)
+                await _send_text(
+                    sender_wa_id,
+                    f"⚠️ *Arrival time cannot be before departure time*\n\n"
+                    f"Dep: *{_fmt_time_display(dep_time)}* → "
+                    f"Arr: *{_fmt_time_display(parsed_arr_time)}*\n\n"
+                    "Please enter a valid arrival time.\n\n"
+                    "_Example: 15:00 · 3:00 PM_",
+                    phone_number_id,
+                )
+                return
+            # Timezone offsets unavailable — wall-clock comparison only.
+            # A cross-timezone flight could still be valid, so offer confirmation.
             data["_pending_arr_time"] = parsed_arr_time
             await save_session(session)
             await _send_buttons(
