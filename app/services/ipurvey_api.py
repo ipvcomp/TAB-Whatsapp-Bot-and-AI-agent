@@ -1,8 +1,22 @@
 import logging
+from datetime import datetime
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+
+def _policy_date_sort_key(pol: dict) -> str:
+    """Return an ISO date string for sorting; empty string sorts last."""
+    date = pol.get("date", "")
+    if not date:
+        return ""
+    for fmt in ("%d-%m-%Y", "%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(date, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return date
 
 IPURVEY_BASE_URL = "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc"
 REQUEST_TIMEOUT = 10.0
@@ -239,6 +253,7 @@ async def fetch_policies_by_msisdn(msisdn: str) -> list:
 
         raw_list = _extract_policy_list(data)
         policies = [_normalize_policy(p) for p in raw_list]
+        policies.sort(key=_policy_date_sort_key, reverse=True)
         logger.info("Fetched %d policies for msisdn %s", len(policies), msisdn)
         return policies
 

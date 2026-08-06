@@ -14,7 +14,7 @@ from app.services.session_service import (
 )
 from app.services.policy_refresh import schedule_policy_cache_refresh
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
-from app.services.ipurvey_api import fetch_policies_by_msisdn
+from app.services.ipurvey_api import fetch_policies_by_msisdn, _policy_date_sort_key
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,33 @@ def _fmt_date(iso_date: str) -> str:
 # Pages 1+ have "Prev" → 8 policy slots + "Prev" + "Next" = 10.
 _FIRST_PAGE_SIZE = 9
 _REST_PAGE_SIZE  = 8
+
+
+def _policy_row_title(pol: dict) -> str:
+    """Build a 24-char list-row title that prioritises trip info over product name."""
+    from datetime import datetime as _dt
+    date_raw = pol.get("date", "")
+    origin   = (pol.get("origin") or "").strip().upper()
+    dest     = (pol.get("dest")   or "").strip().upper()
+
+    parts: list[str] = []
+    if date_raw:
+        for fmt in ("%d-%m-%Y", "%Y-%m-%d", "%d/%m/%Y"):
+            try:
+                parts.append(_dt.strptime(date_raw, fmt).strftime("%d %b"))
+                break
+            except ValueError:
+                continue
+    if dest and origin:
+        parts.append(f"{origin}→{dest}")
+    elif dest:
+        parts.append(dest)
+    elif origin:
+        parts.append(origin)
+
+    if parts:
+        return (" · ".join(parts))[:24]
+    return (pol.get("name") or "Policy")[:24]
 
 
 def _page_window(page: int, total: int) -> tuple:
@@ -188,7 +215,7 @@ async def _show_policy_list(
     data["bp_page"] = page
     await save_session(session)
 
-    policies = data.get("policies", [])
+    policies = sorted(data.get("policies", []), key=_policy_date_sort_key, reverse=True)
     total = len(policies)
 
     _action_labels = {
@@ -221,11 +248,11 @@ async def _show_policy_list(
     for i, pol in enumerate(policies[start:end]):
         rows.append({
             "id":          f"bpp_{start + i}",
-            "title":       str(pol.get("name") or pol.get("productName") or "Policy")[:24],
+            "title":       _policy_row_title(pol),
             "description": (
-                f"{pol.get('status', 'Active')} · "
-                f"{pol.get('ref') or pol.get('policyCode') or pol.get('id', '')}"
-            ),
+                f"{pol.get('ref') or pol.get('policyCode') or pol.get('id', '')} · "
+                f"{pol.get('status', 'Active')}"
+            )[:72],
         })
 
     if has_next:
@@ -809,7 +836,7 @@ async def handle_bp_link_flow(
                         or f"boarding_pass_{data.get('bp_sel_flight', '')}.pdf",
         }
 
-    policies = data.get("policies", [])
+    policies = sorted(data.get("policies", []), key=_policy_date_sort_key, reverse=True)
 
     # ── Screen 1: Choose option ───────────────────────────────────────────────
     if step == "bp_choose":
@@ -827,7 +854,7 @@ async def handle_bp_link_flow(
     # ── Screen 2: Select policy ───────────────────────────────────────────────
     elif step == "bp_policy":
         action = data.get("bp_action", "upload")
-        policies = data.get("policies", [])
+        policies = sorted(data.get("policies", []), key=_policy_date_sort_key, reverse=True)
         current_page = data.get("bp_page", 0)
 
         # ── Pagination navigation ─────────────────────────────────────────────

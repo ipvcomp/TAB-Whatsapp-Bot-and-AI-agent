@@ -763,6 +763,10 @@ def _build_cover_card_body(data: dict) -> str:
         f"{coverage_lines}\n\n"
         f"💳 *Insurance Premium: ₦{float(cover_price):,.2f}*\n"
         f"_(Inclusive of taxes & fees)_"
+        + (
+            "\nℹ️ _The total premium will be calculated based on the number of travelers._"
+            if len(data.get("travelers", [])) > 1 else ""
+        ) +
         f"{payout_line}\n\n"
         f"ℹ️ _This policy provides protection for covered travel disruption events only. "
         f"Terms, limits, exclusions and waiting periods apply._\n\n"
@@ -914,7 +918,7 @@ async def _redisplay_step(
         if prefill:
             await _send_buttons(
                 wa_id,
-                f"📧 *We found your registered email:*\n\n*{prefill}*\n\nUse this for your policy documents?",
+                f"📧 *We found your registered email:*\n\n{prefill}\n\nUse this for your policy documents?",
                 [
                     {"id": "returning_email_yes", "title": "✅ Yes, use this"},
                     {"id": "returning_email_no", "title": "✏️ Different email"},
@@ -1440,7 +1444,7 @@ async def _advance_to_email_step(
         await save_session(session)
         await _send_buttons(
             wa_id,
-            f"📧 *We found your registered email:*\n\n*{prefill}*\n\nUse this for your policy documents?",
+            f"📧 *We found your registered email:*\n\n{prefill}\n\nUse this for your policy documents?",
             [
                 {"id": "returning_email_yes", "title": "✅ Yes, use this"},
                 {"id": "returning_email_no", "title": "✏️ Different email"},
@@ -2377,7 +2381,7 @@ async def handle_buy_cover_flow(
                     await _send_text(sender_wa_id, guidance, phone_number_id)
                 await _send_buttons(
                     sender_wa_id,
-                    f"📧 *We found your registered email:*\n\n*{prefill_email}*\n\nUse this for your policy documents?",
+                    f"📧 *We found your registered email:*\n\n{prefill_email}\n\nUse this for your policy documents?",
                     [
                         {"id": "returning_email_yes", "title": "✅ Yes, use this"},
                         {"id": "returning_email_no", "title": "✏️ Different email"},
@@ -2415,7 +2419,7 @@ async def handle_buy_cover_flow(
         else:
             await _send_buttons(
                 sender_wa_id,
-                f"📧 *We found your registered email:*\n\n*{prefill_email}*\n\nUse this for your policy documents?",
+                f"📧 *We found your registered email:*\n\n{prefill_email}\n\nUse this for your policy documents?",
                 [
                     {"id": "returning_email_yes", "title": "✅ Yes, use this"},
                     {"id": "returning_email_no", "title": "✏️ Different email"},
@@ -4688,7 +4692,7 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         if prefill_email:
             await _send_buttons(
                 wa_id,
-                f"📧 *We found your registered email:*\n\n*{prefill_email}*\n\nUse this for your policy documents?",
+                f"📧 *We found your registered email:*\n\n{prefill_email}\n\nUse this for your policy documents?",
                 [
                     {"id": "returning_email_yes", "title": "✅ Yes, use this"},
                     {"id": "returning_email_no", "title": "✏️ Different email"},

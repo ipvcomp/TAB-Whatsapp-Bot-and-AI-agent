@@ -14,7 +14,7 @@ from app.services.session_service import (
 )
 from app.services.policy_refresh import schedule_policy_cache_refresh
 from app.services.whatsapp_service import send_text_message, send_whatsapp_payload
-from app.services.ipurvey_api import fetch_policies_by_msisdn, _normalize_policy
+from app.services.ipurvey_api import fetch_policies_by_msisdn, _normalize_policy, _policy_date_sort_key
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,39 @@ _UTILITY = (
     "0 ↩️ Back  |  9 🆘 Help  |  00 🏠 Main menu\n"
     "99 ❌ Cancel/Exit"
 )
+
+
+def _policy_row_title(pol: dict) -> str:
+    """Build a 24-char list-row title that prioritises trip info over product name.
+
+    Priority: departure date → arrival airport → departure airport.
+    Falls back to the product name when no trip data is available.
+    """
+    date_raw = pol.get("date", "")
+    origin   = (pol.get("origin") or "").strip().upper()
+    dest     = (pol.get("dest")   or "").strip().upper()
+
+    parts: list[str] = []
+    if date_raw:
+        try:
+            for fmt in ("%d-%m-%Y", "%Y-%m-%d", "%d/%m/%Y"):
+                try:
+                    parts.append(datetime.strptime(date_raw, fmt).strftime("%d %b"))
+                    break
+                except ValueError:
+                    continue
+        except Exception:
+            pass
+    if dest and origin:
+        parts.append(f"{origin}→{dest}")
+    elif dest:
+        parts.append(dest)
+    elif origin:
+        parts.append(origin)
+
+    if parts:
+        return (" · ".join(parts))[:24]
+    return (pol.get("name") or "Policy")[:24]
 
 
 def _fmt_time_display(hhmm: str) -> str:
@@ -200,7 +233,7 @@ async def handle_check_policy_flow(
         elif message.interactive.type == "button_reply" and message.interactive.button_reply:
             reply_id = message.interactive.button_reply.id
 
-    policies = data.get("policies", [])
+    policies = sorted(data.get("policies", []), key=_policy_date_sort_key, reverse=True)
 
     def _get_selected_pol() -> dict:
         return data.get("pol_selected") or (policies[0] if policies else {})
@@ -612,7 +645,7 @@ async def _show_phone_policies(
         abs_idx = start + i
         rows.append({
             "id":          f"psel_{abs_idx}",
-            "title":       pol["name"][:24],
+            "title":       _policy_row_title(pol),
             "description": f"{pol['ref']} · {pol['status']}"[:72],
         })
     if page > 0:
@@ -721,7 +754,7 @@ async def _show_all_policies(
         abs_idx = start + i
         rows.append({
             "id":          f"pall_{abs_idx}",
-            "title":       pol["name"][:24],
+            "title":       _policy_row_title(pol),
             "description": f"{pol['ref']} · {pol['status']}"[:72],
         })
     if page > 0:
