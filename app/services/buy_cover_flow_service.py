@@ -2963,6 +2963,23 @@ async def handle_buy_cover_flow(
                     phone_number_id,
                 )
                 return
+            elif _dep_h == 12:
+                # "12:xx" parsed as noon — could mean midnight (12:xx AM = 00:xx)
+                _am_time = f"00:{_dep_m:02d}"
+                data["depart_time"] = parsed_dep_time   # noon stored as default
+                data["_dep_pm_alt"] = _am_time          # midnight stored as alternative
+                flow["step"] = "buy_cover_depart_ampm_confirm"
+                await save_session(session)
+                await _send_buttons(
+                    sender_wa_id,
+                    f"⏰ *Is that {_fmt_time_display(parsed_dep_time)} or {_fmt_time_display(_am_time)}?*\n\nPlease confirm your departure time.",
+                    [
+                        {"id": "ampm_no",  "title": f"☀️ {_fmt_time_display(parsed_dep_time)}"},
+                        {"id": "ampm_yes", "title": f"🌙 {_fmt_time_display(_am_time)}"},
+                    ],
+                    phone_number_id,
+                )
+                return
         # Same-day check: if editing dep_time and arr_time already set, validate order
         arr_time = data.get("arrive_time", "")
         dep_date_chk = data.get("date", "")
@@ -3366,6 +3383,23 @@ async def handle_buy_cover_flow(
                     phone_number_id,
                 )
                 return
+            elif _arr_h == 12:
+                # "12:xx" parsed as noon — could mean midnight (12:xx AM = 00:xx)
+                _am_arr = f"00:{_arr_m:02d}"
+                data["arrive_time"] = parsed_arr_time   # noon stored as default
+                data["_arr_am_alt"] = _am_arr           # midnight stored for arr_early_am handler
+                flow["step"] = "buy_cover_arrive_ampm_confirm"
+                await save_session(session)
+                await _send_buttons(
+                    sender_wa_id,
+                    f"⏰ *Is that {_fmt_time_display(parsed_arr_time)} or {_fmt_time_display(_am_arr)}?*\n\nPlease confirm your arrival time.",
+                    [
+                        {"id": "arr_early_pm", "title": f"☀️ {_fmt_time_display(parsed_arr_time)}"},
+                        {"id": "arr_early_am", "title": f"🌙 {_fmt_time_display(_am_arr)}"},
+                    ],
+                    phone_number_id,
+                )
+                return
         # Arrival past-time check — for unambiguous inputs (e.g. "22:00", "3:30 PM")
         _arr_ptc_date = data.get("arrive_date", data.get("date", ""))
         _arr_ptc_gmt = float(data.get("arr_gmt", "1") or "1")
@@ -3751,13 +3785,18 @@ async def handle_buy_cover_flow(
     # ── Arrival AM/PM confirmation ────────────────────────────────────────────
     elif step == "buy_cover_arrive_ampm_confirm":
         pm_alt = data.pop("_arr_pm_alt", "")
+        am_alt = data.pop("_arr_am_alt", "")
         data.pop("_pending_arr_time", None)
         edit_mode = data.pop("_edit_mode", False)
 
-        if reply_id in ("arr_ampm_yes", "arr_early_pm") and pm_alt:
-            data["arrive_time"] = pm_alt
+        if reply_id in ("arr_ampm_yes", "arr_early_pm"):
+            if pm_alt:
+                data["arrive_time"] = pm_alt   # hours 1-11: switch to PM
+            # else: hour-12 case — arr_early_pm means keep noon, arrive_time already "12:xx"
         elif reply_id == "arr_early_am":
-            pass  # keep arrive_time as AM (already saved before routing here)
+            if am_alt:
+                data["arrive_time"] = am_alt   # hour-12 case: switch to midnight (00:xx)
+            # else: hours 1-11 — keep arrive_time as AM (already saved before routing here)
         elif reply_id == "arr_ampm_no":
             # User rejected PM — ask them to re-enter arrival time
             data.pop("arrive_time", None)
