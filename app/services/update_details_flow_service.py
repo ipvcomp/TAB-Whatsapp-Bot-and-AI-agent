@@ -432,10 +432,6 @@ async def handle_update_details_flow(
                     menu_rows = [
                         {"id": "upd_opt_name",   "title": "👤 Name"},
                         {"id": "upd_opt_email",  "title": "✉️ Email address"},
-                    ]
-                    if passengers:
-                        menu_rows.append({"id": "upd_opt_travellers", "title": "👥 Travellers"})
-                    menu_rows += [
                         {"id": "upd_opt_bank",   "title": "🏦 Bank payout details"},
                         {"id": "upd_opt_wallet", "title": "👛 Wallet payout"},
                         {"id": "upd_opt_kyc",    "title": "🔒 KYC (Biometric ID)"},
@@ -851,10 +847,6 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
         menu_rows = [
             {"id": "upd_opt_name",   "title": "👤 Name"},
             {"id": "upd_opt_email",  "title": "✉️ Email address"},
-        ]
-        if passengers:
-            menu_rows.append({"id": "upd_opt_travellers", "title": "👥 Travellers"})
-        menu_rows += [
             {"id": "upd_opt_bank",   "title": "🏦 Bank payout details"},
             {"id": "upd_opt_wallet", "title": "👛 Wallet payout"},
             {"id": "upd_opt_kyc",    "title": "🔒 KYC (Biometric ID)"},
