@@ -677,13 +677,13 @@ def _build_trip_summary_text(data: dict) -> str:
     # Space-padding to align under the label breaks on narrow phone screens.
     if len(travelers) > 1:
         names_block = "\n".join(
-            [f"  *{i + 1} — {n}*" for i, n in enumerate(travelers)]
+            [f"  {i + 1} — {n}" for i, n in enumerate(travelers)]
         )
-        travellers_section = f"Travellers\n{names_block}"
+        travellers_section = f"*Travellers:*\n{names_block}"
     elif travelers:
-        travellers_section = f"Travellers\t\t*1 — {travelers[0]}*"
+        travellers_section = f"*Travellers:* {travelers[0]}"
     else:
-        travellers_section = f"Travellers\t\t*1 — {data.get('name', '')}*"
+        travellers_section = f"*Travellers:* {data.get('name', '')}"
 
     def _fmt_date(iso: str) -> str:
         try:
@@ -694,21 +694,21 @@ def _build_trip_summary_text(data: dict) -> str:
     arrive_date_raw = data.get("arrive_date", "")
     arrive_date_disp = _fmt_date(arrive_date_raw) if arrive_date_raw else ""
     arrive_date_line = (
-        f"Arr Date\t\t\t*{arrive_date_disp}*\n" if arrive_date_disp else ""
+        f"*Arr Date:* {arrive_date_disp}\n" if arrive_date_disp else ""
     )
     dep_date_disp = _fmt_date(data.get("date", ""))
     booking_ref = data.get("booking_ref", "")
-    booking_ref_line = f"Booking Ref\t\t*{booking_ref}*\n" if booking_ref else ""
+    booking_ref_line = f"*Booking Ref:* {booking_ref}\n" if booking_ref else ""
     return (
         "*✈️ YOUR TRIP*\n\n"
-        f"Airline\t\t\t*{data.get('airline', '')}*\n"
-        f"Route\t\t\t*{dep} → {arr}*\n"
-        f"Flight\t\t\t*{data.get('flight_num', '')}*\n"
+        f"*Airline:* {data.get('airline', '')}\n"
+        f"*Route:* {dep} → {arr}\n"
+        f"*Flight:* {data.get('flight_num', '')}\n"
         f"{booking_ref_line}"
-        f"Dep Date\t\t*{dep_date_disp}*\n"
+        f"*Dep Date:* {dep_date_disp}\n"
         f"{arrive_date_line}"
-        f"Departs\t\t\t*{_fmt_time_display(data.get('depart_time', ''))}*\n"
-        f"Arrives\t\t\t*{_fmt_time_display(data.get('arrive_time', ''))}*\n"
+        f"*Departs:* {_fmt_time_display(data.get('depart_time', ''))}\n"
+        f"*Arrives:* {_fmt_time_display(data.get('arrive_time', ''))}\n"
         f"{travellers_section}"
     )
 
