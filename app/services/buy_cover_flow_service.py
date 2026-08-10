@@ -2854,6 +2854,134 @@ async def handle_buy_cover_flow(
             return
         old_dep_date = data.get("date", "")
         data["date"] = iso_date
+
+        # ── Re-validation path from duration-warning "Edit departure date" ──────
+        if data.pop("_revalidate_after_dep_date", False):
+            arr_date_rv = data.get("arrive_date", "")
+            dep_time_rv = data.get("depart_time", "")
+            arr_time_rv = data.get("arrive_time", "")
+
+            def _fmt_rv(iso):
+                try:
+                    return datetime.strptime(iso, "%Y-%m-%d").strftime("%d %b %Y")
+                except ValueError:
+                    return iso
+
+            # 1. Dep date must not be after arr date
+            if arr_date_rv and iso_date > arr_date_rv:
+                data["date"] = old_dep_date
+                await save_session(session)
+                await _send_text(
+                    sender_wa_id,
+                    f"⚠️ Departure date cannot be after your arrival date\n\n"
+                    f"Your arrival is currently set to *{_fmt_rv(arr_date_rv)}* — "
+                    f"please enter a departure date on or before that\n\n"
+                    "_Example: 12 April 2026_",
+                    phone_number_id,
+                )
+                return
+
+            # 2. Times-reversed check (UTC-aware)
+            if arr_date_rv and dep_time_rv and arr_time_rv:
+                _rv_reversed = False
+                try:
+                    dep_gmt_rv = float(data.get("dep_gmt", "1") or "1")
+                    arr_gmt_rv = float(data.get("arr_gmt", "1") or "1")
+                    _dy, _dmo, _dd = map(int, iso_date.split("-"))
+                    _ay, _amo, _ad = map(int, arr_date_rv.split("-"))
+                    _dh, _dmi = map(int, dep_time_rv.split(":"))
+                    _ah, _ami = map(int, arr_time_rv.split(":"))
+                    _dep_utc_rv = datetime(
+                        _dy, _dmo, _dd, _dh, _dmi,
+                        tzinfo=timezone(timedelta(hours=dep_gmt_rv)),
+                    ).astimezone(timezone.utc)
+                    _arr_utc_rv = datetime(
+                        _ay, _amo, _ad, _ah, _ami,
+                        tzinfo=timezone(timedelta(hours=arr_gmt_rv)),
+                    ).astimezone(timezone.utc)
+                    _rv_reversed = _arr_utc_rv <= _dep_utc_rv
+                except (ValueError, TypeError):
+                    _rv_reversed = (
+                        arr_date_rv == iso_date and dep_time_rv >= arr_time_rv
+                    )
+                if _rv_reversed:
+                    data["date"] = old_dep_date
+                    await save_session(session)
+                    await _send_text(
+                        sender_wa_id,
+                        f"⚠️ *Departure time is after arrival time*\n\n"
+                        f"Dep: *{_fmt_time_display(dep_time_rv)}* on *{_fmt_rv(iso_date)}* → "
+                        f"Arr: *{_fmt_time_display(arr_time_rv)}* on *{_fmt_rv(arr_date_rv)}*\n\n"
+                        "Please enter a valid departure date.\n\n"
+                        "_Example: 12 April 2026_",
+                        phone_number_id,
+                    )
+                    return
+
+            # 3. Duration re-check with the new dep date
+            if dep_time_rv and arr_time_rv and arr_date_rv:
+                try:
+                    dep_dt_rv = datetime.strptime(
+                        f"{iso_date} {dep_time_rv}", "%Y-%m-%d %H:%M"
+                    )
+                    arr_dt_rv = datetime.strptime(
+                        f"{arr_date_rv} {arr_time_rv}", "%Y-%m-%d %H:%M"
+                    )
+                    total_mins_rv = int(
+                        (arr_dt_rv - dep_dt_rv).total_seconds() / 60
+                    )
+                    dep_c = data.get("dep_country", "").strip().upper()
+                    arr_c = data.get("arr_country", "").strip().upper()
+                    if dep_c and arr_c:
+                        is_dom_rv = dep_c == arr_c
+                    else:
+                        is_dom_rv = float(data.get("dep_gmt", "1") or "1") == float(
+                            data.get("arr_gmt", "1") or "1"
+                        )
+                    warn_mins_rv = 120 if is_dom_rv else 1440
+                    if total_mins_rv > warn_mins_rv:
+                        flow["step"] = "buy_cover_arrive_time"
+                        await save_session(session)
+                        dep_disp_rv = dep_dt_rv.strftime("%d %b %Y")
+                        arr_disp_rv = arr_dt_rv.strftime("%d %b %Y")
+                        if is_dom_rv:
+                            warn_rv = (
+                                f"✈️ *We've identified this as a domestic flight.*\n\n"
+                                f"Domestic flights are typically around 2 hours in duration.\n\n"
+                                f"Please review your travel dates below to ensure they are correct.\n\n"
+                                f"🛫 *Departure Date:* {dep_disp_rv}\n"
+                                f"🛬 *Arrival Date:* {arr_disp_rv}\n\n"
+                                f"Please choose an option:"
+                            )
+                        else:
+                            warn_rv = (
+                                f"✈️ *We've identified this as an international flight.*\n\n"
+                                f"International journeys are typically completed within 24 hours, "
+                                f"including most stopovers.\n\n"
+                                f"Please review your travel dates below to ensure they are correct.\n\n"
+                                f"🛫 *Departure Date:* {dep_disp_rv}\n"
+                                f"🛬 *Arrival Date:* {arr_disp_rv}\n\n"
+                                f"Please choose an option:"
+                            )
+                        await _send_buttons(
+                            sender_wa_id,
+                            warn_rv,
+                            [
+                                {"id": "dur_confirm",      "title": "✅ Confirm"},
+                                {"id": "dur_edit_details", "title": "✏️ Edit details"},
+                            ],
+                            phone_number_id,
+                        )
+                        return
+                except (ValueError, TypeError):
+                    pass
+
+            # All checks passed → show trip summary
+            await save_session(session)
+            await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
+            return
+        # ── End re-validation path ────────────────────────────────────────────
+
         if data.pop("_edit_mode", False):
             existing_arr_date = data.get("arrive_date", "")
             if existing_arr_date and iso_date > existing_arr_date:
@@ -3344,6 +3472,80 @@ async def handle_buy_cover_flow(
                 phone_number_id,
             )
             return
+        if reply_id == "dur_edit_details":
+            # Show list of editable fields — step stays on arrive_time so
+            # the list reply is handled here.
+            flow["step"] = "buy_cover_arrive_time"
+            await save_session(session)
+            await _send_list(
+                to=sender_wa_id,
+                header="✏️ Edit details",
+                body="Select the detail you would like to edit:",
+                button_label="Select field",
+                sections=[{
+                    "title": "Edit options",
+                    "rows": [
+                        {"id": "dur_edit_dep_date", "title": "📅 Edit departure date"},
+                        {"id": "dur_edit_dep_time", "title": "⏰ Edit departure time"},
+                        {"id": "dur_edit_arr_time", "title": "⏰ Edit arrival time"},
+                        {"id": "dur_edit_arr_date", "title": "📅 Edit arrival date"},
+                    ],
+                }],
+                phone_number_id=phone_number_id,
+            )
+            return
+        if reply_id == "dur_edit_dep_date":
+            # Use a dedicated flag so the dep-date step re-runs all validations
+            # (dep>arr, times-reversed, duration) rather than blindly going to
+            # trip summary.
+            data["_revalidate_after_dep_date"] = True
+            flow["step"] = "buy_cover_date"
+            await save_session(session)
+            await _send_text(
+                sender_wa_id,
+                "*📅 Please enter your corrected departure date*\n\n"
+                "_Example: 12 April 2026, 12/04/2026, 12-04-2026_",
+                phone_number_id,
+            )
+            return
+        if reply_id == "dur_edit_dep_time":
+            data.pop("depart_time", None)
+            data["_repair_to_arrive_time"] = True
+            flow["step"] = "buy_cover_depart_time"
+            await save_session(session)
+            await _send_text(
+                sender_wa_id,
+                "*⏰ Please enter your corrected departure time*\n\n"
+                "_Example: 13:40 · 1:40 PM · 3:30 PM_",
+                phone_number_id,
+            )
+            return
+        if reply_id == "dur_edit_arr_time":
+            # Clear the arrival time set before the duration check so user
+            # starts fresh. Step stays on arrive_time.
+            data.pop("arrive_time", None)
+            flow["step"] = "buy_cover_arrive_time"
+            await save_session(session)
+            await _send_text(
+                sender_wa_id,
+                "*⏰ Please enter your corrected arrival time*\n\n"
+                "_Example: 15:00 · 3:00 AM · 3:00 PM_",
+                phone_number_id,
+            )
+            return
+        if reply_id == "dur_edit_arr_date":
+            # Clear arrival time too — it was entered for the old date so it
+            # needs to be re-collected after the new date is set.
+            data.pop("arrive_time", None)
+            flow["step"] = "buy_cover_arrive_date"
+            await save_session(session)
+            await _send_text(
+                sender_wa_id,
+                "*📅 Please enter your corrected arrival date*\n\n"
+                "_Example: 12 April 2026, 12/04/2026, 12-04-2026_",
+                phone_number_id,
+            )
+            return
         parsed_arr_time = _parse_time_to_hhmm(text or "")
         llm_guidance = None
         if not parsed_arr_time and text:
@@ -3624,9 +3826,8 @@ async def handle_buy_cover_flow(
                         sender_wa_id,
                         warn_msg,
                         [
-                            {"id": "dur_confirm",  "title": "✅ Confirm"},
-                            {"id": "fix_dep_time", "title": "⏰ Fix departure time"},
-                            {"id": "fix_arr_date", "title": "📅 Fix arrival date"},
+                            {"id": "dur_confirm",       "title": "✅ Confirm"},
+                            {"id": "dur_edit_details",  "title": "✏️ Edit details"},
                         ],
                         phone_number_id,
                     )

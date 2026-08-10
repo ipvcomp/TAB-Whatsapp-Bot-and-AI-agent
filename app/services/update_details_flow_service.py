@@ -376,8 +376,6 @@ async def start_update_details_flow(
         {"id": "upd_opt_name",   "title": "👤 Name"},
         {"id": "upd_opt_email",  "title": "✉️ Email address"},
     ]
-    if passengers:
-        menu_rows.append({"id": "upd_opt_travellers", "title": "👥 Travellers"})
     menu_rows += [
         {"id": "upd_opt_bank",   "title": "🏦 Bank payout details"},
         {"id": "upd_opt_wallet", "title": "👛 Wallet payout"},
@@ -463,8 +461,6 @@ async def handle_update_details_flow(
     # ── Main menu ──────────────────────────────────────────────────────────────
     if step == "upd_menu":
         if reply_id == "upd_opt_name":
-            await _start_holder_name_flow(session, sender_wa_id, passengers, phone_number_id)
-        elif reply_id == "upd_opt_travellers":
             await _start_name_or_traveller_flow(session, sender_wa_id, passengers, phone_number_id)
 
         elif reply_id == "upd_opt_email":
@@ -890,11 +886,11 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             await send_main_menu(to=wa_id, phone_number_id=phone_number_id, wa_id=wa_id)
         return
 
-    # Name input → back to menu (if reached via "Name" option) or traveller selection
+    # Name input → back to traveller selection (multi) or menu (single/no policy)
     if step == "upd_name_input":
-        via_holder = data.pop("_upd_name_via_holder", False)
+        data.pop("_upd_name_via_holder", None)
         await save_session(session)
-        if len(passengers) > 1 and not via_holder:
+        if len(passengers) > 1:
             flow["step"] = "upd_travellers"
             await save_session(session)
             await _start_name_or_traveller_flow(session, wa_id, passengers, phone_number_id)
