@@ -673,17 +673,6 @@ def _build_trip_summary_text(data: dict) -> str:
     dep = data.get("depart_airport", "").split("—")[0].strip()
     arr = data.get("arrive_airport", "").split("—")[0].strip()
     travelers = data.get("travelers", [])
-    # Multi-traveller: list on separate lines to stay mobile-friendly.
-    # Space-padding to align under the label breaks on narrow phone screens.
-    if len(travelers) > 1:
-        names_block = "\n".join(
-            [f"  {i + 1} — {n}" for i, n in enumerate(travelers)]
-        )
-        travellers_section = f"*Travellers:*\n{names_block}"
-    elif travelers:
-        travellers_section = f"*Travellers:* {travelers[0]}"
-    else:
-        travellers_section = f"*Travellers:* {data.get('name', '')}"
 
     def _fmt_date(iso: str) -> str:
         try:
@@ -691,26 +680,37 @@ def _build_trip_summary_text(data: dict) -> str:
         except ValueError:
             return iso
 
+    W = 11  # label column width — matches longest fixed label "Booking Ref"
+
     arrive_date_raw = data.get("arrive_date", "")
     arrive_date_disp = _fmt_date(arrive_date_raw) if arrive_date_raw else ""
-    arrive_date_line = (
-        f"*Arr Date:* {arrive_date_disp}\n" if arrive_date_disp else ""
-    )
+    arrive_date_line = f"{'ARR DATE'.ljust(W)}: {arrive_date_disp}\n" if arrive_date_disp else ""
+
     dep_date_disp = _fmt_date(data.get("date", ""))
     booking_ref = data.get("booking_ref", "")
-    booking_ref_line = f"*Booking Ref:* {booking_ref}\n" if booking_ref else ""
-    return (
-        "*✈️ YOUR TRIP*\n\n"
-        f"*Airline:* {data.get('airline', '')}\n"
-        f"*Route:* {dep} → {arr}\n"
-        f"*Flight:* {data.get('flight_num', '')}\n"
+    booking_ref_line = f"{'BOOKING REF'.ljust(W)}: {booking_ref}\n" if booking_ref else ""
+
+    if len(travelers) > 1:
+        names_lines = "\n".join(f"  {i + 1} - {n}" for i, n in enumerate(travelers))
+        travellers_line = f"TRAVELLERS:\n{names_lines}"
+    elif travelers:
+        travellers_line = f"{'TRAVELLERS'.ljust(W)}: {travelers[0]}"
+    else:
+        travellers_line = f"{'TRAVELLERS'.ljust(W)}: {data.get('name', '')}"
+
+    table = (
+        f"{'AIRLINE'.ljust(W)}: {data.get('airline', '')}\n"
+        f"{'ROUTE'.ljust(W)}: {dep} → {arr}\n"
+        f"{'FLIGHT'.ljust(W)}: {data.get('flight_num', '')}\n"
         f"{booking_ref_line}"
-        f"*Dep Date:* {dep_date_disp}\n"
+        f"{'DEP DATE'.ljust(W)}: {dep_date_disp}\n"
         f"{arrive_date_line}"
-        f"*Departs:* {_fmt_time_display(data.get('depart_time', ''))}\n"
-        f"*Arrives:* {_fmt_time_display(data.get('arrive_time', ''))}\n"
-        f"{travellers_section}"
+        f"{'DEPARTS'.ljust(W)}: {_fmt_time_display(data.get('depart_time', ''))}\n"
+        f"{'ARRIVES'.ljust(W)}: {_fmt_time_display(data.get('arrive_time', ''))}\n"
+        f"{travellers_line}"
     )
+
+    return "*✈️ YOUR TRIP*\n\n```\n" + table + "\n```"
 
 
 def _build_cover_card_body(data: dict) -> str:
