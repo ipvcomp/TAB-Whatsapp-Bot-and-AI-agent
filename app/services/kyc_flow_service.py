@@ -705,7 +705,7 @@ async def handle_kyc_flow(
                     await _send_text(
                         sender_wa_id,
                         f"📧 *Email Already Registered*\n\n"
-                        f"The email address *{email}* is already linked to another account on our system.\n\n"
+                        f"The email address {email} is already linked to another account on our system.\n\n"
                         "Please enter a different email address to continue with your purchase:\n\n"
                         "_Example: name@example.com_",
                         phone_number_id,
@@ -958,7 +958,7 @@ async def handle_kyc_flow(
                 await _send_text(
                     sender_wa_id,
                     f"📧 *Email Already Registered*\n\n"
-                    f"The email address *{new_email}* is also already linked to another account.\n\n"
+                    f"The email address {new_email} is also already linked to another account.\n\n"
                     "Please enter a different email address:",
                     phone_number_id,
                 )

@@ -914,6 +914,37 @@ async def resume_draft_policy(
         return None
 
 
+async def get_all_draft_policies(msisdn: str) -> list:
+    """GET /api/tab-plc/policies/draft/resume — returns the full list of active draft
+    policies with passengers embedded.  Used by Update Details to let users pick which
+    policy they want to edit when they have more than one draft active."""
+    if msisdn and not msisdn.startswith("+"):
+        msisdn = f"+{msisdn}"
+    logger.info(f"[ipurvey] get_all_draft_policies msisdn='{msisdn}'")
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(
+                f"{_base()}/api/tab-plc/policies/draft/resume",
+                params={"msisdn": msisdn},
+            )
+            if r.status_code == 200:
+                body = r.json()
+                data = _extract(body)
+                if isinstance(data, list):
+                    logger.info(f"[ipurvey] get_all_draft_policies → {len(data)} policies")
+                    return data
+                elif isinstance(data, dict) and data:
+                    return [data]
+            elif r.status_code == 404:
+                logger.info("[ipurvey] get_all_draft_policies → 404 (no drafts)")
+                return []
+            logger.warning(f"[ipurvey] get_all_draft_policies {r.status_code}: {r.text[:200]}")
+            return []
+    except Exception as exc:
+        logger.error(f"[ipurvey] get_all_draft_policies failed: {exc}")
+        return []
+
+
 async def cancel_draft_policy(policy_id: str) -> bool:
     logger.info(f"[ipurvey] cancel_draft_policy policy_id='{policy_id}'")
     try:

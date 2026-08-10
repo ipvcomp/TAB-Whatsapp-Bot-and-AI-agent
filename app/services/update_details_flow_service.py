@@ -282,6 +282,30 @@ async def _send_success(
     await _send_buttons(wa_id, body, buttons, phone_number_id)
 
 
+def _policy_row(pol: dict, idx: int) -> dict:
+    """Build a WhatsApp list row for one draft policy."""
+    code = pol.get("policyCode") or pol.get("policyId") or f"Policy {idx + 1}"
+    pax_list = pol.get("passengers") or []
+    primary = next((p for p in pax_list if p.get("isPrimaryTraveller")), pax_list[0] if pax_list else None)
+    name = _pax_full_name(primary) if primary else ""
+    n = len(pax_list)
+    pax_str = f"{n} passenger{'s' if n != 1 else ''}"
+    desc = f"{name} · {pax_str}" if name else pax_str
+    return {"id": f"upd_pol_{idx}", "title": str(code)[:24], "description": desc[:72]}
+
+
+async def _send_policy_selection(wa_id: str, all_policies: list, phone_number_id: Optional[str]):
+    rows = [_policy_row(pol, i) for i, pol in enumerate(all_policies)]
+    await _send_list(
+        to=wa_id,
+        header="✏️ Select a policy",
+        body="You have multiple active policies.\nWhich one would you like to update?",
+        button_label="Select policy",
+        sections=[{"title": "Your active policies", "rows": rows}],
+        phone_number_id=phone_number_id,
+    )
+
+
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 async def start_update_details_flow(
@@ -290,16 +314,12 @@ async def start_update_details_flow(
     in_reply_to: Optional[str] = None,
 ):
     session = await get_session(wa_id) or {}
-    session.setdefault("temp_data", {})[UPDATE_DETAILS_FLOW_KEY] = {
-        "active": True, "step": "upd_menu", "data": {},
-    }
     if "user_id" not in session:
         session["user_id"] = wa_id
 
-    msisdn  = get_msisdn(wa_id)
+    msisdn   = get_msisdn(wa_id)
     api_data = session.setdefault("api_data", {})
 
-    # Parallel: user profile + resume draft
     async def _fetch_user():
         if api_data.get("user_id"):
             return None
@@ -308,35 +328,50 @@ async def start_update_details_flow(
     try:
         results = await asyncio.gather(
             _fetch_user(),
-            ipurvey_service.resume_draft_policy(msisdn),
+            ipurvey_service.get_all_draft_policies(msisdn),
             return_exceptions=True,
         )
-        user_result, draft_result = results
+        user_result, draft_list = results
         if not isinstance(user_result, Exception) and isinstance(user_result, dict):
             uid = user_result.get("userId") or user_result.get("id") or user_result.get("user_id")
             api_data["user_id"] = uid
             api_data["profile_first_name"] = user_result.get("firstName") or user_result.get("first_name") or ""
             api_data["profile_last_name"]  = user_result.get("lastName")  or user_result.get("last_name")  or ""
             api_data["profile_email"]      = user_result.get("email") or ""
-        if not isinstance(draft_result, Exception) and isinstance(draft_result, dict):
-            draft_pid = draft_result.get("policy_id") or ""
-            if draft_pid and not api_data.get("policy_id"):
-                api_data["policy_id"] = draft_pid
+        all_policies = draft_list if not isinstance(draft_list, Exception) and isinstance(draft_list, list) else []
+        api_data["all_draft_policies"] = all_policies
     except Exception as exc:
         logger.warning(f"[upd_details] parallel lookup failed: {exc}")
+        all_policies = []
+        api_data["all_draft_policies"] = []
 
-    # Fetch passengers from active policy
-    passengers: list = []
-    policy_id = api_data.get("policy_id") or ""
-    if policy_id:
-        try:
-            passengers = await ipurvey_service.get_policy_passengers(policy_id)
-        except Exception as exc:
-            logger.warning(f"[upd_details] get_policy_passengers failed: {exc}")
-    api_data["policy_passengers"] = passengers
+    if len(all_policies) == 1:
+        pol = all_policies[0]
+        api_data["policy_id"]         = pol.get("policyId") or pol.get("id") or ""
+        api_data["policy_passengers"] = pol.get("passengers") or []
+        session.setdefault("temp_data", {})[UPDATE_DETAILS_FLOW_KEY] = {
+            "active": True, "step": "upd_menu", "data": {},
+        }
+    elif len(all_policies) > 1:
+        api_data.pop("policy_id", None)
+        api_data["policy_passengers"] = []
+        session.setdefault("temp_data", {})[UPDATE_DETAILS_FLOW_KEY] = {
+            "active": True, "step": "upd_policy_select", "data": {},
+        }
+    else:
+        api_data["policy_id"]         = ""
+        api_data["policy_passengers"] = []
+        session.setdefault("temp_data", {})[UPDATE_DETAILS_FLOW_KEY] = {
+            "active": True, "step": "upd_menu", "data": {},
+        }
+
     await save_session(session)
 
-    # Build menu rows — Travellers only when policy has passengers
+    if len(all_policies) > 1:
+        await _send_policy_selection(wa_id, all_policies, phone_number_id)
+        return
+
+    passengers = api_data.get("policy_passengers") or []
     menu_rows = [
         {"id": "upd_opt_name",   "title": "👤 Name"},
         {"id": "upd_opt_email",  "title": "✉️ Email address"},
@@ -382,6 +417,49 @@ async def handle_update_details_flow(
 
     passengers = session.get("api_data", {}).get("policy_passengers") or []
 
+    # ── Policy selection (multiple draft policies) ─────────────────────────────
+    if step == "upd_policy_select":
+        if reply_id and reply_id.startswith("upd_pol_"):
+            try:
+                pol_idx = int(reply_id.split("_")[2])
+                all_policies = session.get("api_data", {}).get("all_draft_policies") or []
+                if 0 <= pol_idx < len(all_policies):
+                    pol = all_policies[pol_idx]
+                    api_data = session.setdefault("api_data", {})
+                    api_data["policy_id"]         = pol.get("policyId") or pol.get("id") or ""
+                    api_data["policy_passengers"] = pol.get("passengers") or []
+                    passengers = api_data["policy_passengers"]
+                    flow["step"] = "upd_menu"
+                    await save_session(session)
+                    menu_rows = [
+                        {"id": "upd_opt_name",   "title": "👤 Name"},
+                        {"id": "upd_opt_email",  "title": "✉️ Email address"},
+                    ]
+                    if passengers:
+                        menu_rows.append({"id": "upd_opt_travellers", "title": "👥 Travellers"})
+                    menu_rows += [
+                        {"id": "upd_opt_bank",   "title": "🏦 Bank payout details"},
+                        {"id": "upd_opt_wallet", "title": "👛 Wallet payout"},
+                        {"id": "upd_opt_kyc",    "title": "🔒 KYC (Biometric ID)"},
+                    ]
+                    await _send_list(
+                        to=sender_wa_id,
+                        header="✏️ Update your details",
+                        body="What would you like to update?",
+                        button_label="Select option",
+                        sections=[{"title": "Update your details", "rows": menu_rows}],
+                        phone_number_id=phone_number_id,
+                    )
+                else:
+                    await _send_policy_selection(sender_wa_id, all_policies, phone_number_id)
+            except (ValueError, IndexError):
+                all_policies = session.get("api_data", {}).get("all_draft_policies") or []
+                await _send_policy_selection(sender_wa_id, all_policies, phone_number_id)
+        else:
+            all_policies = session.get("api_data", {}).get("all_draft_policies") or []
+            await _send_policy_selection(sender_wa_id, all_policies, phone_number_id)
+        return
+
     # ── Main menu ──────────────────────────────────────────────────────────────
     if step == "upd_menu":
         if reply_id == "upd_opt_name":
@@ -392,7 +470,7 @@ async def handle_update_details_flow(
         elif reply_id == "upd_opt_email":
             api_data  = session.get("api_data", {})
             cur_email = api_data.get("profile_email", "")
-            email_line = f"Current email: *{cur_email}*\n\n" if cur_email else ""
+            email_line = f"Current email: {cur_email}\n\n" if cur_email else ""
             await _set_step(session, "upd_email_input")
             await _send_text(sender_wa_id,
                 f"✉️ *Update Email Address*\n\n{email_line}"
@@ -550,7 +628,7 @@ async def handle_update_details_flow(
                 pass
         await _send_success(session, sender_wa_id,
             "✅ *Email updated successfully*",
-            f"Email: *{email}*",
+            f"Email: {email}",
             phone_number_id)
 
     # ── Bank: account number ───────────────────────────────────────────────────
@@ -794,15 +872,27 @@ async def go_back_one_step(wa_id: str, phone_number_id: Optional[str]):
             phone_number_id=phone_number_id,
         )
 
-    if step in ("upd_menu", "upd_done"):
+    if step == "upd_policy_select":
         await _reset(session)
         from app.services.auto_reply_service import send_main_menu
         await send_main_menu(to=wa_id, phone_number_id=phone_number_id, wa_id=wa_id)
         return
 
+    if step in ("upd_menu", "upd_done"):
+        all_policies = session.get("api_data", {}).get("all_draft_policies") or []
+        if len(all_policies) > 1:
+            flow["step"] = "upd_policy_select"
+            await save_session(session)
+            await _send_policy_selection(wa_id, all_policies, phone_number_id)
+        else:
+            await _reset(session)
+            from app.services.auto_reply_service import send_main_menu
+            await send_main_menu(to=wa_id, phone_number_id=phone_number_id, wa_id=wa_id)
+        return
+
     # Name input → back to menu (if reached via "Name" option) or traveller selection
     if step == "upd_name_input":
-        via_holder = session.get("data", {}).pop("_upd_name_via_holder", False)
+        via_holder = data.pop("_upd_name_via_holder", False)
         await save_session(session)
         if len(passengers) > 1 and not via_holder:
             flow["step"] = "upd_travellers"

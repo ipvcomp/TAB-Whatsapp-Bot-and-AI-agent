@@ -22,21 +22,17 @@ KYC_FLOW_KEY = "kyc_flow"
 PAYMENT_FLOW_KEY = "payment_flow"
 
 
-def _parse_llm_airport(llm_resp: Optional[dict]) -> tuple[str, str, str]:
-    """Read IATA code, GMT offset and airport name from a route-LLM response.
+def _parse_llm_airport(llm_resp: Optional[dict]) -> tuple[str, str, str, str]:
+    """Read IATA code, GMT offset, airport name, and country code from LLM response.
 
     The LLM returns a structured `airport` object e.g.::
 
         {"iata": "LOS", "name": "Murtala Muhammed International Airport",
-         "utc_offset_minutes": 60, "utc_offset_str": "+01:00", ...}
+         "utc_offset_minutes": 60, "utc_offset_str": "+01:00",
+         "country_code": "NG", ...}
 
-    The IATA code is taken from `airport.iata` and falls back to the
-    `normalized_value` / `extracted_value` field when the airport object is
-    missing it. The GMT offset is derived from `utc_offset_minutes`
-    (preferred, supports half-hour zones) or `utc_offset_str`. No extra LLM
-    call is made — everything comes from this single response.
-
-    Returns ``(iata, gmt, name)``; iata/name may be empty strings if absent.
+    Returns ``(iata, gmt, name, country_code)``; empty strings if absent.
+    country_code is the 2-letter ISO code (e.g. "NG", "GB", "US").
     """
     resp = llm_resp or {}
     airport = resp.get("airport") or {}
@@ -65,7 +61,19 @@ def _parse_llm_airport(llm_resp: Optional[dict]) -> tuple[str, str, str]:
             gmt = str(int(hrs)) if hrs == int(hrs) else str(hrs)
 
     name = (airport.get("name") or "").strip() or iata
-    return iata, gmt, name
+
+    # Extract 2-letter ISO country code — try several field names LLMs may use
+    raw_country = (
+        airport.get("country_code")
+        or airport.get("country_iso")
+        or airport.get("iso_country")
+        or airport.get("country")
+        or ""
+    ).strip().upper()
+    # Only keep if it looks like a valid 2-letter ISO code
+    country = raw_country if len(raw_country) == 2 and raw_country.isalpha() else ""
+
+    return iata, gmt, name, country
 
 
 def _parse_date_to_iso(date_str: str) -> Optional[str]:
@@ -3065,10 +3073,11 @@ async def handle_buy_cover_flow(
             )
             return
         elif reply_id and reply_id.startswith("dep_"):
-            parts = reply_id.replace("dep_", "", 1).split("|", 2)
+            parts = reply_id.replace("dep_", "", 1).split("|", 3)
             code = parts[0]
             name = parts[1] if len(parts) > 1 else code
             data["dep_gmt"] = parts[2] if len(parts) > 2 else "1"
+            data["dep_country"] = parts[3].upper() if len(parts) > 3 else ""
             data["depart_airport"] = f"{code} — {name}"
         elif text and len(text.strip()) >= 3:
             search_term = text.strip()
@@ -3091,7 +3100,7 @@ async def handle_buy_cover_flow(
                 )
                 # The LLM returns the IATA code and the GMT offset together in a
                 # single response — no separate GMT call needed.
-                llm_iata, llm_gmt, llm_airport_name = _parse_llm_airport(llm_resp)
+                llm_iata, llm_gmt, llm_airport_name, llm_country = _parse_llm_airport(llm_resp)
                 if (
                     llm_resp
                     and llm_resp.get("is_valid")
@@ -3109,7 +3118,7 @@ async def handle_buy_cover_flow(
                         logger.info(
                             f"[airport_dep] API still empty, using LLM data: IATA={llm_iata} GMT={llm_gmt}"
                         )
-                        airports = [{"code": llm_iata, "name": llm_airport_name, "country": "", "gmt": llm_gmt}]
+                        airports = [{"code": llm_iata, "name": llm_airport_name, "country": llm_country, "gmt": llm_gmt}]
                     else:
                         guidance = get_llm_guidance(llm_resp)
                         if guidance:
@@ -3141,7 +3150,7 @@ async def handle_buy_cover_flow(
                     sender_wa_id,
                     f"Found a match! ✈️\n\n*{a['code']}* — {airport_name}\n\nConfirm this airport or search again.",
                     [
-                        {"id": f"dep_{a['code']}|{a['name']}|{a.get('gmt', '1')}", "title": f"✓ {a['code']}"},
+                        {"id": f"dep_{a['code']}|{a['name']}|{a.get('gmt', '1')}|{a.get('country', '')}", "title": f"✓ {a['code']}"},
                         {"id": "dep_search_again", "title": "🔍 Search again"},
                     ],
                     phone_number_id,
@@ -3149,7 +3158,7 @@ async def handle_buy_cover_flow(
             else:
                 rows = [
                     {
-                        "id": f"dep_{a['code']}|{a['name']}|{a.get('gmt', '1')}",
+                        "id": f"dep_{a['code']}|{a['name']}|{a.get('gmt', '1')}|{a.get('country', '')}",
                         "title": a["code"],
                         "description": (a.get("name") or "")[:72],
                     }
@@ -3239,24 +3248,6 @@ async def handle_buy_cover_flow(
             )
             return
         dep_date = data.get("date", "")
-        if dep_date and iso_arr_date != dep_date:
-            try:
-                dep_date_fmt = datetime.strptime(dep_date, "%Y-%m-%d").strftime(
-                    "%d %B %Y"
-                )
-            except ValueError:
-                dep_date_fmt = dep_date
-            await _send_text(
-                sender_wa_id,
-                (
-                    f"    � �� Arrival date must be the same day as your departure date\n\n"
-                    f"Your flight departs on *{dep_date_fmt}* — "
-                    f"please enter *{dep_date_fmt}* as your arrival date\n\n"
-                    "_Nigerian domestic flights arrive on the same day, even with stopovers_"
-                ),
-                phone_number_id,
-            )
-            return
         data["arrive_date"] = iso_arr_date
         if data.pop("_edit_mode", False):
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
@@ -3287,6 +3278,20 @@ async def handle_buy_cover_flow(
             await _send_text(
                 sender_wa_id,
                 "*⏰ What time is your flight scheduled to arrive?*\n\n_Example: 15:00 · 3:00 AM · 3:00 PM_",
+                phone_number_id,
+            )
+            return
+        if reply_id == "dur_confirm":
+            # User confirmed the duration warning — arrive_time already in data.
+            if data.pop("_edit_mode", False):
+                await save_session(session)
+                await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
+                return
+            flow["step"] = "buy_cover_airline"
+            await save_session(session)
+            await _send_text(
+                sender_wa_id,
+                "*✈️  Who are you flying with?*\n\n_Example: Ibom Air, Air Peace_",
                 phone_number_id,
             )
             return
@@ -3530,165 +3535,106 @@ async def handle_buy_cover_flow(
             return
         data["arrive_time"] = parsed_arr_time
 
-        # ── AM/PM sanity check ───────────────────────────────────────────────
-        # If departure is AM and the same-day flight would be > 6 h, the user
-        # may have typed 24-h time when they meant PM.  Offer a quick confirm.
-        if arr_date == dep_date and dep_time:
-            try:
-                dep_h, dep_m = map(int, dep_time.split(":"))
-                arr_h, arr_m = map(int, parsed_arr_time.split(":"))
-                duration_mins = (arr_h * 60 + arr_m) - (dep_h * 60 + dep_m)
-                pm_dep_h = dep_h + 12
-                pm_total = pm_dep_h * 60 + dep_m
-                arr_total = arr_h * 60 + arr_m
-                explicit_am = data.pop("_dep_explicit_am", False)
-                if dep_h < 12 and duration_mins > 360 and pm_total < arr_total:
-                    dur_h, dur_m = divmod(duration_mins, 60)
-                    dur_str = f"{dur_h}h {dur_m}m" if dur_m else f"{dur_h}h"
-                    if explicit_am:
-                        # User wrote "AM" explicitly — trust them but flag the
-                        # duration as unrealistic and send them back to fix it.
-                        data.pop("depart_time", None)
-                        data["_repair_to_arrive_time"] = True
-                        flow["step"] = "buy_cover_depart_time"
-                        await save_session(session)
-                        await _send_buttons(
-                            sender_wa_id,
-                            (
-                                f"⚠️ *Departure time issue*\n\n"
-                                f"You entered departs *{_fmt_time_display(dep_time)}* → arrives "
-                                f"*{_fmt_time_display(parsed_arr_time)}* on the same day — "
-                                f"that's *{dur_str}*.\n\n"
-                                f"Nigerian domestic flights don't exceed 6 hours. "
-                                f"Please check your departure time and enter it again."
-                            ),
-                            [
-                                {
-                                    "id": "dep_time_retry",
-                                    "title": "⏰ Re-enter departure time",
-                                }
-                            ],
-                            phone_number_id,
-                        )
-                        return
-                    else:
-                        # Ambiguous input (no AM/PM suffix) — offer PM alternative.
-                        pm_dep = f"{pm_dep_h:02d}:{dep_m:02d}"
-                        data["_dep_pm_alt"] = pm_dep
-                        flow["step"] = "buy_cover_depart_ampm_confirm"
-                        await save_session(session)
-                        await _send_buttons(
-                            sender_wa_id,
-                            (
-                                f"⏰ *Departure time check*\n\n"
-                                f"You entered departs *{_fmt_time_display(dep_time)}* → arrives "
-                                f"*{_fmt_time_display(parsed_arr_time)}* on the same day — "
-                                f"that's *{dur_str}*.\n\n"
-                                f"Did you mean *{_fmt_time_display(pm_dep)}* (PM) for departure?\n\n"
-                                f"_If yes, your trip would be "
-                                f"{(arr_total - pm_total) // 60}h {(arr_total - pm_total) % 60}m._"
-                            ),
-                            [
-                                {
-                                    "id": "ampm_yes",
-                                    "title": f"✅ Yes, {_fmt_time_display(pm_dep)}",
-                                },
-                                {
-                                    "id": "ampm_no",
-                                    "title": f"No, keep {_fmt_time_display(dep_time)}",
-                                },
-                            ],
-                            phone_number_id,
-                        )
-                        return
-            except (ValueError, TypeError):
-                pass
-
-        # ── Cross-day duration check ──────────────────────────────────────────
-        # Catches cases like dep 24-May 03:30 → arr 25-May 16:30 (37 h) that
-        # slip past the same-day guard above because the dates differ.
-        elif arr_date != dep_date and dep_date and dep_time:
+        # ── Duration sanity check ────────────────────────────────────────────
+        # Runs after arrival time is committed.  Compares full dep datetime vs
+        # arr datetime to catch both same-day and cross-day implausible durations.
+        # Domestic (same airport timezone) → warn if > 2 h.
+        # International (different timezones) → warn if > 24 h.
+        if dep_date and dep_time:
             try:
                 dep_dt = datetime.strptime(f"{dep_date} {dep_time}", "%Y-%m-%d %H:%M")
-                arr_dt = datetime.strptime(
-                    f"{arr_date} {parsed_arr_time}", "%Y-%m-%d %H:%M"
-                )
+                arr_dt = datetime.strptime(f"{arr_date} {parsed_arr_time}", "%Y-%m-%d %H:%M")
                 total_mins = int((arr_dt - dep_dt).total_seconds() / 60)
                 explicit_am = data.pop("_dep_explicit_am", False)
-                if total_mins > 360:
-                    dep_h, dep_m = map(int, dep_time.split(":"))
+                dep_h, dep_m = map(int, dep_time.split(":"))
+
+                dep_country = data.get("dep_country", "").strip().upper()
+                arr_country = data.get("arr_country", "").strip().upper()
+                if dep_country and arr_country:
+                    is_domestic = (dep_country == arr_country)
+                else:
+                    # Fallback when country codes unavailable (old sessions / LLM-only path)
+                    dep_gmt_v = float(data.get("dep_gmt", "1") or "1")
+                    arr_gmt_v = float(data.get("arr_gmt", "1") or "1")
+                    is_domestic = (dep_gmt_v == arr_gmt_v)
+                warn_mins = 120 if is_domestic else 1440
+
+                if total_mins > warn_mins:
                     dur_h, dur_m = divmod(total_mins, 60)
                     dur_str = f"{dur_h}h {dur_m}m" if dur_m else f"{dur_h}h"
-                    # Check if switching departure to PM would bring it within limit
-                    pm_dep_h = dep_h + 12
+
+                    # First: offer PM correction for departure if it would fix the gap.
                     pm_fixes = False
-                    pm_dep = None
-                    pm_total_mins = None
-                    if not explicit_am and dep_h < 12 and pm_dep_h < 24:
-                        pm_dt = dep_dt.replace(hour=pm_dep_h)
-                        pm_total_mins = int((arr_dt - pm_dt).total_seconds() / 60)
-                        if 0 < pm_total_mins <= 360:
-                            pm_fixes = True
-                            pm_dep = f"{pm_dep_h:02d}:{dep_m:02d}"
-                    if pm_fixes and pm_dep:
-                        data["_dep_pm_alt"] = pm_dep
-                        flow["step"] = "buy_cover_depart_ampm_confirm"
-                        await save_session(session)
-                        await _send_buttons(
-                            sender_wa_id,
-                            (
-                                f"⏰ *Departure time check*\n\n"
-                                f"You entered departs *{_fmt_time_display(dep_time)}* → arrives "
-                                f"*{_fmt_time_display(parsed_arr_time)}* — "
-                                f"that's *{dur_str}*.\n\n"
-                                f"Did you mean *{_fmt_time_display(pm_dep)}* (PM) for departure?\n\n"
-                                f"_If yes, your trip would be "
-                                f"{pm_total_mins // 60}h {pm_total_mins % 60}m._"
-                            ),
-                            [
-                                {
-                                    "id": "ampm_yes",
-                                    "title": f"✅ Yes, {_fmt_time_display(pm_dep)}",
-                                },
-                                {
-                                    "id": "ampm_no",
-                                    "title": f"No, keep {_fmt_time_display(dep_time)}",
-                                },
-                            ],
-                            phone_number_id,
-                        )
+                    if not explicit_am and dep_h < 12:
+                        pm_dep_h = dep_h + 12
+                        if pm_dep_h < 24:
+                            pm_dt = dep_dt.replace(hour=pm_dep_h)
+                            pm_total_mins = int((arr_dt - pm_dt).total_seconds() / 60)
+                            if 0 < pm_total_mins <= warn_mins:
+                                pm_fixes = True
+                                pm_dep = f"{pm_dep_h:02d}:{dep_m:02d}"
+                                data["_dep_pm_alt"] = pm_dep
+                                flow["step"] = "buy_cover_depart_ampm_confirm"
+                                await save_session(session)
+                                await _send_buttons(
+                                    sender_wa_id,
+                                    (
+                                        f"⏰ *Departure time check*\n\n"
+                                        f"You entered departs *{_fmt_time_display(dep_time)}* → arrives "
+                                        f"*{_fmt_time_display(parsed_arr_time)}* — "
+                                        f"that's *{dur_str}*.\n\n"
+                                        f"Did you mean *{_fmt_time_display(pm_dep)}* (PM) for departure?\n\n"
+                                        f"_If yes, your trip would be "
+                                        f"{pm_total_mins // 60}h {pm_total_mins % 60}m._"
+                                    ),
+                                    [
+                                        {"id": "ampm_yes", "title": f"✅ Yes, {_fmt_time_display(pm_dep)}"},
+                                        {"id": "ampm_no", "title": f"No, keep {_fmt_time_display(dep_time)}"},
+                                    ],
+                                    phone_number_id,
+                                )
+                    if pm_fixes:
                         return
+
+                    # Soft duration warning — user can confirm or choose to edit.
+                    dep_date_disp = dep_dt.strftime("%d %b %Y")
+                    arr_date_disp = arr_dt.strftime("%d %b %Y")
+                    flow["step"] = "buy_cover_arrive_time"
+                    await save_session(session)
+                    if is_domestic:
+                        warn_msg = (
+                            f"✈️ *We've identified this as a domestic flight.*\n\n"
+                            f"Domestic flights are typically around 2 hours in duration.\n\n"
+                            f"Please review your travel dates below to ensure they are correct.\n\n"
+                            f"🛫 *Departure Date:* {dep_date_disp}\n"
+                            f"🛬 *Arrival Date:* {arr_date_disp}\n\n"
+                            f"Please choose an option:"
+                        )
                     else:
-                        # PM doesn't fix it — offer user a choice of what to correct.
-                        # Keep dep_time in data; stay on arrive_time step so the
-                        # fix_dep_time / fix_arr_date buttons are handled here.
-                        flow["step"] = "buy_cover_arrive_time"
-                        await save_session(session)
-                        await _send_buttons(
-                            sender_wa_id,
-                            (
-                                f"⚠️ *Flight duration too long*\n\n"
-                                f"You entered departs *{_fmt_time_display(dep_time)}* → arrives "
-                                f"*{_fmt_time_display(parsed_arr_time)}* — "
-                                f"that's *{dur_str}*.\n\n"
-                                f"Nigerian domestic flights don't exceed 6 hours. "
-                                f"What would you like to fix?"
-                            ),
-                            [
-                                {
-                                    "id": "fix_dep_time",
-                                    "title": "⏰ Fix departure time",
-                                },
-                                {"id": "fix_arr_date", "title": "📅 Fix arrival date"},
-                            ],
-                            phone_number_id,
+                        warn_msg = (
+                            f"✈️ *We've identified this as an international flight.*\n\n"
+                            f"International journeys are typically completed within 24 hours, "
+                            f"including most stopovers.\n\n"
+                            f"Please review your travel dates below to ensure they are correct.\n\n"
+                            f"🛫 *Departure Date:* {dep_date_disp}\n"
+                            f"🛬 *Arrival Date:* {arr_date_disp}\n\n"
+                            f"Please choose an option:"
                         )
-                        return
+                    await _send_buttons(
+                        sender_wa_id,
+                        warn_msg,
+                        [
+                            {"id": "dur_confirm",  "title": "✅ Confirm"},
+                            {"id": "fix_dep_time", "title": "⏰ Fix departure time"},
+                            {"id": "fix_arr_date", "title": "📅 Fix arrival date"},
+                        ],
+                        phone_number_id,
+                    )
+                    return
             except (ValueError, TypeError):
                 pass
         else:
             data.pop("_dep_explicit_am", None)
-        # ── end duration checks ───────────────────────────────────────────────
 
         if data.pop("_edit_mode", False):
             await _show_trip_summary(sender_wa_id, data, flow, session, phone_number_id)
@@ -3870,7 +3816,7 @@ async def handle_buy_cover_flow(
             )
             return
         elif reply_id and reply_id.startswith("arr_"):
-            parts = reply_id.replace("arr_", "", 1).split("|", 2)
+            parts = reply_id.replace("arr_", "", 1).split("|", 3)
             code = parts[0]
             name = parts[1] if len(parts) > 1 else code
             dep_code = data.get("depart_airport", "").split("—")[0].strip().split()[0]
@@ -3887,6 +3833,7 @@ async def handle_buy_cover_flow(
                 )
                 return
             data["arr_gmt"] = parts[2] if len(parts) > 2 else "1"
+            data["arr_country"] = parts[3].upper() if len(parts) > 3 else ""
             data["arrive_airport"] = f"{code} — {name}"
         elif text and len(text.strip()) >= 3:
             search_term = text.strip()
@@ -3909,7 +3856,7 @@ async def handle_buy_cover_flow(
                 )
                 # The LLM returns the IATA code and the GMT offset together in a
                 # single response — no separate GMT call needed.
-                llm_iata, llm_gmt, llm_airport_name = _parse_llm_airport(llm_resp)
+                llm_iata, llm_gmt, llm_airport_name, llm_country = _parse_llm_airport(llm_resp)
                 if (
                     llm_resp
                     and llm_resp.get("is_valid")
@@ -3927,7 +3874,7 @@ async def handle_buy_cover_flow(
                         logger.info(
                             f"[airport_arr] API still empty, using LLM data: IATA={llm_iata} GMT={llm_gmt}"
                         )
-                        airports = [{"code": llm_iata, "name": llm_airport_name, "country": "", "gmt": llm_gmt}]
+                        airports = [{"code": llm_iata, "name": llm_airport_name, "country": llm_country, "gmt": llm_gmt}]
                     else:
                         guidance = get_llm_guidance(llm_resp)
                         if guidance:
@@ -3959,7 +3906,7 @@ async def handle_buy_cover_flow(
                     sender_wa_id,
                     f"Found a match! ✈️\n\n*{a['code']}* — {airport_name}\n\nConfirm this airport or search again.",
                     [
-                        {"id": f"arr_{a['code']}|{a['name']}|{a.get('gmt', '1')}", "title": f"✓ {a['code']}"},
+                        {"id": f"arr_{a['code']}|{a['name']}|{a.get('gmt', '1')}|{a.get('country', '')}", "title": f"✓ {a['code']}"},
                         {"id": "arr_search_again", "title": "🔍 Search again"},
                     ],
                     phone_number_id,
@@ -3967,7 +3914,7 @@ async def handle_buy_cover_flow(
             else:
                 rows = [
                     {
-                        "id": f"arr_{a['code']}|{a['name']}|{a.get('gmt', '1')}",
+                        "id": f"arr_{a['code']}|{a['name']}|{a.get('gmt', '1')}|{a.get('country', '')}",
                         "title": a["code"],
                         "description": (a.get("name") or "")[:72],
                     }
