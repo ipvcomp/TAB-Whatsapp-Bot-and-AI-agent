@@ -2944,23 +2944,26 @@ async def handle_buy_cover_flow(
                         await save_session(session)
                         dep_disp_rv = dep_dt_rv.strftime("%d %b %Y")
                         arr_disp_rv = arr_dt_rv.strftime("%d %b %Y")
+                        dep_time_disp_rv = _fmt_time_display(dep_time_rv)
+                        arr_time_disp_rv = _fmt_time_display(arr_time_rv)
+                        dur_h_rv, dur_m_rv = divmod(total_mins_rv, 60)
+                        dur_str_rv = f"{dur_h_rv}h {dur_m_rv}m" if dur_m_rv else f"{dur_h_rv}h"
                         if is_dom_rv:
                             warn_rv = (
                                 f"✈️ *We've identified this as a domestic flight.*\n\n"
-                                f"Domestic flights are typically around 2 hours in duration.\n\n"
-                                f"Please review your travel dates below to ensure they are correct.\n\n"
-                                f"🛫 *Departure Date:* {dep_disp_rv}\n"
-                                f"🛬 *Arrival Date:* {arr_disp_rv}\n\n"
+                                f"The detected journey duration is *{dur_str_rv}*, which seems longer than expected for a domestic flight.\n\n"
+                                f"Please review your travel details below to ensure they are correct:\n\n"
+                                f"🛫 *Departs:* {dep_disp_rv} · {dep_time_disp_rv}\n"
+                                f"🛬 *Arrives:* {arr_disp_rv} · {arr_time_disp_rv}\n\n"
                                 f"Please choose an option:"
                             )
                         else:
                             warn_rv = (
                                 f"✈️ *We've identified this as an international flight.*\n\n"
-                                f"International journeys are typically completed within 24 hours, "
-                                f"including most stopovers.\n\n"
-                                f"Please review your travel dates below to ensure they are correct.\n\n"
-                                f"🛫 *Departure Date:* {dep_disp_rv}\n"
-                                f"🛬 *Arrival Date:* {arr_disp_rv}\n\n"
+                                f"The detected journey duration is *{dur_str_rv}*, which seems longer than expected.\n\n"
+                                f"Please review your travel details below to ensure they are correct:\n\n"
+                                f"🛫 *Departs:* {dep_disp_rv} · {dep_time_disp_rv}\n"
+                                f"🛬 *Arrives:* {arr_disp_rv} · {arr_time_disp_rv}\n\n"
                                 f"Please choose an option:"
                             )
                         await _send_buttons(
@@ -3801,25 +3804,26 @@ async def handle_buy_cover_flow(
                     # Soft duration warning — user can confirm or choose to edit.
                     dep_date_disp = dep_dt.strftime("%d %b %Y")
                     arr_date_disp = arr_dt.strftime("%d %b %Y")
+                    dep_time_disp = _fmt_time_display(dep_time)
+                    arr_time_disp = _fmt_time_display(parsed_arr_time)
                     flow["step"] = "buy_cover_arrive_time"
                     await save_session(session)
                     if is_domestic:
                         warn_msg = (
                             f"✈️ *We've identified this as a domestic flight.*\n\n"
-                            f"Domestic flights are typically around 2 hours in duration.\n\n"
-                            f"Please review your travel dates below to ensure they are correct.\n\n"
-                            f"🛫 *Departure Date:* {dep_date_disp}\n"
-                            f"🛬 *Arrival Date:* {arr_date_disp}\n\n"
+                            f"The detected journey duration is *{dur_str}*, which seems longer than expected for a domestic flight.\n\n"
+                            f"Please review your travel details below to ensure they are correct:\n\n"
+                            f"🛫 *Departs:* {dep_date_disp} · {dep_time_disp}\n"
+                            f"🛬 *Arrives:* {arr_date_disp} · {arr_time_disp}\n\n"
                             f"Please choose an option:"
                         )
                     else:
                         warn_msg = (
                             f"✈️ *We've identified this as an international flight.*\n\n"
-                            f"International journeys are typically completed within 24 hours, "
-                            f"including most stopovers.\n\n"
-                            f"Please review your travel dates below to ensure they are correct.\n\n"
-                            f"🛫 *Departure Date:* {dep_date_disp}\n"
-                            f"🛬 *Arrival Date:* {arr_date_disp}\n\n"
+                            f"The detected journey duration is *{dur_str}*, which seems longer than expected.\n\n"
+                            f"Please review your travel details below to ensure they are correct:\n\n"
+                            f"🛫 *Departs:* {dep_date_disp} · {dep_time_disp}\n"
+                            f"🛬 *Arrives:* {arr_date_disp} · {arr_time_disp}\n\n"
                             f"Please choose an option:"
                         )
                     await _send_buttons(
