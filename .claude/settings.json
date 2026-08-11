@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -m py_compile \"d:\\\\TravelAssistant-Whatsapp-Bot-and-AI-agent\\\\app\\\\services\\\\update_details_flow_service.py\")"
+      "Bash(python -m py_compile \"d:\\\\TravelAssistant-Whatsapp-Bot-and-AI-agent\\\\app\\\\services\\\\update_details_flow_service.py\")",
+      "Bash(python -m py_compile app/services/update_details_flow_service.py)"
     ]
   }
 }

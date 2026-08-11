@@ -268,17 +268,10 @@ async def _send_success(
     if detail:
         body += f"\n\n{detail}"
     body += "\n\nWhat would you like to do next?"
-    if multi_traveler:
-        buttons = [
-            {"id": "upd_more_trav", "title": "✏️ More traveller"},
-            {"id": "upd_more",      "title": "✏️ Update details"},
-            {"id": "upd_home",      "title": "🏠 Main menu"},
-        ]
-    else:
-        buttons = [
-            {"id": "upd_more", "title": "✏️ Update details"},
-            {"id": "upd_home", "title": "🏠 Main menu"},
-        ]
+    buttons = [
+        {"id": "upd_more", "title": "✏️ Update My Details"},
+        {"id": "upd_home", "title": "🏠 Main menu"},
+    ]
     await _send_buttons(wa_id, body, buttons, phone_number_id)
 
 
