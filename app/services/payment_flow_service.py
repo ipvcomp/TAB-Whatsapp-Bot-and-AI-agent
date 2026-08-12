@@ -195,7 +195,7 @@ async def _show_payment_pending_screen(
             "ℹ️ Once the payment is completed, we will notify you "
             "and you can continue with your cover purchase."
         ),
-        [{"id": "pay_m_refresh", "title": "🔄 Refresh status"}],
+        [{"id": "pay_m_done", "title": "✅ I have paid"}],
         phone_number_id,
     )
 
@@ -1005,8 +1005,7 @@ async def handle_payment_flow(
             "❌ *Without a completed payment, no cover will be in place.*\n\n"
             "After payment, reply with:",
             [
-                {"id": "pay_m_done",    "title": "✅ I have paid"},
-                {"id": "pay_m_refresh", "title": "🔄 Refresh status"},
+                {"id": "pay_m_done", "title": "✅ I have paid"},
             ],
             phone_number_id,
         )
@@ -1157,8 +1156,7 @@ async def handle_payment_flow(
                 "❌ *Without a completed payment, no cover will be in place.*\n\n"
                 "After payment, reply with:",
                 [
-                    {"id": "pay_m_done",    "title": "✅ I have paid"},
-                    {"id": "pay_m_refresh", "title": "🔄 Refresh status"},
+                    {"id": "pay_m_done", "title": "✅ I have paid"},
                 ],
                 phone_number_id,
             )
@@ -1226,8 +1224,7 @@ async def handle_payment_flow(
                 "❌ *Without a completed payment, no cover will be in place.*\n\n"
                 "After payment, reply with:",
                 [
-                    {"id": "pay_m_done",    "title": "✅ I have paid"},
-                    {"id": "pay_m_refresh", "title": "🔄 Refresh status"},
+                    {"id": "pay_m_done", "title": "✅ I have paid"},
                 ],
                 phone_number_id,
             )
@@ -1240,7 +1237,7 @@ async def handle_payment_flow(
             llm_result = await call_extract(
                 user_id=sender_wa_id,
                 field_name="payment_pending_action",
-                question_asked="Payment is being processed. Have you paid or would you like to refresh the payment status?",
+                question_asked="Payment is being processed. Have you completed your payment?",
                 user_response=text,
                 expected_format="text",
                 allowed_values=[
@@ -1249,19 +1246,12 @@ async def handle_payment_flow(
                         "label": "i have paid",
                         "synonyms": ["paid", "done", "completed payment", "already paid"],
                     },
-                    {
-                        "value": "refresh_status",
-                        "label": "refresh status",
-                        "synonyms": ["refresh", "check status", "status", "update", "verify"],
-                    },
                 ],
             )
             if llm_result and llm_result.get("is_valid") and llm_result.get("extracted_value"):
                 ev = str(llm_result["extracted_value"]).lower()
                 if any(k in ev for k in ("paid", "done", "i have paid", "completed", "made payment", "already paid")):
                     reply_id = "pay_m_done"
-                elif any(k in ev for k in ("refresh", "check", "status", "update", "verify")):
-                    reply_id = "pay_m_refresh"
             if not reply_id:
                 guidance = get_llm_guidance(llm_result)
                 if guidance:
@@ -1272,7 +1262,6 @@ async def handle_payment_flow(
                     f"✅ *Payment method selected*\nYou chose: 1. {_method_display}\n\nPlease make your payment and reply below:",
                     [
                         {"id": "pay_m_done", "title": "✅ I have paid"},
-                        {"id": "pay_m_refresh", "title": "🔄 Refresh status"},
                     ],
                     phone_number_id,
                 )
@@ -1290,7 +1279,7 @@ async def handle_payment_flow(
             )
         else:
             _p_bank_details = "Please contact support for account details."
-        if reply_id in ("pay_m_done", "pay_m_refresh"):
+        if reply_id == "pay_m_done":
             payment_confirmed = False
             payment_pending   = False
             policy_ref = None
@@ -1368,8 +1357,7 @@ async def handle_payment_flow(
                 "❌ *Without a completed payment, no cover will be in place.*\n\n"
                 "After payment, reply with:",
                 [
-                    {"id": "pay_m_done",    "title": "✅ I have paid"},
-                    {"id": "pay_m_refresh", "title": "🔄 Refresh status"},
+                    {"id": "pay_m_done", "title": "✅ I have paid"},
                 ],
                 phone_number_id,
             )

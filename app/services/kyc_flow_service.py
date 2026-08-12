@@ -773,8 +773,7 @@ async def handle_kyc_flow(
                 "What would you like to do next?",
                 [
                     {"id": "kyc_pay", "title": "1. Continue to pay"},
-                    {"id": "kyc_review", "title": "2. Review trip"},
-                    {"id": "kyc_home", "title": "3. Main menu"},
+                    {"id": "kyc_home", "title": "2. Main menu"},
                 ],
                 phone_number_id,
             )
@@ -815,11 +814,7 @@ async def handle_kyc_flow(
                             "id": "kyc_continue_purchase",
                             "title": "1. Continue to pay",
                         },
-                        {
-                            "id": "kyc_review",
-                            "title": "2. Review my trip",
-                        },
-                        {"id": "kyc_home", "title": "3. Main menu"},
+                        {"id": "kyc_home", "title": "2. Main menu"},
                     ],
                     phone_number_id,
                 )
@@ -835,8 +830,7 @@ async def handle_kyc_flow(
                 "What would you like to do next?",
                 [
                     {"id": "kyc_pay", "title": "1.💳Continue to pay"},
-                    {"id": "kyc_review", "title": "2.🗒️Review trip"},
-                    {"id": "kyc_home", "title": "3.🏠Main menu"},
+                    {"id": "kyc_home", "title": "2.🏠Main menu"},
                 ],
                 phone_number_id,
             )
@@ -862,11 +856,7 @@ async def handle_kyc_flow(
                             "id": "kyc_continue_purchase",
                             "title": "1. Continue to pay",
                         },
-                        {
-                            "id": "kyc_review",
-                            "title": "2. Review my trip",
-                        },
-                        {"id": "kyc_home", "title": "3. Main menu"},
+                        {"id": "kyc_home", "title": "2. Main menu"},
                     ],
                     phone_number_id,
                 )
@@ -1008,9 +998,8 @@ async def handle_kyc_flow(
                 "Your identity has been confirmed. You can now continue to payment.\n\n"
                 "What would you like to do next?",
                 [
-                    {"id": "kyc_pay",    "title": "1. Continue to pay"},
-                    {"id": "kyc_review", "title": "2. Review my trip"},
-                    {"id": "kyc_home",   "title": "3. Main menu"},
+                    {"id": "kyc_pay",  "title": "1. Continue to pay"},
+                    {"id": "kyc_home", "title": "2. Main menu"},
                 ],
                 phone_number_id,
             )
@@ -1046,8 +1035,7 @@ async def handle_kyc_flow(
                     f"What would you like to do next?",
                     [
                         {"id": "kyc_continue_purchase", "title": "1. Continue to pay"},
-                        {"id": "kyc_review",             "title": "2. Review my trip"},
-                        {"id": "kyc_home",               "title": "3. Main menu"},
+                        {"id": "kyc_home",              "title": "2. Main menu"},
                     ],
                     phone_number_id,
                 )
@@ -1113,8 +1101,7 @@ async def handle_kyc_flow(
                 "What would you like to do next?",
                 [
                     {"id": "kyc_pay", "title": "1. Continue to pay"},
-                    {"id": "kyc_review", "title": "2. Review trip"},
-                    {"id": "kyc_home", "title": "3. Main menu"},
+                    {"id": "kyc_home", "title": "2. Main menu"},
                 ],
                 phone_number_id,
             )
@@ -1144,7 +1131,7 @@ async def handle_kyc_flow(
             llm_result = await call_extract(
                 user_id=sender_wa_id,
                 field_name="kyc_verified_action",
-                question_asked="Identity verified. What would you like to do next? Continue to payment, Review trip details, or Go to Main menu.",
+                question_asked="Identity verified. What would you like to do next? Continue to payment or Go to Main menu.",
                 user_response=text,
                 expected_format="text",
                 allowed_values=[
@@ -1152,11 +1139,6 @@ async def handle_kyc_flow(
                         "value": "continue_payment",
                         "label": "continue to payment",
                         "synonyms": ["pay", "payment", "continue", "proceed", "activate"],
-                    },
-                    {
-                        "value": "review_trip",
-                        "label": "review trip details",
-                        "synonyms": ["review", "trip", "details", "summary"],
                     },
                     {
                         "value": "main_menu",
@@ -1176,8 +1158,6 @@ async def handle_kyc_flow(
                     for k in ("pay", "payment", "continue", "proceed", "activate")
                 ):
                     reply_id = "kyc_pay"
-                elif any(k in ev for k in ("review", "trip", "details", "summary")):
-                    reply_id = "kyc_review"
                 elif any(k in ev for k in ("menu", "home", "main", "exit")):
                     reply_id = "kyc_home"
             if not reply_id:
@@ -1189,8 +1169,7 @@ async def handle_kyc_flow(
                     "✅ *Identity Verified*\n\nWhat would you like to do next?",
                     [
                         {"id": "kyc_pay", "title": "1. Continue to pay"},
-                        {"id": "kyc_review", "title": "2. Review trip"},
-                        {"id": "kyc_home", "title": "3. Main menu"},
+                        {"id": "kyc_home", "title": "2. Main menu"},
                     ],
                     phone_number_id,
                 )
@@ -1200,41 +1179,6 @@ async def handle_kyc_flow(
 
             await start_payment_flow(
                 wa_id=sender_wa_id, phone_number_id=phone_number_id
-            )
-        elif reply_id == "kyc_review":
-            bc_data = (
-                session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
-            )
-            travelers = bc_data.get("travelers", [])
-            traveler_lines = (
-                "\n".join(f"  {i + 1} — {n}" for i, n in enumerate(travelers))
-                if travelers
-                else f"  1 — {bc_data.get('name', '—')}"
-            )
-            dep = bc_data.get("depart_airport", "").split("—")[0].strip() or "—"
-            arr = bc_data.get("arrive_airport", "").split("—")[0].strip() or "—"
-            summary = (
-                "📋 *Trip Summary*\n\n"
-                f"✈️ YOUR TRIP\n"
-                f"Airline: {bc_data.get('airline', '—')}\n"
-                f"Route: {dep} → {arr}\n"
-                f"Flight: {bc_data.get('flight_num', '—')}\n"
-                f"Date: {bc_data.get('date', '—')}\n"
-                f"Departs: {bc_data.get('depart_time', '—')}\n"
-                f"Arrives: {bc_data.get('arrive_time', '—')}\n\n"
-                f"👥 TRAVELLERS\n{traveler_lines}\n\n"
-                f"🛡️ Cover: {bc_data.get('cover', '—')}"
-            )
-            await _send_text(sender_wa_id, summary, phone_number_id)
-            await _send_buttons(
-                sender_wa_id,
-                "What would you like to do next?",
-                [
-                    {"id": "kyc_pay", "title": "1. Continue to pay"},
-                    {"id": "kyc_review", "title": "2. Review trip"},
-                    {"id": "kyc_home", "title": "3. Main menu"},
-                ],
-                phone_number_id,
             )
         elif reply_id == "kyc_home":
             session["temp_data"][KYC_FLOW_KEY] = {}
@@ -1291,8 +1235,6 @@ async def handle_kyc_flow(
                     for k in ("continue", "purchase", "proceed", "payment", "skip")
                 ):
                     reply_id = "kyc_continue_purchase"
-                elif any(k in ev for k in ("review", "trip", "details", "summary")):
-                    reply_id = "kyc_review"
                 elif any(k in ev for k in ("menu", "home", "main", "exit")):
                     reply_id = "kyc_home"
             if not reply_id:
@@ -1310,11 +1252,7 @@ async def handle_kyc_flow(
                             "id": "kyc_continue_purchase",
                             "title": "1. Continue to pay",
                         },
-                        {
-                            "id": "kyc_review",
-                            "title": "2. Review my trip",
-                        },
-                        {"id": "kyc_home", "title": "3. Main menu"},
+                        {"id": "kyc_home", "title": "2. Main menu"},
                     ],
                     phone_number_id,
                 )
@@ -1346,41 +1284,6 @@ async def handle_kyc_flow(
                 f"🔏 *Please enter your 11-digit {_other}*\n\n"
                 f"_Example: 12345678901_\n\n"
                 f"🔒 _Your {_other} is handled securely — only the last 3 digits will be shown for confirmation_",
-                phone_number_id,
-            )
-        elif reply_id == "kyc_review":
-            bc_data = (
-                session.get("temp_data", {}).get(BUY_COVER_FLOW_KEY, {}).get("data", {})
-            )
-            travelers = bc_data.get("travelers", [])
-            traveler_lines = (
-                "\n".join(f"  {i + 1} — {n}" for i, n in enumerate(travelers))
-                if travelers
-                else f"  1 — {bc_data.get('name', '—')}"
-            )
-            dep = bc_data.get("depart_airport", "").split("—")[0].strip() or "—"
-            arr = bc_data.get("arrive_airport", "").split("—")[0].strip() or "—"
-            summary = (
-                "📋 *Trip Summary*\n\n"
-                f"✈️ YOUR TRIP\n"
-                f"Airline: {bc_data.get('airline', '—')}\n"
-                f"Route: {dep} → {arr}\n"
-                f"Flight: {bc_data.get('flight_num', '—')}\n"
-                f"Date: {bc_data.get('date', '—')}\n"
-                f"Departs: {bc_data.get('depart_time', '—')}\n"
-                f"Arrives: {bc_data.get('arrive_time', '—')}\n\n"
-                f"👥 TRAVELLERS\n{traveler_lines}\n\n"
-                f"🛡️ Cover: {bc_data.get('cover', '—')}"
-            )
-            await _send_text(sender_wa_id, summary, phone_number_id)
-            await _send_buttons(
-                sender_wa_id,
-                "What would you like to do next?",
-                [
-                    {"id": "kyc_continue_purchase", "title": "1. Continue to pay"},
-                    {"id": "kyc_review",             "title": "2. Review trip"},
-                    {"id": "kyc_home",               "title": "3. Main menu"},
-                ],
                 phone_number_id,
             )
         elif reply_id == "kyc_home":
