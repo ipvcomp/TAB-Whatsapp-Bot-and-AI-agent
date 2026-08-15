@@ -195,7 +195,7 @@ async def _show_payment_pending_screen(
             "ℹ️ Once the payment is completed, we will notify you "
             "and you can continue with your cover purchase."
         ),
-        [{"id": "pay_m_done", "title": "✅ I have paid"}],
+        [{"id": "pay_m_refresh", "title": "🔄 Refresh status"}],
         phone_number_id,
     )
 
@@ -1279,7 +1279,7 @@ async def handle_payment_flow(
             )
         else:
             _p_bank_details = "Please contact support for account details."
-        if reply_id == "pay_m_done":
+        if reply_id in ("pay_m_done", "pay_m_refresh"):
             payment_confirmed = False
             payment_pending   = False
             policy_ref = None
