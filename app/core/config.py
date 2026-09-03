@@ -4,6 +4,9 @@ from functools import lru_cache
 
 
 def _get_env_file():
+    app_env = os.getenv("APP_ENV", "").lower()
+    if app_env in ("prod", "production"):
+        return "env-prod"
     debug = os.getenv("DEBUG", "DEV").upper()
     if debug == "FALSE":
         return "env-prod"
