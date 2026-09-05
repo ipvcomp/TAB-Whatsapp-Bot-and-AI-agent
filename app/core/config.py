@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     WHATSAPP_API_BASE_URL: str = "https://graph.facebook.com/v22.0"
 
     MONGODB_URI: str = ""
-    MONGODB_DB_NAME: str = "tab_wappbot_ai_stg_db"
+    MONGODB_DB_NAME: str = ""
 
     META_API_VERSION: str = "v22.0"
     META_API_BASE_URL: str = "https://graph.facebook.com"
@@ -40,7 +40,7 @@ class Settings(BaseSettings):
 
     APP_BASE_URL: str = ""
 
-    IPURVEY_BASE_URL: str = "https://dev-ilekun-ipv.ipurvey.com"
+    IPURVEY_BASE_URL: str = ""
     IPURVEY_JWT_TOKEN: str = ""
 
     ADMIN_SECRET: str = ""
@@ -63,4 +63,13 @@ class Settings(BaseSettings):
 
 @lru_cache()
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    missing = [
+        key for key in ("MONGODB_URI", "MONGODB_DB_NAME", "IPURVEY_BASE_URL", "LLM_API_URL")
+        if not getattr(settings, key)
+    ]
+    if missing:
+        raise RuntimeError(
+            f"Missing required config in '{_get_env_file()}': {', '.join(missing)}"
+        )
+    return settings

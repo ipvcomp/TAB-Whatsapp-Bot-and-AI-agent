@@ -160,7 +160,7 @@ async def upload_media_to_whatsapp(file_path: str, mime_type: str = "image/jpeg"
         logger.error("WhatsApp credentials not configured for media upload")
         return None
 
-    url = f"https://graph.facebook.com/v22.0/{pid}/media"
+    url = f"{settings.META_API_BASE_URL}/{settings.META_API_VERSION}/{pid}/media"
     headers = {"Authorization": f"Bearer {token}"}
 
     try:
@@ -211,7 +211,7 @@ async def upload_bytes_to_whatsapp(
         logger.error("WhatsApp credentials not configured for bytes media upload")
         return None
 
-    url = f"https://graph.facebook.com/v22.0/{pid}/media"
+    url = f"{settings.META_API_BASE_URL}/{settings.META_API_VERSION}/{pid}/media"
     headers = {"Authorization": f"Bearer {token}"}
 
     try:
@@ -319,7 +319,7 @@ async def get_welcome_image_media_id() -> Optional[str]:
 async def download_whatsapp_media(media_id: str) -> Optional[dict]:
     settings = get_settings()
     token = settings.WHATSAPP_API_TOKEN
-    graph_url = f"https://graph.facebook.com/v22.0/{media_id}"
+    graph_url = f"{settings.META_API_BASE_URL}/{settings.META_API_VERSION}/{media_id}"
     headers = {"Authorization": f"Bearer {token}"}
 
     for attempt in range(1, MEDIA_RETRY_MAX_ATTEMPTS + 1):
