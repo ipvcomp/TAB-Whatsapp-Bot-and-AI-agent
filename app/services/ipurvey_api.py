@@ -3,6 +3,8 @@ from datetime import datetime
 
 import httpx
 
+from app.core.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -18,8 +20,11 @@ def _policy_date_sort_key(pol: dict) -> str:
             continue
     return date
 
-IPURVEY_BASE_URL = "https://dev-ilekun-ipv.ipurvey.com/api/tab-plc"
 REQUEST_TIMEOUT = 10.0
+
+
+def _base() -> str:
+    return f"{get_settings().IPURVEY_BASE_URL}/api/tab-plc"
 
 
 def _mask_pii(raw: dict) -> dict:
@@ -244,7 +249,7 @@ def _extract_policy_list(data) -> list:
 async def fetch_policies_by_msisdn(msisdn: str) -> list:
     if msisdn and not msisdn.startswith("+"):
         msisdn = f"+{msisdn}"
-    url = f"{IPURVEY_BASE_URL}/policies/by-msisdn/{msisdn}"
+    url = f"{_base()}/policies/by-msisdn/{msisdn}"
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
             resp = await client.get(url)
